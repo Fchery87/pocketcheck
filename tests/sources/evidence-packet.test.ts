@@ -85,6 +85,28 @@ describe("injury evidence", () => {
     expect(JSON.stringify(result.items)).not.toContain("Old Season");
   });
 
+  it("reads a minimized 2026 week 7 sample taken from the public file", () => {
+    const liveSample = readFileSync(
+      new URL("../fixtures/sources/injuries-2026-live-sample.csv", import.meta.url),
+      "utf8",
+    );
+    const result = injuryEvidenceFromCsv(liveSample, {
+      season: 2026,
+      week: 7,
+      teams: ["PHI"],
+      retrievedAt,
+      sourceUrl:
+        "https://github.com/nflverse/nflverse-data/releases/download/injuries/injuries_2026.csv",
+    });
+    expect(result.items.map((item) => item.facts.player)).toEqual([
+      "Saquon Barkley",
+      "Jonathan Greenard",
+      "Michael Carter II",
+    ]);
+    expect(result.items.every((item) => item.publishedAt === "unknown")).toBe(true);
+    expect(result.gaps.join(" ")).toMatch(/publication time/i);
+  });
+
   it("does not treat a 2024 payload as 2026 coverage", () => {
     const onlyOld = injuryCsv
       .split("\n")

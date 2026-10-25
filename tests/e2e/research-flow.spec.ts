@@ -30,7 +30,12 @@ test("offer, report, refresh, and unchanged prior report", async ({ page }) => {
 
   await page.goto("/journal");
   await expect(page.getByTestId("assessments")).toContainText("pass");
-  await expect(page.getByRole("heading", { name: "Record an actual bet" })).toBeVisible();
+  await page.locator('input[name="sportsbook"]').fill("Example Book");
+  await page.locator('input[name="americanOdds"]').fill("-110");
+  await page.locator('input[name="stakeUnits"]').fill("1");
+  await page.getByRole("button", { name: "Record bet" }).click();
+  await expect(page.getByTestId("bet-recorded")).toBeVisible();
+  await expect(page.getByTestId("bets")).toContainText("Example Book");
 
   await page.goto("/handbook");
   await expect(page.getByTestId("decimal-example")).toHaveText("1.9090909");

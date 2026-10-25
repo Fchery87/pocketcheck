@@ -9,7 +9,9 @@ function loadDatabaseUrl(): string | null {
   return url;
 }
 
-export async function persistCompletedRun(run: ResearchRun): Promise<{ saved: boolean }> {
+export async function persistCompletedRun(
+  run: ResearchRun,
+): Promise<{ saved: boolean; error?: string }> {
   const databaseUrl = loadDatabaseUrl();
   if (!databaseUrl || run.status !== "completed") return { saved: false };
   const db = createDb(databaseUrl);
@@ -74,8 +76,9 @@ export async function persistCompletedRun(run: ResearchRun): Promise<{ saved: bo
         : undefined,
     });
     return { saved: true };
-  } catch {
-    return { saved: false };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "save failed";
+    return { saved: false, error: message.replace(/postgres(?:ql)?:\/\/\S+/gi, "[redacted]") };
   } finally {
     await closeDb(db);
   }

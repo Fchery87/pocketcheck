@@ -1,0 +1,4 @@
+season,season_type,game_type,team,week,gsis_id,position,full_name,first_name,last_name,report_primary_injury,report_secondary_injury,report_status,practice_primary_injury,practice_secondary_injury,practice_status
+2026,REG,REG,PHI,7,00-0034844,RB,Saquon Barkley,Saquon,Barkley,Hamstring,,Questionable,Hamstring,,Full Participation in Practice
+2026,REG,REG,PHI,7,00-0036224,LB,Jonathan Greenard,Jonathan,Greenard,Ankle,,Questionable,Ankle,,Did Not Participate In Practice
+2026,REG,REG,PHI,7,00-0036501,CB,Michael Carter II,Michael,Carter,Abdomen,,Out,Abdomen,,Did Not Participate In Practice
