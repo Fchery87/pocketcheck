@@ -58,9 +58,9 @@ describe("offer validation", () => {
   });
 
   it("rejects an offer observed after kickoff", () => {
-    expect(() =>
-      parseOffer(moneyline({ observedAt: "2026-11-01T18:05:00.000Z" })),
-    ).toThrow(/already started/);
+    expect(() => parseOffer(moneyline({ observedAt: "2026-11-01T18:05:00.000Z" }))).toThrow(
+      /already started/,
+    );
   });
 
   it("rejects an opposing price on a different line or book", () => {
@@ -92,9 +92,7 @@ describe("settlement", () => {
         americanOdds: -110,
       }),
     );
-    expect(
-      settleOffer(offer, { homeScore: 24, awayScore: 21 }),
-    ).toBe("win");
+    expect(settleOffer(offer, { homeScore: 24, awayScore: 21 })).toBe("win");
   });
 
   it("pushes a whole-number spread on equality and loses when short", () => {
@@ -140,8 +138,6 @@ describe("settlement", () => {
         rules: { period: "full-game", overtime: "included", tie: "void" },
       }),
     );
-    expect(settleOffer(offer, { homeScore: 20, awayScore: 20, voided: true })).toBe(
-      "void",
-    );
+    expect(settleOffer(offer, { homeScore: 20, awayScore: 20, voided: true })).toBe("void");
   });
 });

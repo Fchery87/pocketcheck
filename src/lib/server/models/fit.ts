@@ -19,7 +19,11 @@ export type LinearModel = {
 
 const NAMES = FEATURE_DEFINITIONS.map((feature) => feature.name);
 
-function dot(coefficients: Record<FeatureName, number>, row: FeatureRow, model: LinearModel): number {
+function dot(
+  coefficients: Record<FeatureName, number>,
+  row: FeatureRow,
+  model: LinearModel,
+): number {
   let value = model.intercept;
   for (const name of NAMES) {
     const centered = (row.features[name] - model.featureMeans[name]) / model.featureScales[name];
@@ -61,7 +65,11 @@ function solve(matrix: number[][], vector: number[]): number[] {
   return a.map((row) => row[n] ?? 0);
 }
 
-export function fitRidge(rows: readonly FeatureRow[], targets: readonly number[], ridge: number): LinearModel {
+export function fitRidge(
+  rows: readonly FeatureRow[],
+  targets: readonly number[],
+  ridge: number,
+): LinearModel {
   if (rows.length === 0 || rows.length !== targets.length) {
     throw new Error("Feature rows and targets must be non-empty and aligned");
   }

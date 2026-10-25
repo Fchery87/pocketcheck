@@ -1,4 +1,8 @@
-export type RecoveryState = "interrupted" | "provider-unavailable" | "failed-write" | "schema-change";
+export type RecoveryState =
+  | "interrupted"
+  | "provider-unavailable"
+  | "failed-write"
+  | "schema-change";
 
 export type RecoveryNote = {
   state: RecoveryState;

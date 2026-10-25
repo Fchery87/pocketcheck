@@ -38,7 +38,11 @@ describe("primary pregame assessment", () => {
       run({ id: "pregame", completedAt: "2026-10-26T16:30:00.000Z" }),
     ];
     expect(primaryRun(runs)?.id).toBe("pregame");
-    expect(classifyPregameRuns(runs)[0]).toEqual({ role: "ineligible", id: "live", reason: "after-kickoff" });
+    expect(classifyPregameRuns(runs)[0]).toEqual({
+      role: "ineligible",
+      id: "live",
+      reason: "after-kickoff",
+    });
   });
 
   it("does not accept a final score argument", () => {

@@ -3,11 +3,10 @@ import { returnOnSettledStakes } from "#lib/domain/performance.ts";
 
 describe("settled-stake return", () => {
   it("leaves ROI unavailable when no stakes have settled", () => {
-    expect(
-      returnOnSettledStakes([
-        { profit: 0, stake: 1, status: "unresolved" },
-      ]),
-    ).toEqual({ available: false, reason: "empty-denominator" });
+    expect(returnOnSettledStakes([{ profit: 0, stake: 1, status: "unresolved" }])).toEqual({
+      available: false,
+      reason: "empty-denominator",
+    });
   });
 
   it("divides profit by settled stakes and ignores unresolved rows", () => {

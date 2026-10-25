@@ -15,7 +15,11 @@ export function buildThesisPacket(input: {
   };
 }
 
-export function thesisRequestBody(input: { modelId: string; packet: ThesisPacket; repair: boolean }): string {
+export function thesisRequestBody(input: {
+  modelId: string;
+  packet: ThesisPacket;
+  repair: boolean;
+}): string {
   const evidence = input.packet.items.map((item) => ({
     id: item.id,
     sourceId: item.sourceId,

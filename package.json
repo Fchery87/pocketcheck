@@ -21,6 +21,9 @@
     "model:evaluate": "node --experimental-strip-types scripts/model/evaluate.ts",
     "test:e2e": "playwright test"
   },
+  "dependencies": {
+    "postgres": "^3.4.9"
+  },
   "devDependencies": {
     "@playwright/test": "^1.64.1",
     "@sveltejs/adapter-node": "^6.0.0",
@@ -38,8 +41,5 @@
   },
   "engines": {
     "node": "^24.11.0"
-  },
-  "dependencies": {
-    "postgres": "^3.4.9"
   }
 }

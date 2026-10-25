@@ -30,24 +30,41 @@ export type PolicyDecision = {
   experimental: true;
   blockingReason: string | null;
   expectedValuePerUnit: number | null;
-  priceCutoff: { available: false; reason: string } | { available: true; decimalMinimum: number; targetExpectedValue: number };
+  priceCutoff:
+    | { available: false; reason: string }
+    | { available: true; decimalMinimum: number; targetExpectedValue: number };
   label: "Experimental estimate. Not proof of an edge. Thresholds in this policy are versioned and are not scientifically established.";
 };
 
-function finiteProbabilities(probabilities: OutcomeProbabilities | null): probabilities is OutcomeProbabilities {
+function finiteProbabilities(
+  probabilities: OutcomeProbabilities | null,
+): probabilities is OutcomeProbabilities {
   if (probabilities === null) return false;
   return [probabilities.win, probabilities.loss, probabilities.push].every(Number.isFinite);
 }
 
-function priceCutoff(probabilities: OutcomeProbabilities | null, target: number | undefined): PolicyDecision["priceCutoff"] {
+function priceCutoff(
+  probabilities: OutcomeProbabilities | null,
+  target: number | undefined,
+): PolicyDecision["priceCutoff"] {
   if (!finiteProbabilities(probabilities)) {
-    return { available: false, reason: "Price cutoff is unavailable because outcome probabilities are missing or not finite." };
+    return {
+      available: false,
+      reason:
+        "Price cutoff is unavailable because outcome probabilities are missing or not finite.",
+    };
   }
   if (target === undefined || !Number.isFinite(target)) {
-    return { available: false, reason: "Price cutoff is unavailable because no target expected value was supplied." };
+    return {
+      available: false,
+      reason: "Price cutoff is unavailable because no target expected value was supplied.",
+    };
   }
   if (!(probabilities.win > 0)) {
-    return { available: false, reason: "Price cutoff is unavailable because the win probability is not greater than zero." };
+    return {
+      available: false,
+      reason: "Price cutoff is unavailable because the win probability is not greater than zero.",
+    };
   }
   return {
     available: true,
@@ -94,7 +111,8 @@ export function decidePolicy(input: PolicyInput): PolicyDecision {
     return {
       ...base,
       conclusion: "insufficient evidence",
-      blockingReason: "The model artifact is unreleased and is not eligible for a value recommendation.",
+      blockingReason:
+        "The model artifact is unreleased and is not eligible for a value recommendation.",
       expectedValuePerUnit: null,
     };
   }
@@ -102,7 +120,8 @@ export function decidePolicy(input: PolicyInput): PolicyDecision {
     return {
       ...base,
       conclusion: "insufficient evidence",
-      blockingReason: "Outcome probabilities are missing or not finite. Missing expected value is unavailable, not zero.",
+      blockingReason:
+        "Outcome probabilities are missing or not finite. Missing expected value is unavailable, not zero.",
       expectedValuePerUnit: null,
     };
   }
@@ -134,7 +153,8 @@ export function decidePolicy(input: PolicyInput): PolicyDecision {
   return {
     ...base,
     conclusion: "experimental lean",
-    blockingReason: "The released artifact does not show positive expected value at the recorded price.",
+    blockingReason:
+      "The released artifact does not show positive expected value at the recorded price.",
     expectedValuePerUnit: value.perUnit,
   };
 }

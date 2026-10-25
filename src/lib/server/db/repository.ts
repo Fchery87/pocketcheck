@@ -410,7 +410,9 @@ export class JournalRepository {
       ? await this.sql<ReportRow[]>`SELECT * FROM reports WHERE analysis_id = ANY(${ids}::uuid[])`
       : [];
     const research = ids.length
-      ? await this.sql<ResearchRow[]>`SELECT * FROM user_research WHERE analysis_id = ANY(${ids}::uuid[])`
+      ? await this.sql<
+          ResearchRow[]
+        >`SELECT * FROM user_research WHERE analysis_id = ANY(${ids}::uuid[])`
       : [];
     const bets = offerIds.length
       ? await this.sql<BetRow[]>`SELECT * FROM bets WHERE offer_id = ANY(${offerIds}::uuid[])`
@@ -628,7 +630,9 @@ export class JournalRepository {
   }
 
   private async readReport(analysisId: string): Promise<ReportRecord | null> {
-    const rows = await this.sql<ReportRow[]>`SELECT * FROM reports WHERE analysis_id = ${analysisId}`;
+    const rows = await this.sql<
+      ReportRow[]
+    >`SELECT * FROM reports WHERE analysis_id = ${analysisId}`;
     return rows[0] ? mapReport(rows[0]) : null;
   }
 

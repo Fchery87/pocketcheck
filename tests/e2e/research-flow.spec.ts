@@ -15,7 +15,9 @@ test("offer, report, refresh, and unchanged prior report", async ({ page }) => {
   await expect(page.getByTestId("missing-evidence")).toContainText("Injury report");
   await expect(page.getByTestId("progress")).toContainText("checking inputs");
   await expect(page.getByTestId("progress")).toContainText("checking report");
-  await expect(page.getByTestId("user-lean")).toContainText("private lean must stay off the packet");
+  await expect(page.getByTestId("user-lean")).toContainText(
+    "private lean must stay off the packet",
+  );
   const firstUrl = page.url();
   const firstSummary = await page.getByTestId("summary").innerText();
 

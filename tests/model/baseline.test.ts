@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 import { valueEligibility } from "../../src/lib/server/models/artifact.ts";
-import { integerMass, moneylineFromMargin, spreadFromMargin } from "../../src/lib/server/models/distribution.ts";
+import {
+  integerMass,
+  moneylineFromMargin,
+  spreadFromMargin,
+} from "../../src/lib/server/models/distribution.ts";
 import { buildFeatureRows } from "../../src/lib/server/models/features.ts";
 import type { CompletedGame, PricedGame } from "../../src/lib/server/models/games.ts";
 import { predictGame } from "../../src/lib/server/models/predict.ts";
@@ -39,8 +43,9 @@ describe("prior-game features", () => {
 
 describe("integer distributions", () => {
   it("keeps tie and push mass instead of treating a mean as a cover probability", () => {
-    const games = JSON.parse(readFileSync(new URL("./fixtures/synthetic-games.json", import.meta.url), "utf8"))
-      .games as PricedGame[];
+    const games = JSON.parse(
+      readFileSync(new URL("./fixtures/synthetic-games.json", import.meta.url), "utf8"),
+    ).games as PricedGame[];
     const artifact = fitArtifact(games, "2024-09-15T20:00:00Z");
     const rows = buildFeatureRows(games);
     const row = rows.find((item) => item.gameId === "g5");
@@ -65,8 +70,9 @@ describe("integer distributions", () => {
 
 describe("evaluation", () => {
   it("reports scores, calibration counts, a baseline, and missing prices", () => {
-    const games = JSON.parse(readFileSync(new URL("./fixtures/synthetic-games.json", import.meta.url), "utf8"))
-      .games as PricedGame[];
+    const games = JSON.parse(
+      readFileSync(new URL("./fixtures/synthetic-games.json", import.meta.url), "utf8"),
+    ).games as PricedGame[];
     const artifact = fitArtifact(games, "2024-09-15T20:00:00Z");
     const holdout = buildFeatureRows(games).filter((row) => row.kickoff > artifact.trainingCutoff);
     const forecasts = scoreHoldout(artifact, holdout, games);
@@ -76,7 +82,11 @@ describe("evaluation", () => {
     expect(summary.calibration.reduce((sum, bin) => sum + bin.count, 0)).toBe(summary.count);
     expect(summary.baseline.name).toBe("constant-home-field");
     expect(summary.coverage.missingPrices).toBeGreaterThan(0);
-    expect(forecasts.some((forecast) => forecast.priceState === "missing" && forecast.market !== "moneyline")).toBe(true);
+    expect(
+      forecasts.some(
+        (forecast) => forecast.priceState === "missing" && forecast.market !== "moneyline",
+      ),
+    ).toBe(true);
     expect(artifact.datasetHash).toMatch(/^[a-f0-9]{64}$/);
     expect(artifact.checksum).toMatch(/^[a-f0-9]{64}$/);
     expect(artifact.featureDefinitions.length).toBeGreaterThan(0);
@@ -85,10 +95,7 @@ describe("evaluation", () => {
 
 describe("smoothed bins", () => {
   it("places positive probability on the integer nearest a residual of zero", () => {
-    const bins = integerMass(
-      { residuals: [0], bandwidth: 1, support: { min: -2, max: 2 } },
-      0,
-    );
+    const bins = integerMass({ residuals: [0], bandwidth: 1, support: { min: -2, max: 2 } }, 0);
     const zero = bins.find((bin) => bin.points === 0);
     const edge = bins.find((bin) => bin.points === 2);
     expect(zero && edge && zero.probability > edge.probability).toBe(true);

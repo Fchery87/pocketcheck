@@ -7,7 +7,10 @@ export type ClosingContract = {
 
 export type ClosingComparison =
   | { available: true; openDecimal: number; closeDecimal: number; difference: number }
-  | { available: false; reason: "different-contract" | "missing-closing-price" | "missing-open-price" };
+  | {
+      available: false;
+      reason: "different-contract" | "missing-closing-price" | "missing-open-price";
+    };
 
 function sameContract(open: ClosingContract, close: ClosingContract): boolean {
   return (

@@ -108,7 +108,9 @@ export function createMemoryJournal(): MemoryJournal {
       return [...runs.values()].filter((run) => run.status === "completed");
     },
     listInProgress() {
-      return [...runs.values()].filter((run) => run.status !== "completed" && run.status !== "interrupted");
+      return [...runs.values()].filter(
+        (run) => run.status !== "completed" && run.status !== "interrupted",
+      );
     },
     markInterrupted(id) {
       const run = runs.get(id);

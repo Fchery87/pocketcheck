@@ -1,4 +1,8 @@
-import { moneylineFromMargin, totalFromDistribution, type SideProbability } from "./distribution.ts";
+import {
+  moneylineFromMargin,
+  totalFromDistribution,
+  type SideProbability,
+} from "./distribution.ts";
 import type { FeatureRow } from "./features.ts";
 import type { HistoricalPrices, PricedGame } from "./games.ts";
 import { marginHome, totalPoints } from "./games.ts";
@@ -101,7 +105,11 @@ export function scoreHoldout(
   return forecasts;
 }
 
-function moneylineForecast(game: PricedGame, predicted: GameProbabilities, prices: HistoricalPrices | null): ScoredForecast {
+function moneylineForecast(
+  game: PricedGame,
+  predicted: GameProbabilities,
+  prices: HistoricalPrices | null,
+): ScoredForecast {
   return {
     gameId: game.id,
     market: "moneyline",
@@ -123,10 +131,19 @@ function missing(market: "spread" | "total", gameId: string): ScoredForecast {
   };
 }
 
-export function summarize(forecasts: readonly ScoredForecast[], _games: readonly PricedGame[]): EvaluationSummary {
-  const graded = forecasts.filter((forecast) => forecast.market === "moneyline" || forecast.priceState === "present");
-  const brier = average(graded.map((forecast) => multiclassBrier(forecast.probability, forecast.outcome)));
-  const logLoss = average(graded.map((forecast) => multiclassLogLoss(forecast.probability, forecast.outcome)));
+export function summarize(
+  forecasts: readonly ScoredForecast[],
+  _games: readonly PricedGame[],
+): EvaluationSummary {
+  const graded = forecasts.filter(
+    (forecast) => forecast.market === "moneyline" || forecast.priceState === "present",
+  );
+  const brier = average(
+    graded.map((forecast) => multiclassBrier(forecast.probability, forecast.outcome)),
+  );
+  const logLoss = average(
+    graded.map((forecast) => multiclassLogLoss(forecast.probability, forecast.outcome)),
+  );
   const baselineScores = graded
     .filter((forecast) => forecast.market === "moneyline")
     .map((forecast) => {
@@ -141,13 +158,19 @@ export function summarize(forecasts: readonly ScoredForecast[], _games: readonly
     const upper = bins[index + 1] ?? 1;
     const members = graded.filter((forecast) => {
       const probability = forecast.probability.win;
-      return probability >= lower && (index === bins.length - 2 ? probability <= upper : probability < upper);
+      return (
+        probability >= lower &&
+        (index === bins.length - 2 ? probability <= upper : probability < upper)
+      );
     });
     return {
       lower,
       upper,
       count: members.length,
-      observed: members.length === 0 ? 0 : members.filter((forecast) => forecast.outcome === "win").length / members.length,
+      observed:
+        members.length === 0
+          ? 0
+          : members.filter((forecast) => forecast.outcome === "win").length / members.length,
     };
   });
   const markets = ["moneyline", "spread", "total"] as const;
@@ -156,7 +179,9 @@ export function summarize(forecasts: readonly ScoredForecast[], _games: readonly
     const members = graded.filter((forecast) => forecast.market === market);
     byMarket[market] = {
       count: members.length,
-      brier: average(members.map((forecast) => multiclassBrier(forecast.probability, forecast.outcome))),
+      brier: average(
+        members.map((forecast) => multiclassBrier(forecast.probability, forecast.outcome)),
+      ),
     };
   }
   const priced = forecasts.filter((forecast) => forecast.priceState === "present").length;

@@ -51,7 +51,10 @@ export type SideProbability = {
   push: number;
 };
 
-export function moneylineFromMargin(bins: readonly MassBin[]): { home: SideProbability; away: SideProbability } {
+export function moneylineFromMargin(bins: readonly MassBin[]): {
+  home: SideProbability;
+  away: SideProbability;
+} {
   let homeWin = 0;
   let awayWin = 0;
   let tie = 0;
@@ -66,7 +69,10 @@ export function moneylineFromMargin(bins: readonly MassBin[]): { home: SideProba
   };
 }
 
-export function spreadFromMargin(bins: readonly MassBin[], homeLine: number): { home: SideProbability; away: SideProbability } {
+export function spreadFromMargin(
+  bins: readonly MassBin[],
+  homeLine: number,
+): { home: SideProbability; away: SideProbability } {
   let homeWin = 0;
   let awayWin = 0;
   let push = 0;
@@ -82,7 +88,10 @@ export function spreadFromMargin(bins: readonly MassBin[], homeLine: number): { 
   };
 }
 
-export function totalFromDistribution(bins: readonly MassBin[], line: number): { over: SideProbability; under: SideProbability } {
+export function totalFromDistribution(
+  bins: readonly MassBin[],
+  line: number,
+): { over: SideProbability; under: SideProbability } {
   let over = 0;
   let under = 0;
   let push = 0;

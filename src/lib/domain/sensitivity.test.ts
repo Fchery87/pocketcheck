@@ -32,8 +32,8 @@ describe("experimental sensitivity", () => {
     });
     expect(cutoff.available).toBe(true);
     if (cutoff.available) expect(cutoff.decimalMinimum).toBeCloseTo(1 + (0.5 + 0.02) / 0.5, 8);
-    expect(
-      decimalPriceCutoff({ probabilities: null, targetExpectedValue: 0 }).available,
-    ).toBe(false);
+    expect(decimalPriceCutoff({ probabilities: null, targetExpectedValue: 0 }).available).toBe(
+      false,
+    );
   });
 });

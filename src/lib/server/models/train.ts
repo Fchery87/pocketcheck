@@ -8,23 +8,37 @@ import { kickoffMs, marginHome, totalPoints, type PricedGame } from "./games.ts"
 
 export function fitArtifact(games: readonly PricedGame[], cutoff?: string): ModelArtifact {
   const ordered = [...games].sort((a, b) => kickoffMs(a) - kickoffMs(b));
-  const trainingCutoff = cutoff ?? ordered[Math.max(0, Math.floor(ordered.length * 0.7) - 1)]?.kickoff;
+  const trainingCutoff =
+    cutoff ?? ordered[Math.max(0, Math.floor(ordered.length * 0.7) - 1)]?.kickoff;
   if (!trainingCutoff) throw new Error("No games to fit");
   const rows = buildFeatureRows(ordered);
   const byId = new Map(ordered.map((game) => [game.id, game]));
-  const train = rows.filter((row) => kickoffMs({ kickoff: row.kickoff }) <= kickoffMs({ kickoff: trainingCutoff }));
+  const train = rows.filter(
+    (row) => kickoffMs({ kickoff: row.kickoff }) <= kickoffMs({ kickoff: trainingCutoff }),
+  );
   if (train.length < 2) throw new Error("Training window needs at least two games");
   const marginTargets = train.map((row) => marginHome(byId.get(row.gameId)!));
   const totalTargets = train.map((row) => totalPoints(byId.get(row.gameId)!));
   const marginModel = fitRidge(train, marginTargets, DEFAULT_FIT.ridge);
   const totalModel = fitRidge(train, totalTargets, DEFAULT_FIT.ridge);
-  const marginResiduals = train.map((row, index) => (marginTargets[index] ?? 0) - predictMean(marginModel, row));
-  const totalResiduals = train.map((row, index) => (totalTargets[index] ?? 0) - predictMean(totalModel, row));
+  const marginResiduals = train.map(
+    (row, index) => (marginTargets[index] ?? 0) - predictMean(marginModel, row),
+  );
+  const totalResiduals = train.map(
+    (row, index) => (totalTargets[index] ?? 0) - predictMean(totalModel, row),
+  );
   return withChecksum({
     kind: "pocketcheck-baseline",
     version: 1,
     releaseStatus: "unreleased",
-    datasetHash: datasetHash(ordered.map((game) => ({ id: game.id, kickoff: game.kickoff, homeScore: game.homeScore, awayScore: game.awayScore }))),
+    datasetHash: datasetHash(
+      ordered.map((game) => ({
+        id: game.id,
+        kickoff: game.kickoff,
+        homeScore: game.homeScore,
+        awayScore: game.awayScore,
+      })),
+    ),
     trainingCutoff,
     featureDefinitions: FEATURE_DEFINITIONS,
     fitParameters: DEFAULT_FIT,

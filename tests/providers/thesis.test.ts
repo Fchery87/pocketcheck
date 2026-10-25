@@ -6,7 +6,10 @@ import type { EvidenceItem } from "../../src/lib/server/sources/contracts.ts";
 import { createDeepSeekProvider } from "../../src/lib/server/providers/deepseek.ts";
 import { selectThesisModel } from "../../src/lib/server/providers/selection.ts";
 import { createTheClawBayProvider } from "../../src/lib/server/providers/theclawbay.ts";
-import type { ModelCatalogEntry, ThesisProvider } from "../../src/lib/server/providers/contracts.ts";
+import type {
+  ModelCatalogEntry,
+  ThesisProvider,
+} from "../../src/lib/server/providers/contracts.ts";
 import { renderThesisExport } from "../../src/lib/server/analysis/export.ts";
 
 const FAKE_KEY = "sk-test-secret";
@@ -57,7 +60,8 @@ function mockFetch(handler: (call: Call, calls: Call[]) => Response | Promise<Re
 } {
   const calls: Call[] = [];
   const fetchImpl: typeof fetch = async (input, init) => {
-    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const url =
+      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const call = { url, init };
     calls.push(call);
     return handler(call, calls);
@@ -151,9 +155,17 @@ describe("model discovery", () => {
 
   it("does not substitute another provider when grok-4.7 is absent", async () => {
     const { fetch } = mockFetch(
-      () => new Response(catalogBody([{ id: "deepseek-chat" }, { id: "whisper-audio", object: "audio" }]), { status: 200 }),
+      () =>
+        new Response(
+          catalogBody([{ id: "deepseek-chat" }, { id: "whisper-audio", object: "audio" }]),
+          { status: 200 },
+        ),
     );
-    const claw = createTheClawBayProvider({ apiKey: FAKE_KEY, fetch, now: () => "2026-10-25T20:00:00.000Z" });
+    const claw = createTheClawBayProvider({
+      apiKey: FAKE_KEY,
+      fetch,
+      now: () => "2026-10-25T20:00:00.000Z",
+    });
     const catalog = await claw.discoverModels();
     const selection = selectThesisModel(catalog.entries, { provider: "theclawbay" });
     expect(selection.preferredId).toBeNull();
@@ -163,7 +175,8 @@ describe("model discovery", () => {
 
     const deep = createDeepSeekProvider({
       apiKey: FAKE_KEY,
-      fetch: mockFetch(() => new Response(catalogBody([{ id: "grok-4.7" }]), { status: 200 })).fetch,
+      fetch: mockFetch(() => new Response(catalogBody([{ id: "grok-4.7" }]), { status: 200 }))
+        .fetch,
       now: () => "2026-10-25T20:00:00.000Z",
     });
     const deepCatalog = await deep.discoverModels();
@@ -177,7 +190,11 @@ describe("model discovery", () => {
       if (call.url.endsWith("/models")) return new Response(models, { status: 200 });
       return chatResponse(validReportJson());
     });
-    const provider = createTheClawBayProvider({ apiKey: FAKE_KEY, fetch, now: () => "2026-10-25T20:00:00.000Z" });
+    const provider = createTheClawBayProvider({
+      apiKey: FAKE_KEY,
+      fetch,
+      now: () => "2026-10-25T20:00:00.000Z",
+    });
     const first = await provider.discoverModels();
     const selected = "grok-4.7";
     expect(first.entries.some((entry) => entry.id === selected)).toBe(true);
@@ -219,7 +236,8 @@ describe("thesis drafting", () => {
 
   it("sends the evidence packet and precomputed numbers without the user lean", async () => {
     const { provider, calls } = providerWith((call) => {
-      if (call.url.endsWith("/models")) return new Response(catalogBody([{ id: "grok-4.7" }]), { status: 200 });
+      if (call.url.endsWith("/models"))
+        return new Response(catalogBody([{ id: "grok-4.7" }]), { status: 200 });
       return chatResponse(validReportJson());
     });
     const result = await provider.draftThesis({
@@ -327,7 +345,8 @@ describe("thesis drafting", () => {
   it("repairs invalid JSON once and fails closed on a second bad response", async () => {
     let attempts = 0;
     const { provider, calls } = providerWith((call) => {
-      if (call.url.endsWith("/models")) return new Response(catalogBody([{ id: "grok-4.7" }]), { status: 200 });
+      if (call.url.endsWith("/models"))
+        return new Response(catalogBody([{ id: "grok-4.7" }]), { status: 200 });
       attempts += 1;
       if (attempts === 1) return chatResponse("not json");
       return chatResponse(validReportJson());
@@ -343,7 +362,8 @@ describe("thesis drafting", () => {
 
     let failures = 0;
     const second = providerWith((call) => {
-      if (call.url.endsWith("/models")) return new Response(catalogBody([{ id: "grok-4.7" }]), { status: 200 });
+      if (call.url.endsWith("/models"))
+        return new Response(catalogBody([{ id: "grok-4.7" }]), { status: 200 });
       failures += 1;
       return chatResponse(failures === 1 ? "nope" : "still nope");
     });
@@ -389,14 +409,22 @@ describe("thesis drafting", () => {
     expect(usageResult.usageCost).toBeNull();
 
     const costless = providerWith(() =>
-      chatResponse(validReportJson(), { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }),
+      chatResponse(validReportJson(), {
+        prompt_tokens: 10,
+        completion_tokens: 5,
+        total_tokens: 15,
+      }),
     );
     const costlessResult = await costless.provider.draftThesis({
       modelId: "grok-4.7",
       catalog: compatible,
       packet: packet(),
     });
-    expect(costlessResult.usage).toMatchObject({ promptTokens: 10, completionTokens: 5, totalTokens: 15 });
+    expect(costlessResult.usage).toMatchObject({
+      promptTokens: 10,
+      completionTokens: 5,
+      totalTokens: 15,
+    });
     expect(costlessResult.usageCost).toBeNull();
   });
 
@@ -419,7 +447,10 @@ describe("thesis drafting", () => {
 
   it("discovers DeepSeek models through its own base URL", async () => {
     const { fetch, calls } = mockFetch(
-      () => new Response(catalogBody([{ id: "deepseek-chat" }, { id: "deepseek-embed" }]), { status: 200 }),
+      () =>
+        new Response(catalogBody([{ id: "deepseek-chat" }, { id: "deepseek-embed" }]), {
+          status: 200,
+        }),
     );
     const provider = createDeepSeekProvider({
       apiKey: FAKE_KEY,

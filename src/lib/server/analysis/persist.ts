@@ -71,9 +71,7 @@ export async function persistCompletedRun(
         thesis: run.report?.summary ?? "",
         renderedText: run.renderedText,
       },
-      userResearch: run.lean
-        ? { lean: run.lean.text, rationale: run.lean.rationale }
-        : undefined,
+      userResearch: run.lean ? { lean: run.lean.text, rationale: run.lean.rationale } : undefined,
     });
     return { saved: true };
   } catch (error) {

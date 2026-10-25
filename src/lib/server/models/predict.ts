@@ -21,7 +21,11 @@ export type GameProbabilities = {
   total: (line: number) => { over: SideProbability; under: SideProbability };
 };
 
-function side(model: LinearModel, residuals: ModelArtifact["margin"]["residuals"], row: FeatureRow): {
+function side(
+  model: LinearModel,
+  residuals: ModelArtifact["margin"]["residuals"],
+  row: FeatureRow,
+): {
   mean: number;
   bins: MassBin[];
 } {

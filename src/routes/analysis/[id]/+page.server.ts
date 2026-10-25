@@ -36,7 +36,10 @@ export const actions = {
     const parent = researchJournal.get(params.id);
     if (!parent) error(404, "Analysis not found");
     const data = await request.formData();
-    const games = loadFixtureGames(resolve("tests/fixtures/sources/games-minimized.csv"), FIXTURE_NOW);
+    const games = loadFixtureGames(
+      resolve("tests/fixtures/sources/games-minimized.csv"),
+      FIXTURE_NOW,
+    );
     const game = games.find((item) => item.id === parent.game.id) ?? parent.game;
     const pointLine = parent.offer.pointLine;
     const postedOdds = Number(data.get("americanOdds"));

@@ -15,7 +15,9 @@ if (artifactChecksum(body) !== checksum) {
   throw new Error("Artifact checksum does not match its contents");
 }
 const games = readGames(fixturePath);
-const rows = buildFeatureRows(games).filter((row) => kickoffMs(row) > kickoffMs({ kickoff: stored.trainingCutoff }));
+const rows = buildFeatureRows(games).filter(
+  (row) => kickoffMs(row) > kickoffMs({ kickoff: stored.trainingCutoff }),
+);
 const forecasts = scoreHoldout(stored, rows, games);
 const summary = summarize(forecasts, games);
 const report = {
@@ -27,4 +29,11 @@ const report = {
   summary,
 };
 writeFileSync(output, `${JSON.stringify(report, null, 2)}\n`);
-console.log(JSON.stringify({ output, brier: summary.brier, logLoss: summary.logLoss, coverage: summary.coverage }));
+console.log(
+  JSON.stringify({
+    output,
+    brier: summary.brier,
+    logLoss: summary.logLoss,
+    coverage: summary.coverage,
+  }),
+);

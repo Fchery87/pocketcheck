@@ -29,13 +29,11 @@ export const FEATURE_DEFINITIONS = [
   },
   {
     name: "home_rest_days",
-    description:
-      "Days since the home team's previous kickoff. 7 when the team has no prior game.",
+    description: "Days since the home team's previous kickoff. 7 when the team has no prior game.",
   },
   {
     name: "away_rest_days",
-    description:
-      "Days since the away team's previous kickoff. 7 when the team has no prior game.",
+    description: "Days since the away team's previous kickoff. 7 when the team has no prior game.",
   },
   {
     name: "home_indicator",
@@ -77,7 +75,12 @@ function restDays(state: TeamState, kickoff: number): number {
   return (kickoff - state.lastKickoffMs) / MS_PER_DAY;
 }
 
-function applyGame(state: TeamState, pointsFor: number, pointsAgainst: number, kickoff: number): void {
+function applyGame(
+  state: TeamState,
+  pointsFor: number,
+  pointsAgainst: number,
+  kickoff: number,
+): void {
   state.games += 1;
   state.marginSum += pointsFor - pointsAgainst;
   state.pointsFor += pointsFor;

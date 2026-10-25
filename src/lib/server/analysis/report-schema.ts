@@ -27,10 +27,16 @@ export function isThesisReportShape(value: unknown): value is ThesisReport {
   if (typeof record.conclusion !== "string") return false;
   if (typeof record.summary !== "string") return false;
   if (typeof record.uncertainty !== "string") return false;
-  if (!Array.isArray(record.assumptions) || !record.assumptions.every((item) => typeof item === "string")) {
+  if (
+    !Array.isArray(record.assumptions) ||
+    !record.assumptions.every((item) => typeof item === "string")
+  ) {
     return false;
   }
-  if (!Array.isArray(record.missingInputs) || !record.missingInputs.every((item) => typeof item === "string")) {
+  if (
+    !Array.isArray(record.missingInputs) ||
+    !record.missingInputs.every((item) => typeof item === "string")
+  ) {
     return false;
   }
   if (
@@ -39,7 +45,8 @@ export function isThesisReportShape(value: unknown): value is ThesisReport {
   ) {
     return false;
   }
-  if (typeof record.decimalOdds !== "number" || typeof record.decisiveBreakEven !== "number") return false;
+  if (typeof record.decimalOdds !== "number" || typeof record.decisiveBreakEven !== "number")
+    return false;
   if (!Array.isArray(record.claims)) return false;
   return record.claims.every((claim) => {
     if (!claim || typeof claim !== "object") return false;

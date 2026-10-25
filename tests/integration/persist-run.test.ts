@@ -73,7 +73,12 @@ describePersist("completed run persistence", () => {
       createdAt: "2026-10-25T20:10:00.000Z",
     };
     const parentId = "11111111-1111-4111-8111-111111111111";
-    const parent = { ...run, id: parentId, parentId: null, offer: { ...run.offer, americanOdds: -110 } };
+    const parent = {
+      ...run,
+      id: parentId,
+      parentId: null,
+      offer: { ...run.offer, americanOdds: -110 },
+    };
     const child = { ...run, parentId };
     const parentSave = await persistCompletedRun(parent);
     const first = await persistCompletedRun(child);

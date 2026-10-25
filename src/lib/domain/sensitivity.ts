@@ -22,7 +22,8 @@ export function sensitivity(input: {
   /** Added to win probability and removed from loss probability. */
   winProbabilityShift: number;
 }): SensitivityResult {
-  const label = "Experimental sensitivity. A stated probability shift is not proof of an edge." as const;
+  const label =
+    "Experimental sensitivity. A stated probability shift is not proof of an edge." as const;
   if (input.probabilities === null || !Number.isFinite(input.winProbabilityShift)) {
     return {
       experimental: true,
@@ -30,7 +31,8 @@ export function sensitivity(input: {
       before: null,
       after: null,
       shift: null,
-      unavailableReason: "Sensitivity is unavailable because probabilities or the stated shift are missing.",
+      unavailableReason:
+        "Sensitivity is unavailable because probabilities or the stated shift are missing.",
     };
   }
   const before = expectedValue({
@@ -46,7 +48,8 @@ export function sensitivity(input: {
       before,
       after: null,
       shift: null,
-      unavailableReason: "The stated shift would make an outcome probability negative, so the shifted estimate is unavailable.",
+      unavailableReason:
+        "The stated shift would make an outcome probability negative, so the shifted estimate is unavailable.",
     };
   }
   const after = expectedValue({
@@ -69,14 +72,26 @@ export function decimalPriceCutoff(input: {
   probabilities: OutcomeProbabilities | null;
   targetExpectedValue: number;
 }): { available: true; decimalMinimum: number } | { available: false; reason: string } {
-  if (input.probabilities === null || ![input.probabilities.win, input.probabilities.loss, input.probabilities.push].every(Number.isFinite)) {
-    return { available: false, reason: "Price cutoff is unavailable because outcome probabilities are missing." };
+  if (
+    input.probabilities === null ||
+    ![input.probabilities.win, input.probabilities.loss, input.probabilities.push].every(
+      Number.isFinite,
+    )
+  ) {
+    return {
+      available: false,
+      reason: "Price cutoff is unavailable because outcome probabilities are missing.",
+    };
   }
   if (!(input.probabilities.win > 0) || !Number.isFinite(input.targetExpectedValue)) {
-    return { available: false, reason: "Price cutoff is unavailable because the win probability or target is not usable." };
+    return {
+      available: false,
+      reason: "Price cutoff is unavailable because the win probability or target is not usable.",
+    };
   }
   return {
     available: true,
-    decimalMinimum: 1 + (input.probabilities.loss + input.targetExpectedValue) / input.probabilities.win,
+    decimalMinimum:
+      1 + (input.probabilities.loss + input.targetExpectedValue) / input.probabilities.win,
   };
 }

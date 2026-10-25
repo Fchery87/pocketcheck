@@ -4,7 +4,9 @@ import type { PolicyDecision } from "./policy.ts";
 
 const NUMBER_TOLERANCE = 1e-6;
 
-export type ReportValidation = { ok: true; report: ThesisReport } | { ok: false; reasons: string[] };
+export type ReportValidation =
+  | { ok: true; report: ThesisReport }
+  | { ok: false; reasons: string[] };
 
 export function validateThesisReport(
   value: unknown,

@@ -19,7 +19,12 @@ type CompletionPayload = {
 };
 
 function readUsage(body: unknown): { usage: UsageRecord | null; usageCost: number | null } {
-  if (!body || typeof body !== "object" || !("usage" in body) || (body as { usage?: unknown }).usage == null) {
+  if (
+    !body ||
+    typeof body !== "object" ||
+    !("usage" in body) ||
+    (body as { usage?: unknown }).usage == null
+  ) {
     return { usage: null, usageCost: null };
   }
   const usage = (body as { usage: Record<string, unknown> }).usage;
@@ -76,7 +81,7 @@ export function createChatProvider(input: {
       headers: {
         authorization: `Bearer ${input.options.apiKey}`,
         "content-type": "application/json",
-        ...(init?.headers ?? {}),
+        ...init?.headers,
       },
     });
   }
@@ -101,7 +106,11 @@ export function createChatProvider(input: {
     return { status: "available" as const, modelId };
   }
 
-  async function complete(modelId: string, packet: ThesisPacket, repair: boolean): Promise<
+  async function complete(
+    modelId: string,
+    packet: ThesisPacket,
+    repair: boolean,
+  ): Promise<
     | { ok: true; payload: CompletionPayload }
     | { ok: false; status: number; kind: "auth" | "rate_limit" | "transport" }
   > {
@@ -132,7 +141,10 @@ export function createChatProvider(input: {
         error: {
           kind: "invalid_report",
           status: null,
-          message: status.status === "removed" ? "Selected model was removed" : "Selected model is incompatible",
+          message:
+            status.status === "removed"
+              ? "Selected model was removed"
+              : "Selected model is incompatible",
         },
       });
     }
@@ -168,14 +180,19 @@ export function createChatProvider(input: {
       });
     }
     const repaired = tryParse(second.payload.content);
-    const repairedValidation = repaired.ok ? validateThesisReport(repaired.value, draftInput.packet) : null;
+    const repairedValidation = repaired.ok
+      ? validateThesisReport(repaired.value, draftInput.packet)
+      : null;
     if (!repaired.ok || !repairedValidation?.ok) {
       return failedDraft(draftInput.packet, draftInput.modelId, {
         repairAttempted: true,
         error: {
           kind: "invalid_report",
           status: null,
-          message: repairedValidation && !repairedValidation.ok ? repairedValidation.reasons.join("; ") : "Malformed report",
+          message:
+            repairedValidation && !repairedValidation.ok
+              ? repairedValidation.reasons.join("; ")
+              : "Malformed report",
         },
         usage: second.payload.usage,
         usageCost: second.payload.usageCost,

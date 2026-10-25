@@ -12,7 +12,12 @@ const open = {
 describe("closing comparison", () => {
   it("compares the same contract", () => {
     const result = compareClosing(open, { ...open, decimalOdds: 1.87 });
-    expect(result).toEqual({ available: true, openDecimal: 1.91, closeDecimal: 1.87, difference: expect.closeTo(-0.04, 8) });
+    expect(result).toEqual({
+      available: true,
+      openDecimal: 1.91,
+      closeDecimal: 1.87,
+      difference: expect.closeTo(-0.04, 8),
+    });
   });
 
   it("treats a different point line as unavailable, not zero", () => {

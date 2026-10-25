@@ -24,7 +24,11 @@ export type CohortSummary = {
   roi: { available: true; roi: number } | { available: false; reason: string };
 };
 
-function gradedStake(settlement: Settlement | "postponed", profit: number | null, stake: number): StakeResult | null {
+function gradedStake(
+  settlement: Settlement | "postponed",
+  profit: number | null,
+  stake: number,
+): StakeResult | null {
   if (settlement === "win" || settlement === "loss") {
     if (profit === null || !Number.isFinite(profit)) return null;
     return { profit, stake, status: "settled" };
@@ -47,7 +51,9 @@ export function summarizePrimary(rows: TrackedAssessment[]): CohortSummary {
     sample: "primary-only",
     graded: stakes.length,
     unavailable,
-    roi: roi.available ? roi : { available: false, reason: unavailable > 0 ? "unresolved-or-missing" : roi.reason },
+    roi: roi.available
+      ? roi
+      : { available: false, reason: unavailable > 0 ? "unresolved-or-missing" : roi.reason },
   };
 }
 
@@ -64,7 +70,9 @@ export function summarizeBets(rows: TrackedBet[]): CohortSummary {
     sample: "actual-bets",
     graded: stakes.length,
     unavailable,
-    roi: roi.available ? roi : { available: false, reason: unavailable > 0 ? "unresolved-or-missing" : roi.reason },
+    roi: roi.available
+      ? roi
+      : { available: false, reason: unavailable > 0 ? "unresolved-or-missing" : roi.reason },
   };
 }
 
@@ -98,6 +106,10 @@ export function applySettlementNotices(notices: SettlementNotice[]): {
     history.push(notice);
   }
   const latest = history.at(-1);
-  const current = !latest ? "unresolved" : latest.result === "postponed" ? "unresolved" : latest.result;
+  const current = !latest
+    ? "unresolved"
+    : latest.result === "postponed"
+      ? "unresolved"
+      : latest.result;
   return { current, history, ignoredDuplicateIds };
 }
