@@ -153,7 +153,11 @@ function num(value: string | number | null | undefined): number | null {
 }
 
 export class JournalRepository {
-  constructor(private readonly sql: Sql) {}
+  private readonly sql: Sql;
+
+  constructor(sql: Sql) {
+    this.sql = sql;
+  }
 
   async saveCompletedAnalysis(input: SaveAnalysisInput) {
     if (input.analysis.idempotencyKey) {
