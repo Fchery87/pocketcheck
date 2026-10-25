@@ -4,7 +4,7 @@
 
 **Blocked by:** 01: Market mathematics
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] Offers, evidence, analyses, and their associations persist in the designated Neon database with UTC timestamps.
 - [ ] A refresh creates a new run linked to its parent. The original offer, evidence, and report cannot be edited.
