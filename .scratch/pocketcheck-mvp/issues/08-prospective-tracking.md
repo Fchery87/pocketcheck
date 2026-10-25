@@ -4,7 +4,7 @@
 
 **Blocked by:** 07: Experimental value decision
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] The primary eligible assessment is chosen before outcomes and is distinct from later refreshes.
 - [ ] Settlement covers win, loss, push, void, unresolved, postponement, duplicate notices, and corrections with reasons.
