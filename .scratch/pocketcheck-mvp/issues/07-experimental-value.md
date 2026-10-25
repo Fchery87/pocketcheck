@@ -4,7 +4,7 @@
 
 **Blocked by:** 05: Research workflow, 06: Baseline probabilities
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] Invalid offers, started games, missing material evidence, and unreleased artifacts cannot become value candidates.
 - [ ] Expected value uses the recorded price and the artifact probabilities. Missing value stays unavailable.
