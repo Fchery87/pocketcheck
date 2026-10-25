@@ -327,6 +327,75 @@ describe("thesis drafting", () => {
     }
   });
 
+  function reportWith(overrides: Record<string, unknown>) {
+    return { ...JSON.parse(validReportJson()), ...overrides };
+  }
+
+  it("rejects a claim that cites no evidence", () => {
+    const result = validateThesisReport(
+      reportWith({
+        claims: [
+          { text: "Philadelphia looks sharp.", stance: "supporting", evidenceIds: [] },
+          { text: "Hurts is listed questionable.", stance: "opposing", evidenceIds: ["ev-injury"] },
+        ],
+      }),
+      packet(),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reasons.join(" ")).toMatch(/cites no evidence/);
+  });
+
+  it("rejects supporting claims with no opposing claim", () => {
+    const result = validateThesisReport(
+      reportWith({
+        claims: [{ text: "Wind is light.", stance: "supporting", evidenceIds: ["ev-weather"] }],
+      }),
+      packet(),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reasons.join(" ")).toMatch(/opposing/);
+  });
+
+  it("rejects a probability field nested inside a claim", () => {
+    const result = validateThesisReport(
+      reportWith({
+        claims: [
+          {
+            text: "Hurts is listed questionable.",
+            stance: "opposing",
+            evidenceIds: ["ev-injury"],
+            coverProbability: 0.55,
+          },
+        ],
+      }),
+      packet(),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reasons.join(" ")).toMatch(/claims\[0\]\.coverProbability/);
+  });
+
+  it("rejects an invented percentage in prose but allows the supplied break-even", () => {
+    const breakEvenText = `${(calculations().decisiveBreakEven * 100).toFixed(2)}%`;
+    const invented = validateThesisReport(
+      reportWith({ summary: "Philadelphia covers about 62% of the time." }),
+      packet(),
+    );
+    expect(invented.ok).toBe(false);
+    if (!invented.ok) expect(invented.reasons.join(" ")).toMatch(/62%/);
+
+    const spelled = validateThesisReport(
+      reportWith({ uncertainty: "Roughly 70 percent confident." }),
+      packet(),
+    );
+    expect(spelled.ok).toBe(false);
+
+    const supplied = validateThesisReport(
+      reportWith({ summary: `The price needs ${breakEvenText} of decisive outcomes.` }),
+      packet(),
+    );
+    expect(supplied.ok).toBe(true);
+  });
+
   it("rejects altered decimal odds outside 1e-6", () => {
     const math = calculations();
     const altered = validateThesisReport(
@@ -344,6 +413,34 @@ describe("thesis drafting", () => {
       packet(),
     );
     expect(altered.ok).toBe(false);
+  });
+
+  it("repeats the schema and the rejection reasons in the repair request", async () => {
+    const math = calculations();
+    let attempts = 0;
+    const { provider, calls } = providerWith((call) => {
+      if (call.url.endsWith("/models"))
+        return new Response(catalogBody([{ id: "grok-4.7" }]), { status: 200 });
+      attempts += 1;
+      if (attempts === 1) {
+        return chatResponse(
+          JSON.stringify({ ...JSON.parse(validReportJson()), decimalOdds: math.decimalOdds + 1 }),
+        );
+      }
+      return chatResponse(validReportJson());
+    });
+    const result = await provider.draftThesis({
+      modelId: "grok-4.7",
+      catalog: compatible,
+      packet: packet(),
+    });
+    expect(result.draftingFailed).toBe(false);
+    const repairBody = String(
+      calls.filter((call) => call.url.includes("chat/completions"))[1]?.init?.body,
+    );
+    expect(repairBody).toContain("claims[{text,stance,evidenceIds}]");
+    expect(repairBody).toContain("ev-injury");
+    expect(repairBody).toMatch(/decimalOdds does not match/);
   });
 
   it("repairs invalid JSON once and fails closed on a second bad response", async () => {

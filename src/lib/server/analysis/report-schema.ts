@@ -16,9 +16,16 @@ export type ThesisReportField = (typeof thesisReportFields)[number];
 
 const probabilityKey = /probabilit/i;
 
-export function forbiddenProbabilityKeys(value: unknown): string[] {
+/** Paths of every probability-named key, at any depth, such as `claims[0].coverProbability`. */
+export function forbiddenProbabilityKeys(value: unknown, path = ""): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item, index) => forbiddenProbabilityKeys(item, `${path}[${index}]`));
+  }
   if (!value || typeof value !== "object") return [];
-  return Object.keys(value as Record<string, unknown>).filter((key) => probabilityKey.test(key));
+  return Object.entries(value as Record<string, unknown>).flatMap(([key, item]) => {
+    const here = path ? `${path}.${key}` : key;
+    return [...(probabilityKey.test(key) ? [here] : []), ...forbiddenProbabilityKeys(item, here)];
+  });
 }
 
 export function isThesisReportShape(value: unknown): value is ThesisReport {

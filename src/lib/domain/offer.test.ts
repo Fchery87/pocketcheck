@@ -80,6 +80,44 @@ describe("offer validation", () => {
       ),
     ).toThrow(/not comparable/);
   });
+
+  it("accepts the other side of a spread at the mirrored line", () => {
+    const spread = (opposingLine: number) =>
+      moneyline({
+        market: "spread",
+        selection: "home",
+        pointLine: -3.5,
+        americanOdds: -110,
+        rules: { period: "full-game", overtime: "included" },
+        opposing: {
+          sportsbook: "Example Book",
+          pointLine: opposingLine,
+          americanOdds: -110,
+          observedAt: observed,
+        },
+      });
+    expect(parseOffer(spread(3.5)).opposing?.pointLine).toBe(3.5);
+    expect(() => parseOffer(spread(-3.5))).toThrow(/not comparable/);
+  });
+
+  it("accepts the other side of a total at the same line", () => {
+    const total = (opposingLine: number) =>
+      moneyline({
+        market: "total",
+        selection: "over",
+        pointLine: 44.5,
+        americanOdds: -110,
+        rules: { period: "full-game", overtime: "included" },
+        opposing: {
+          sportsbook: "Example Book",
+          pointLine: opposingLine,
+          americanOdds: -110,
+          observedAt: observed,
+        },
+      });
+    expect(parseOffer(total(44.5)).opposing?.pointLine).toBe(44.5);
+    expect(() => parseOffer(total(-44.5))).toThrow(/not comparable/);
+  });
 });
 
 describe("settlement", () => {

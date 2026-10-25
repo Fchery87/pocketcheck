@@ -30,6 +30,11 @@ export function createFixtureDrafter(): ThesisDrafter {
                   stance: "supporting",
                   evidenceIds: [cited],
                 },
+                {
+                  text: "The schedule evidence says nothing about either side's chances, so it cannot show the price is wrong.",
+                  stance: "opposing",
+                  evidenceIds: [cited],
+                },
               ]
             : [],
           assumptions: ["Full-game rules, including overtime, match the entered offer."],

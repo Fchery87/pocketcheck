@@ -1,44 +1,25 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import { describe, expect, it } from "vite-plus/test";
-import { closeDb, createDb } from "../../src/lib/server/db/client.ts";
 import { JournalRepository } from "../../src/lib/server/db/repository.ts";
+import { isolatedDb, testDatabaseUrl } from "./isolated-db.ts";
 
-function loadEnv(text: string) {
-  for (const line of text.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const separator = trimmed.indexOf("=");
-    if (separator === -1) continue;
-    const key = trimmed.slice(0, separator).trim();
-    let value = trimmed.slice(separator + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    if (process.env[key] === undefined) process.env[key] = value;
-  }
-}
+const describeJournal = testDatabaseUrl ? describe : describe.skip;
 
-const envFile = path.resolve(process.cwd(), ".env");
-try {
-  loadEnv(await readFile(envFile, "utf8"));
-} catch (error) {
-  if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-}
-
-const databaseUrl = process.env.DATABASE_URL;
-const describeJournal = databaseUrl ? describe : describe.skip;
-
-if (!databaseUrl) {
-  console.warn("DATABASE_URL is missing. Skipping journal integration tests.");
+/** Export queries carry no order, so compare each table sorted by id. */
+function sortedById<T extends Record<string, unknown>>(snapshot: T): T {
+  return Object.fromEntries(
+    Object.entries(snapshot).map(([key, rows]) => [
+      key,
+      Array.isArray(rows)
+        ? [...rows].sort((left, right) => String(left.id).localeCompare(String(right.id)))
+        : rows,
+    ]),
+  ) as T;
 }
 
 describeJournal("immutable journal", () => {
   it("keeps versions, bets, settlements, and a secret-free export", async () => {
-    const db = createDb(databaseUrl!);
+    const isolated = await isolatedDb();
+    const db = isolated.db;
     const journal = new JournalRepository(db);
     const stamp = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     try {
@@ -162,7 +143,32 @@ describeJournal("immutable journal", () => {
       expect(refresh.analysis.parentId).toBe(saved.analysis.id);
       expect(refresh.report?.renderedText).toBe(`refresh-bytes-${stamp}`);
 
-      await expect(journal.forceFailedChildWrite(saved.analysis.id)).rejects.toThrow();
+      // The evidence insert violates its CHECK after the child analysis row is written.
+      await expect(
+        journal.saveCompletedAnalysis({
+          game: readBack.game,
+          offer: { ...refresh.offer, id: undefined, americanOdds: -120 },
+          evidence: [
+            {
+              sourceId: "manual:note",
+              sourceUrl: null,
+              retrievedAt: "2026-11-02T12:00:00.000Z",
+              publishedAt: null,
+              effectiveAt: null,
+              checksum: `rejected-${stamp}`,
+              body: { note: "rejected" },
+              origin: "invented" as never,
+              completeness: "complete",
+            },
+          ],
+          analysis: {
+            parentId: saved.analysis.id,
+            cutoffAt: "2026-11-02T12:01:00.000Z",
+            status: "completed",
+            conclusion: "pass",
+          },
+        }),
+      ).rejects.toThrow(/evidence_origin_check/);
       const afterFailure = await journal.readRun(saved.analysis.id);
       expect(afterFailure.offer.id).toBe(original.offer.id);
       expect(afterFailure.analysis.conclusion).toBe("pass");
@@ -241,6 +247,21 @@ describeJournal("immutable journal", () => {
       expect(history[1]?.reason).toBe("official score correction");
       expect(history[0]?.id).toBe(first.id);
 
+      // Corrections are new rows; nothing already recorded can change or disappear.
+      const mutations = [
+        db`UPDATE user_research SET lean = 'away' WHERE analysis_id = ${saved.analysis.id}`,
+        db`DELETE FROM user_research WHERE analysis_id = ${saved.analysis.id}`,
+        db`UPDATE analysis_evidence SET completeness = 'partial' WHERE analysis_id = ${saved.analysis.id}`,
+        db`DELETE FROM analysis_evidence WHERE analysis_id = ${saved.analysis.id}`,
+        db`UPDATE bets SET stake_units = 9 WHERE id = ${bet.id}`,
+        db`DELETE FROM bets WHERE id = ${bet.id}`,
+        db`UPDATE settlements SET result = 'loss' WHERE id = ${first.id}`,
+        db`DELETE FROM settlements WHERE id = ${corrected.id}`,
+      ];
+      for (const mutation of mutations) {
+        await expect(mutation).rejects.toThrow(/append-only/);
+      }
+
       const exported = await journal.exportJournal([saved.analysis.id, refresh.analysis.id]);
       const serialized = JSON.stringify(exported);
       expect(serialized).not.toContain("npg_");
@@ -251,23 +272,32 @@ describeJournal("immutable journal", () => {
         "2026-11-02T12:00:00.000Z",
       ]);
 
-      const restored = await journal.restoreJournal(exported);
-      expect(restored.analyses.map((row) => row.id).sort()).not.toEqual(
-        exported.analyses.map((row) => row.id).sort(),
-      );
-      const restoredOriginal = restored.analyses.find((row) => row.conclusion === "pass");
-      const restoredRefresh = restored.analyses.find((row) => row.conclusion === "wait");
-      expect(restoredRefresh?.parentId).toBe(restoredOriginal?.id);
-      expect(restored.offers.find((row) => row.americanOdds === -110)?.observedAt).toBe(
-        "2026-11-01T18:00:00.000Z",
-      );
-      expect(restored.evidence.map((row) => row.checksum).sort()).toEqual(
-        [`checksum-${stamp}`, `refresh-${stamp}`].sort(),
-      );
-      expect(restored.bets[0]?.stakeUnits).toBe(1.5);
-      expect(restored.settlements.map((row) => row.result).sort()).toEqual(["push", "win"]);
+      // Restore into an empty database, parents listed after their children.
+      const target = await isolatedDb();
+      try {
+        const targetJournal = new JournalRepository(target.db);
+        const shuffled = {
+          ...exported,
+          analyses: [...exported.analyses].reverse(),
+          settlements: [...exported.settlements].reverse(),
+        };
+        const restored = await targetJournal.restoreJournal(shuffled);
+        expect(sortedById(restored)).toEqual(sortedById(exported));
+        expect(restored.games[0]?.sourceGameId).toBe(`nfl-2026-week-8-${stamp}`);
+
+        // A second restore of the same snapshot changes nothing.
+        const again = await targetJournal.restoreJournal(exported);
+        expect(sortedById(again)).toEqual(sortedById(exported));
+        const counts = await target.db<{ analyses: number; settlements: number }[]>`
+          SELECT (SELECT count(*)::int FROM analyses) AS analyses,
+                 (SELECT count(*)::int FROM settlements) AS settlements
+        `;
+        expect(counts[0]).toEqual({ analyses: 2, settlements: 2 });
+      } finally {
+        await target.drop();
+      }
     } finally {
-      await closeDb(db);
+      await isolated.drop();
     }
-  }, 60_000);
+  }, 120_000);
 });

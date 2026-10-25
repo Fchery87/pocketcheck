@@ -3,6 +3,7 @@ import type { Sql } from "postgres";
 import { americanToDecimal } from "#lib/domain/odds.ts";
 import type { Offer } from "#lib/domain/offer.ts";
 import type { Settlement as SettlementResult } from "#lib/domain/settlement.ts";
+import { parentsFirst } from "./order.ts";
 
 export type GameRecord = {
   id: string;
@@ -528,25 +529,29 @@ export class JournalRepository {
     };
   }
 
+  /**
+   * Restore an export with its original ids, times, and keys. Rows already present are left
+   * alone, so restoring the same snapshot twice changes nothing. Games are matched by
+   * source_game_id, since the schedule may already have created the same game under another id.
+   */
   async restoreJournal(snapshot: JournalExport): Promise<JournalExport> {
-    const gameIds = new Map(snapshot.games.map((row) => [row.id, randomUUID()]));
-    const offerIds = new Map(snapshot.offers.map((row) => [row.id, randomUUID()]));
-    const evidenceIds = new Map(snapshot.evidence.map((row) => [row.id, randomUUID()]));
-    const analysisIds = new Map(snapshot.analyses.map((row) => [row.id, randomUUID()]));
-    const betIds = new Map(snapshot.bets.map((row) => [row.id, randomUUID()]));
-    const settlementIds = new Map(snapshot.settlements.map((row) => [row.id, randomUUID()]));
+    const gameIds = new Map<string, string>();
 
     await this.sql.begin(async (tx) => {
       for (const game of snapshot.games) {
-        const id = gameIds.get(game.id)!;
         await tx`
           INSERT INTO games (
             id, source_game_id, season, week, away_team, home_team, kickoff_at, venue, status
           ) VALUES (
-            ${id}, ${`${game.sourceGameId}:restored:${id}`}, ${game.season}, ${game.week},
+            ${game.id}, ${game.sourceGameId}, ${game.season}, ${game.week},
             ${game.awayTeam}, ${game.homeTeam}, ${game.kickoffAt}, ${game.venue}, ${game.status}
           )
+          ON CONFLICT DO NOTHING
         `;
+        const rows = await tx<{ id: string }[]>`
+          SELECT id FROM games WHERE source_game_id = ${game.sourceGameId}
+        `;
+        gameIds.set(game.id, rows[0]?.id ?? game.id);
       }
       for (const offer of snapshot.offers) {
         await tx`
@@ -554,56 +559,56 @@ export class JournalRepository {
             id, game_id, sportsbook, market, selection, point_line, american_odds, decimal_odds,
             observed_at, entered_at, kickoff_at, rules, opposing, completed_at
           ) VALUES (
-            ${offerIds.get(offer.id)!}, ${gameIds.get(offer.gameId)!}, ${offer.sportsbook},
+            ${offer.id}, ${gameIds.get(offer.gameId) ?? offer.gameId}, ${offer.sportsbook},
             ${offer.market}, ${offer.selection}, ${offer.pointLine}, ${offer.americanOdds},
             ${offer.decimalOdds}, ${offer.observedAt}, ${offer.enteredAt}, ${offer.kickoffAt},
             ${tx.json(offer.rules as never)},
             ${offer.opposing ? tx.json(offer.opposing as never) : null},
             ${offer.completedAt}
           )
+          ON CONFLICT DO NOTHING
         `;
       }
+      const evidenceById = new Map(snapshot.evidence.map((item) => [item.id, item]));
       for (const item of snapshot.evidence) {
         await tx`
           INSERT INTO evidence (
             id, source_id, source_url, retrieved_at, published_at, effective_at,
             checksum, body, origin, completeness, completed_at, packet_item_id
           ) VALUES (
-            ${evidenceIds.get(item.id)!}, ${item.sourceId}, ${item.sourceUrl}, ${item.retrievedAt},
+            ${item.id}, ${item.sourceId}, ${item.sourceUrl}, ${item.retrievedAt},
             ${item.publishedAt}, ${item.effectiveAt}, ${item.checksum}, ${tx.json(item.body as never)},
             ${item.origin}, ${item.completeness}, ${item.completedAt}, ${item.packetItemId ?? null}
           )
+          ON CONFLICT DO NOTHING
         `;
       }
-      const ordered = [...snapshot.analyses].sort((left, right) => {
-        if (left.parentId === right.id) return 1;
-        if (right.parentId === left.id) return -1;
-        return 0;
-      });
-      for (const analysis of ordered) {
-        const id = analysisIds.get(analysis.id)!;
+      for (const analysis of parentsFirst(snapshot.analyses, (row) => row.parentId)) {
         await tx`
           INSERT INTO analyses (
             id, offer_id, parent_id, cutoff_at, status, conclusion,
             method_version, policy_version, schema_version, prompt_version,
             evidence_packet_hash, provider, model, failure_reason, idempotency_key, completed_at,
-            policy, stages
+            created_at, policy, stages
           ) VALUES (
-            ${id}, ${offerIds.get(analysis.offerId)!},
-            ${analysis.parentId ? (analysisIds.get(analysis.parentId) ?? null) : null},
+            ${analysis.id}, ${analysis.offerId}, ${analysis.parentId},
             ${analysis.cutoffAt}, ${analysis.status}, ${analysis.conclusion},
             ${analysis.methodVersion}, ${analysis.policyVersion}, ${analysis.schemaVersion},
             ${analysis.promptVersion}, ${analysis.evidencePacketHash}, ${analysis.provider},
-            ${analysis.model}, ${analysis.failureReason},
-            ${analysis.idempotencyKey ? `${analysis.idempotencyKey}:restored:${id}` : null},
-            ${analysis.completedAt},
+            ${analysis.model}, ${analysis.failureReason}, ${analysis.idempotencyKey},
+            ${analysis.completedAt}, ${analysis.createdAt},
             ${jsonOrNull(tx, analysis.policy)}, ${jsonOrNull(tx, analysis.stages)}
           )
+          ON CONFLICT DO NOTHING
         `;
         for (const [position, evidenceId] of analysis.evidenceIds.entries()) {
           await tx`
             INSERT INTO analysis_evidence (analysis_id, evidence_id, completeness, position)
-            VALUES (${id}, ${evidenceIds.get(evidenceId)!}, 'restored', ${position})
+            VALUES (
+              ${analysis.id}, ${evidenceId},
+              ${evidenceById.get(evidenceId)?.completeness ?? "complete"}, ${position}
+            )
+            ON CONFLICT DO NOTHING
           `;
         }
       }
@@ -611,80 +616,46 @@ export class JournalRepository {
         await tx`
           INSERT INTO reports (id, analysis_id, claims, thesis, usage, rendered_bytes, completed_at, body)
           VALUES (
-            ${randomUUID()}, ${analysisIds.get(report.analysisId)!}, ${tx.json(report.claims as never)},
+            ${report.id}, ${report.analysisId}, ${tx.json(report.claims as never)},
             ${report.thesis}, ${report.usage ? tx.json(report.usage as never) : null},
             ${Buffer.from(report.renderedText, "utf8")}, ${report.completedAt},
             ${jsonOrNull(tx, report.body)}
           )
+          ON CONFLICT DO NOTHING
         `;
       }
       for (const research of snapshot.userResearch) {
         await tx`
           INSERT INTO user_research (id, analysis_id, lean, rationale)
-          VALUES (
-            ${randomUUID()}, ${analysisIds.get(research.analysisId)!}, ${research.lean}, ${research.rationale}
-          )
+          VALUES (${research.id}, ${research.analysisId}, ${research.lean}, ${research.rationale})
+          ON CONFLICT DO NOTHING
         `;
       }
       for (const bet of snapshot.bets) {
         await tx`
           INSERT INTO bets (id, offer_id, analysis_id, american_odds, decimal_odds, placed_at, stake_units, sportsbook)
           VALUES (
-            ${betIds.get(bet.id)!}, ${offerIds.get(bet.offerId)!},
-            ${bet.analysisId ? (analysisIds.get(bet.analysisId) ?? null) : null},
-            ${bet.americanOdds}, ${bet.decimalOdds}, ${bet.placedAt}, ${bet.stakeUnits},
-            ${bet.sportsbook ?? null}
+            ${bet.id}, ${bet.offerId}, ${bet.analysisId}, ${bet.americanOdds}, ${bet.decimalOdds},
+            ${bet.placedAt}, ${bet.stakeUnits}, ${bet.sportsbook ?? null}
           )
+          ON CONFLICT DO NOTHING
         `;
       }
-      const settlementOrder = [...snapshot.settlements].sort((left, right) => {
-        if (left.correctsId === right.id) return 1;
-        if (right.correctsId === left.id) return -1;
-        return 0;
-      });
-      for (const settlement of settlementOrder) {
+      for (const settlement of parentsFirst(snapshot.settlements, (row) => row.correctsId)) {
         await tx`
           INSERT INTO settlements (
             id, bet_id, offer_id, result, rules, source, reason, settled_at, corrects_id
           ) VALUES (
-            ${settlementIds.get(settlement.id) ?? null},
-            ${settlement.betId ? (betIds.get(settlement.betId) ?? null) : null},
-            ${settlement.offerId ? (offerIds.get(settlement.offerId) ?? null) : null},
-            ${settlement.result}, ${settlement.rules}, ${settlement.source}, ${settlement.reason},
-            ${settlement.settledAt},
-            ${settlement.correctsId ? (settlementIds.get(settlement.correctsId) ?? null) : null}
+            ${settlement.id}, ${settlement.betId}, ${settlement.offerId}, ${settlement.result},
+            ${settlement.rules}, ${settlement.source}, ${settlement.reason},
+            ${settlement.settledAt}, ${settlement.correctsId}
           )
+          ON CONFLICT DO NOTHING
         `;
       }
     });
 
-    return this.exportJournal([...analysisIds.values()]);
-  }
-
-  async forceFailedChildWrite(parentAnalysisId: string): Promise<void> {
-    const parent = await this.readAnalysis(parentAnalysisId);
-    if (!parent) throw new Error("Parent analysis is missing");
-    const offer = await this.readOffer(parent.offerId);
-    if (!offer) throw new Error("Parent offer is missing");
-    await this.sql.begin(async (tx) => {
-      await tx`
-        INSERT INTO analyses (
-          id, offer_id, parent_id, cutoff_at, status, conclusion, completed_at
-        ) VALUES (
-          ${randomUUID()}, ${offer.id}, ${parent.id}, ${parent.cutoffAt}, 'completed', 'pass', now()
-        )
-      `;
-      await tx`
-        INSERT INTO offers (
-          id, game_id, sportsbook, market, selection, american_odds, decimal_odds,
-          observed_at, entered_at, kickoff_at, rules
-        ) VALUES (
-          ${randomUUID()}, ${offer.gameId}, ${offer.sportsbook}, 'moneyline', 'home',
-          0, 1, ${offer.observedAt}, ${offer.enteredAt}, ${offer.kickoffAt},
-          ${tx.json(offer.rules as never)}
-        )
-      `;
-    });
+    return this.exportJournal(snapshot.analyses.map((row) => row.id));
   }
 
   private async readGameForOffer(offerId: string): Promise<GameRecord | null> {

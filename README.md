@@ -52,7 +52,7 @@ Checks:
 ```sh
 npm run check             # format, lint, and Svelte/type checks
 npm test                  # unit tests, no database or network
-npm run test:integration  # writes to the DATABASE_URL database
+npm run test:integration  # throwaway schemas in TEST_DATABASE_URL, or DATABASE_URL
 npm run test:e2e          # browser suite: fixture schedule, memory journal, fixed clock
 npm run build
 ```
@@ -65,4 +65,4 @@ HOST=127.0.0.1 PORT=3000 PROTOCOL_HEADER=x-forwarded-proto node --env-file=.env 
 
 ## Next implementation step
 
-The P1 items from the 2026-10-25 review: connect real providers and the Settings catalog, wire injury, weather, and manual evidence into runs, tighten report validation, enforce immutability on lean and evidence links, fix journal restore ordering, and give the integration tests their own database branch.
+The remaining P1 items from the 2026-10-25 review: wire injury, weather, and manual evidence into runs, then connect real providers and the Settings catalog.

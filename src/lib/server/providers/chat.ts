@@ -109,14 +109,14 @@ export function createChatProvider(input: {
   async function complete(
     modelId: string,
     packet: ThesisPacket,
-    repair: boolean,
+    rejected?: string[],
   ): Promise<
     | { ok: true; payload: CompletionPayload }
     | { ok: false; status: number; kind: "auth" | "rate_limit" | "transport" }
   > {
     const response = await request("/chat/completions", {
       method: "POST",
-      body: thesisRequestBody({ modelId, packet, repair }),
+      body: thesisRequestBody({ modelId, packet, rejected }),
     });
     if (response.status === 401) return { ok: false, status: 401, kind: "auth" };
     if (response.status === 429) return { ok: false, status: 429, kind: "rate_limit" };
@@ -149,7 +149,7 @@ export function createChatProvider(input: {
       });
     }
 
-    const first = await complete(draftInput.modelId, draftInput.packet, false);
+    const first = await complete(draftInput.modelId, draftInput.packet);
     if (!first.ok) {
       return failedDraft(draftInput.packet, draftInput.modelId, {
         error: { kind: first.kind, status: first.status, message: first.kind },
@@ -172,7 +172,12 @@ export function createChatProvider(input: {
       };
     }
 
-    const second = await complete(draftInput.modelId, draftInput.packet, true);
+    const rejected = !parsed.ok
+      ? ["the response was not valid JSON"]
+      : validated && !validated.ok
+        ? validated.reasons
+        : ["malformed report"];
+    const second = await complete(draftInput.modelId, draftInput.packet, rejected);
     if (!second.ok) {
       return failedDraft(draftInput.packet, draftInput.modelId, {
         repairAttempted: true,

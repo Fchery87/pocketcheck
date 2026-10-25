@@ -16,10 +16,21 @@ export function buildThesisPacket(input: {
   };
 }
 
+const THESIS_RULES = [
+  "Draft a sourced thesis as a JSON object. No markdown.",
+  "Cite only evidence ids from the packet. Every claim cites at least one id.",
+  "Include at least one opposing claim: the strongest evidence against the thesis.",
+  "Copy decimalOdds and decisiveBreakEven exactly.",
+  "Set conclusion to policy.conclusion exactly and explain the policy result. Do not choose a different conclusion.",
+  "Do not add win, loss, push, or probability fields, and do not state percentages other than the supplied break-even.",
+  "Fields: conclusion, summary, claims[{text,stance,evidenceIds}], assumptions, uncertainty, missingInputs, changeConditions, decimalOdds, decisiveBreakEven.",
+].join(" ");
+
+/** `rejected` holds the reasons the previous draft failed; when present, this is the repair request. */
 export function thesisRequestBody(input: {
   modelId: string;
   packet: ThesisPacket;
-  repair: boolean;
+  rejected?: string[];
 }): string {
   const evidence = input.packet.items.map((item) => ({
     id: item.id,
@@ -30,16 +41,9 @@ export function thesisRequestBody(input: {
     facts: item.facts,
     excerpt: item.excerpt,
   }));
-  const instruction = input.repair
-    ? "Return only a JSON object. No markdown."
-    : [
-        "Draft a sourced thesis as JSON.",
-        "Cite only evidence ids from the packet.",
-        "Copy decimalOdds and decisiveBreakEven exactly.",
-        "Set conclusion to policy.conclusion exactly and explain the policy result. Do not choose a different conclusion.",
-        "Do not add win, loss, or push fields.",
-        "Fields: conclusion, summary, claims[{text,stance,evidenceIds}], assumptions, uncertainty, missingInputs, changeConditions, decimalOdds, decisiveBreakEven.",
-      ].join(" ");
+  const instruction = input.rejected
+    ? `${THESIS_RULES} Your previous draft was rejected: ${input.rejected.join("; ")}. Return a corrected JSON object.`
+    : THESIS_RULES;
   return JSON.stringify({
     model: input.modelId,
     temperature: 0,

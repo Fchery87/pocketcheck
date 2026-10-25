@@ -102,7 +102,12 @@ export function parseOffer(input: OfferInput): Offer {
 
   if (input.opposing) {
     const sameBook = input.opposing.sportsbook === input.sportsbook;
-    const sameLine = (input.opposing.pointLine ?? null) === (input.pointLine ?? null);
+    // The other side of home -3.5 is away +3.5; the other side of over 44.5 is under 44.5.
+    const expectedLine =
+      input.market === "spread" && input.pointLine !== undefined
+        ? -input.pointLine
+        : (input.pointLine ?? null);
+    const sameLine = (input.opposing.pointLine ?? null) === expectedLine;
     const opposingObserved = requireTime(input.opposing.observedAt, "opposing observation time");
     const closeInTime = Math.abs(opposingObserved - observed) <= 15 * 60 * 1000;
     if (!sameBook || !sameLine || !closeInTime) {

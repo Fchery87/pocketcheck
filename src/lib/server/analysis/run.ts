@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { americanToDecimal, breakEven } from "#lib/domain/odds.ts";
 import { OfferError, parseOffer, type OfferInput, type TieRule } from "#lib/domain/offer.ts";
 import { buildThesisPacket, thesisRequestBody } from "./packet.ts";
+import { redactText } from "./redact.ts";
 import { validateThesisReport } from "./report-validation.ts";
 import { createFixtureDrafter } from "./fixture-drafter.ts";
 import { gameHasStarted } from "./games.ts";
@@ -92,9 +93,7 @@ async function save(store: ResearchStore, run: NewRun): Promise<ResearchRun | { 
     return await store.saveRun(run);
   } catch (error) {
     const message = error instanceof Error ? error.message : "save failed";
-    return {
-      error: `Saving the run failed: ${message.replace(/postgres(?:ql)?:\/\/\S+/gi, "[redacted]")}`,
-    };
+    return { error: `Saving the run failed: ${redactText(message)}` };
   }
 }
 
@@ -164,7 +163,7 @@ export async function runAnalysis(
     },
   });
   const evidencePacketHash = createHash("sha256")
-    .update(thesisRequestBody({ modelId: drafter.modelId, packet: thesisPacket, repair: false }))
+    .update(thesisRequestBody({ modelId: drafter.modelId, packet: thesisPacket }))
     .digest("hex");
 
   note("drafting");
