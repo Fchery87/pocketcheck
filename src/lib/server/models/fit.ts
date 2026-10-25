@@ -1,0 +1,107 @@
+import { FEATURE_DEFINITIONS, type FeatureName, type FeatureRow } from "./features.ts";
+
+export type FitParameters = {
+  ridge: number;
+  residualBandwidth: number;
+};
+
+export const DEFAULT_FIT: FitParameters = {
+  ridge: 1,
+  residualBandwidth: 1.5,
+};
+
+export type LinearModel = {
+  intercept: number;
+  coefficients: Record<FeatureName, number>;
+  featureMeans: Record<FeatureName, number>;
+  featureScales: Record<FeatureName, number>;
+};
+
+const NAMES = FEATURE_DEFINITIONS.map((feature) => feature.name);
+
+function dot(coefficients: Record<FeatureName, number>, row: FeatureRow, model: LinearModel): number {
+  let value = model.intercept;
+  for (const name of NAMES) {
+    const centered = (row.features[name] - model.featureMeans[name]) / model.featureScales[name];
+    value += coefficients[name] * centered;
+  }
+  return value;
+}
+
+export function predictMean(model: LinearModel, row: FeatureRow): number {
+  return dot(model.coefficients, row, model);
+}
+
+function solve(matrix: number[][], vector: number[]): number[] {
+  const n = vector.length;
+  const a = matrix.map((row, index) => [...row, vector[index] ?? 0]);
+  for (let col = 0; col < n; col += 1) {
+    let pivot = col;
+    for (let row = col + 1; row < n; row += 1) {
+      if (Math.abs(a[row]?.[col] ?? 0) > Math.abs(a[pivot]?.[col] ?? 0)) pivot = row;
+    }
+    const pivotRow = a[pivot];
+    const colRow = a[col];
+    if (!pivotRow || !colRow || Math.abs(pivotRow[col] ?? 0) < 1e-12) {
+      throw new Error("Ridge design matrix is singular");
+    }
+    a[pivot] = colRow;
+    a[col] = pivotRow;
+    const scale = pivotRow[col] ?? 1;
+    for (let k = col; k <= n; k += 1) pivotRow[k] = (pivotRow[k] ?? 0) / scale;
+    for (let row = 0; row < n; row += 1) {
+      if (row === col) continue;
+      const factor = a[row]?.[col] ?? 0;
+      for (let k = col; k <= n; k += 1) {
+        const current = a[row];
+        if (current) current[k] = (current[k] ?? 0) - factor * (pivotRow[k] ?? 0);
+      }
+    }
+  }
+  return a.map((row) => row[n] ?? 0);
+}
+
+export function fitRidge(rows: readonly FeatureRow[], targets: readonly number[], ridge: number): LinearModel {
+  if (rows.length === 0 || rows.length !== targets.length) {
+    throw new Error("Feature rows and targets must be non-empty and aligned");
+  }
+  const means = {} as Record<FeatureName, number>;
+  const scales = {} as Record<FeatureName, number>;
+  for (const name of NAMES) {
+    const values = rows.map((row) => row.features[name]);
+    const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+    const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
+    means[name] = mean;
+    scales[name] = Math.sqrt(variance) || 1;
+  }
+
+  const width = NAMES.length + 1;
+  const matrix = Array.from({ length: width }, () => Array.from({ length: width }, () => 0));
+  const vector = Array.from({ length: width }, () => 0);
+  rows.forEach((row, index) => {
+    const x = [1, ...NAMES.map((name) => (row.features[name] - means[name]) / scales[name])];
+    const y = targets[index] ?? 0;
+    for (let i = 0; i < width; i += 1) {
+      vector[i] = (vector[i] ?? 0) + (x[i] ?? 0) * y;
+      for (let j = 0; j < width; j += 1) {
+        const rowValues = matrix[i];
+        if (rowValues) rowValues[j] = (rowValues[j] ?? 0) + (x[i] ?? 0) * (x[j] ?? 0);
+      }
+    }
+  });
+  for (let i = 1; i < width; i += 1) {
+    const rowValues = matrix[i];
+    if (rowValues) rowValues[i] = (rowValues[i] ?? 0) + ridge;
+  }
+  const solved = solve(matrix, vector);
+  const coefficients = {} as Record<FeatureName, number>;
+  NAMES.forEach((name, index) => {
+    coefficients[name] = solved[index + 1] ?? 0;
+  });
+  return {
+    intercept: solved[0] ?? 0,
+    coefficients,
+    featureMeans: means,
+    featureScales: scales,
+  };
+}

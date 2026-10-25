@@ -1,0 +1,12 @@
+{
+  "games": [
+    { "id": "g1", "kickoff": "2024-09-08T17:00:00Z", "home": "A", "away": "B", "homeScore": 24, "awayScore": 17, "prices": { "moneyline": { "home": { "american": -140 }, "away": { "american": 120 } }, "spread": { "line": -3, "home": { "american": -110 }, "away": { "american": -110 } }, "total": { "line": 44.5, "over": { "american": -110 }, "under": { "american": -110 } } } },
+    { "id": "g2", "kickoff": "2024-09-08T20:00:00Z", "home": "C", "away": "D", "homeScore": 20, "awayScore": 20 },
+    { "id": "g3", "kickoff": "2024-09-15T17:00:00Z", "home": "B", "away": "C", "homeScore": 27, "awayScore": 14, "prices": { "moneyline": { "home": { "american": -120 }, "away": { "american": 100 } } } },
+    { "id": "g4", "kickoff": "2024-09-15T20:00:00Z", "home": "D", "away": "A", "homeScore": 10, "awayScore": 31, "prices": { "spread": { "line": 6.5, "home": { "american": -110 }, "away": { "american": -110 } }, "total": { "line": 41, "over": { "american": -105 }, "under": { "american": -115 } } } },
+    { "id": "g5", "kickoff": "2024-09-22T17:00:00Z", "home": "A", "away": "C", "homeScore": 17, "awayScore": 21, "prices": { "moneyline": { "home": { "american": -110 }, "away": { "american": -110 } }, "spread": { "line": -1, "home": { "american": -110 }, "away": { "american": -110 } }, "total": { "line": 43, "over": { "american": -110 }, "under": { "american": -110 } } } },
+    { "id": "g6", "kickoff": "2024-09-22T20:00:00Z", "home": "B", "away": "D", "homeScore": 28, "awayScore": 24 },
+    { "id": "g7", "kickoff": "2024-09-29T17:00:00Z", "home": "C", "away": "A", "homeScore": 23, "awayScore": 20, "neutral": true, "prices": { "moneyline": { "home": { "american": 110 }, "away": { "american": -130 } }, "total": { "line": 45.5, "over": { "american": -110 }, "under": { "american": -110 } } } },
+    { "id": "g8", "kickoff": "2024-09-29T20:00:00Z", "home": "D", "away": "B", "homeScore": 14, "awayScore": 30, "prices": { "spread": { "line": 3, "home": { "american": -110 }, "away": { "american": -110 } } } }
+  ]
+}
