@@ -75,14 +75,17 @@ function calculations() {
   return { decimalOdds, decisiveBreakEven };
 }
 
-function packet() {
+function packet(policyConclusion = "insufficient evidence") {
   const math = calculations();
   return buildThesisPacket({
     items,
     decimalOdds: math.decimalOdds,
     decisiveBreakEven: math.decisiveBreakEven,
-    userLean: "I like Philadelphia -3.5",
-    userRationale: "They cover at home",
+    policy: {
+      version: "policy-test",
+      conclusion: policyConclusion,
+      blockingReason: "Material evidence is missing.",
+    },
   });
 }
 
@@ -256,6 +259,8 @@ describe("thesis drafting", () => {
       expect(body).not.toContain("I like Philadelphia");
       expect(body).toContain("ev-injury");
       expect(body).toContain(String(calculations().decimalOdds));
+      expect(body).toContain("insufficient evidence");
+      expect(body).toContain("Material evidence is missing.");
     }
     expect(result.report?.claims[0]?.evidenceIds).toEqual(["ev-injury"]);
     expect(JSON.stringify(result)).not.toContain(FAKE_KEY);
@@ -314,8 +319,7 @@ describe("thesis drafting", () => {
         decimalOdds: math.decimalOdds,
         decisiveBreakEven: math.decisiveBreakEven,
       },
-      packet(),
-      { conclusion: "pass" },
+      packet("pass"),
     );
     expect(disagreed.ok).toBe(false);
     if (!disagreed.ok) {

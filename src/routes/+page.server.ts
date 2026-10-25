@@ -1,83 +1,97 @@
-import { resolve } from "node:path";
-import { redirect } from "@sveltejs/kit";
-import { fixtureGameName } from "#lib/server/fixtures.ts";
-import { loadFixtureGames } from "#lib/server/analysis/games.ts";
+import { fail, redirect } from "@sveltejs/kit";
+import { easternTime } from "#lib/format.ts";
+import { localInputValue, parseObservedAt } from "#lib/server/analysis/form.ts";
 import { runAnalysis } from "#lib/server/analysis/run.ts";
+import { readSchedule, upcomingGames } from "#lib/server/analysis/schedule.ts";
+import { ConfigError, now, researchStore, schedulePath } from "#lib/server/config.ts";
 import type { Actions, PageServerLoad } from "./$types";
 
-const FIXTURE_NOW = "2026-10-25T16:00:00.000Z";
-const gamesPath = resolve("tests/fixtures/sources/games-minimized.csv");
+const FIELDS = [
+  "gameId",
+  "sportsbook",
+  "market",
+  "selection",
+  "pointLine",
+  "americanOdds",
+  "observedAt",
+  "tieRule",
+  "lean",
+  "rationale",
+] as const;
 
-function displayParts(kickoff: string) {
-  const date = new Date(kickoff);
-  const dateLabel = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  }).format(date);
-  const kickoffLabel = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZoneName: "short",
-  }).format(date);
-  return { dateLabel, kickoffLabel };
-}
-
-export const load: PageServerLoad = () => {
-  const games = loadFixtureGames(gamesPath, FIXTURE_NOW).map((game) => {
-    const labels = displayParts(game.kickoff);
-    const started = Boolean(game.finalScore) || Date.parse(game.kickoff) <= Date.parse(FIXTURE_NOW);
-    return {
-      id: game.id,
-      away: game.away,
-      home: game.home,
-      venue: game.venue.name,
-      kickoff: game.kickoff,
-      started,
-      ...labels,
-    };
-  });
-  return { gameName: fixtureGameName, games };
-};
+type Values = Partial<Record<(typeof FIELDS)[number], string>>;
 
 function field(data: FormData, name: string): string {
   const value = data.get(name);
   return typeof value === "string" ? value.trim() : "";
 }
 
+export const load: PageServerLoad = () => {
+  const nowIso = now();
+  const schedule = readSchedule(schedulePath());
+  const games = schedule.ok
+    ? upcomingGames(schedule.games, nowIso).map((game) => ({
+        id: game.id,
+        week: game.week,
+        away: game.away,
+        home: game.home,
+        venue: game.venue.name,
+        kickoff: game.kickoff,
+        kickoffLabel: easternTime(game.kickoff),
+      }))
+    : [];
+  return {
+    games,
+    scheduleError: schedule.ok ? null : schedule.reason,
+    scheduleRetrievedAt: schedule.ok ? schedule.retrievedAt : null,
+    observedDefault: localInputValue(nowIso),
+  };
+};
+
 export const actions = {
   analyze: async ({ request }) => {
     const data = await request.formData();
-    const games = loadFixtureGames(gamesPath, FIXTURE_NOW);
-    const game = games.find((item) => item.id === field(data, "gameId"));
-    if (!game) {
-      return { gameName: fixtureGameName, error: "Choose a game", gameId: "" };
+    const values: Values = Object.fromEntries(FIELDS.map((name) => [name, field(data, name)]));
+    const nowIso = now();
+    const schedule = readSchedule(schedulePath());
+    if (!schedule.ok) return fail(503, { error: schedule.reason, values });
+    const game = schedule.games.find((item) => item.id === values.gameId);
+    if (!game) return fail(400, { error: "Choose a game", values });
+    if (!upcomingGames([game], nowIso).length) {
+      return fail(400, { error: "The game has already started", values });
     }
-    const pointLineRaw = field(data, "pointLine");
-    const result = await runAnalysis({
-      game,
-      nowIso: FIXTURE_NOW,
-      sportsbook: field(data, "sportsbook"),
-      market: field(data, "market") as "moneyline" | "spread" | "total",
-      selection: field(data, "selection") as "home" | "away" | "over" | "under",
-      pointLine: pointLineRaw === "" ? undefined : Number(pointLineRaw),
-      americanOdds: Number(field(data, "americanOdds")),
-      observedAt: field(data, "observedAt"),
-      tieRule: field(data, "tieRule") as "push" | "loss" | "win" | "void",
-      lean: field(data, "lean"),
-      rationale: field(data, "rationale"),
-      parentId: field(data, "parentId") || null,
-    });
+    const observedAt = parseObservedAt(values.observedAt ?? "");
+    if (!observedAt) return fail(400, { error: "Enter when you observed this price", values });
+
+    let store;
+    try {
+      store = researchStore();
+    } catch (error) {
+      if (error instanceof ConfigError) return fail(503, { error: error.message, values });
+      throw error;
+    }
+
+    const pointLineRaw = values.pointLine ?? "";
+    const result = await runAnalysis(
+      {
+        game,
+        nowIso,
+        scheduleRetrievedAt: schedule.retrievedAt,
+        sportsbook: values.sportsbook ?? "",
+        market: values.market as "moneyline" | "spread" | "total",
+        selection: values.selection as "home" | "away" | "over" | "under",
+        pointLine: pointLineRaw === "" ? undefined : Number(pointLineRaw),
+        americanOdds: Number(values.americanOdds),
+        observedAt,
+        tieRule: values.tieRule as "push" | "loss" | "win" | "void",
+        lean: values.lean,
+        rationale: values.rationale,
+      },
+      { store },
+    );
     if (!result.ok) {
-      return {
-        gameName: fixtureGameName,
-        error: result.error,
-        gameId: game.id,
-        stages: result.run?.stages ?? ["checking inputs"],
-      };
+      if (result.run) redirect(303, `/analysis/${result.run.id}`);
+      return fail(400, { error: result.error, values });
     }
     redirect(303, `/analysis/${result.run.id}`);
   },

@@ -134,7 +134,11 @@ function newYorkOffsetMinutes(instant: Date): number {
 export function scheduleGamesFromCsv(csv: string, input: { retrievedAt: string }): ScheduledGame[] {
   void input.retrievedAt;
   assertNflverseGamesHeader(csv);
-  return parseCsv(csv).map((row) => {
+  // A row without a kickoff time cannot be checked against a decision cutoff, so it is not offered.
+  const timed = parseCsv(csv).filter(
+    (row) => (row.gameday ?? "") !== "" && (row.gametime ?? "") !== "",
+  );
+  return timed.map((row) => {
     const spreadRaw = row.spread_line ?? "";
     const spread = spreadRaw === "" ? null : Number(spreadRaw);
     return {

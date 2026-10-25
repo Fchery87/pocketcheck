@@ -26,8 +26,16 @@ export type ThesisCalculations = {
   decisiveBreakEven: number;
 };
 
+/** The application policy result. The drafter explains it and cannot change it. */
+export type PacketPolicy = {
+  version: string;
+  conclusion: string;
+  blockingReason: string | null;
+};
+
 export type ThesisPacket = ThesisCalculations & {
   items: EvidenceItem[];
+  policy: PacketPolicy;
 };
 
 export type ThesisClaim = {
@@ -79,6 +87,13 @@ export type ThesisProvider = {
     catalog: ModelCatalogEntry[];
     packet: ThesisPacket;
   }) => Promise<DraftThesisResult>;
+};
+
+/** What a research run needs from whatever drafts its thesis, including the fixture drafter. */
+export type ThesisDrafter = {
+  id: string;
+  modelId: string;
+  draftThesis: ThesisProvider["draftThesis"];
 };
 
 export type ProviderOptions = {

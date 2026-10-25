@@ -23,8 +23,9 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vitest/
 
-# Local model artifacts
+# Local model artifacts and source downloads
 data/artifacts/
+data/sources/
 
 # Playwright
 test-results/

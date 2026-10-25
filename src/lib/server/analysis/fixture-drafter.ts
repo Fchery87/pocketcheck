@@ -1,14 +1,16 @@
-import type { DraftThesisResult, ThesisPacket, ThesisProvider } from "../providers/contracts.ts";
+import type { DraftThesisResult, ThesisDrafter, ThesisPacket } from "../providers/contracts.ts";
 
-/** Deterministic drafter for tests and the local research walkthrough. No network. */
-export function createFixtureDrafter(): Pick<ThesisProvider, "id" | "draftThesis"> {
+/** Deterministic drafter for tests and the local research walkthrough. No network, no AI. */
+export function createFixtureDrafter(): ThesisDrafter {
   return {
-    id: "theclawbay",
+    id: "fixture",
+    modelId: "fixture-drafter",
     async draftThesis(input: {
       modelId: string;
       packet: ThesisPacket;
     }): Promise<DraftThesisResult> {
       const cited = input.packet.items[0]?.id;
+      const reason = input.packet.policy.blockingReason;
       return {
         draftingFailed: false,
         repairAttempted: false,
@@ -19,8 +21,8 @@ export function createFixtureDrafter(): Pick<ThesisProvider, "id" | "draftThesis
         modelId: input.modelId,
         packet: input.packet,
         report: {
-          conclusion: "pass",
-          summary: "Pass. The fixture drafter cites only the supplied schedule evidence.",
+          conclusion: input.packet.policy.conclusion,
+          summary: `The policy result is ${input.packet.policy.conclusion}.${reason ? ` ${reason}` : ""} The fixture drafter cites only the supplied schedule evidence.`,
           claims: cited
             ? [
                 {

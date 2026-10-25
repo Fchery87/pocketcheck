@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { americanToDecimal, breakEven } from "#lib/domain/odds.ts";
 import { OfferError, parseOffer, type OfferInput, type TieRule } from "#lib/domain/offer.ts";
 import { buildThesisPacket, thesisRequestBody } from "./packet.ts";
@@ -6,20 +7,26 @@ import { createFixtureDrafter } from "./fixture-drafter.ts";
 import { gameHasStarted } from "./games.ts";
 import {
   progressStages,
-  researchJournal,
+  type NewRun,
   type PrivateLean,
   type ProgressStage,
   type ResearchRun,
-} from "./memory-journal.ts";
-import type { ThesisProvider } from "../providers/contracts.ts";
-import { persistCompletedRun } from "./persist.ts";
+  type ResearchStore,
+  type RunGame,
+} from "./store.ts";
+import type { ThesisDrafter } from "../providers/contracts.ts";
 import { decidePolicy } from "./policy.ts";
 import { assembleEvidencePacket } from "../sources/packet.ts";
 import type { EvidenceItem, ScheduledGame } from "../sources/contracts.ts";
 
+export type { ThesisDrafter };
+
 export type AnalysisRequest = {
   game: ScheduledGame;
+  /** Decision cutoff for this run. Evidence after it is excluded. */
   nowIso: string;
+  /** When the schedule file this game came from was retrieved. Defaults to the run time. */
+  scheduleRetrievedAt?: string;
   sportsbook: string;
   market: OfferInput["market"];
   selection: OfferInput["selection"];
@@ -32,6 +39,11 @@ export type AnalysisRequest = {
   parentId?: string | null;
 };
 
+export type AnalysisDependencies = {
+  store: ResearchStore;
+  drafter?: ThesisDrafter;
+};
+
 export type AnalysisOutcome =
   | { ok: true; run: ResearchRun }
   | { ok: false; error: string; run?: ResearchRun };
@@ -39,7 +51,7 @@ export type AnalysisOutcome =
 function scheduleEvidence(game: ScheduledGame, retrievedAt: string): EvidenceItem {
   return {
     id: `schedule:${game.id}`,
-    sourceId: "nflverse-fixture",
+    sourceId: "nflverse-schedule",
     url: null,
     retrievedAt,
     publishedAt: "unknown",
@@ -56,6 +68,18 @@ function scheduleEvidence(game: ScheduledGame, retrievedAt: string): EvidenceIte
   };
 }
 
+function snapshot(game: ScheduledGame): RunGame {
+  return {
+    id: game.id,
+    season: game.season,
+    week: game.week,
+    home: game.home,
+    away: game.away,
+    kickoff: game.kickoff,
+    venue: game.venue.name,
+  };
+}
+
 function leanOf(request: AnalysisRequest): PrivateLean | null {
   const text = request.lean?.trim() ?? "";
   const rationale = request.rationale?.trim() ?? "";
@@ -63,9 +87,20 @@ function leanOf(request: AnalysisRequest): PrivateLean | null {
   return { text, rationale };
 }
 
+async function save(store: ResearchStore, run: NewRun): Promise<ResearchRun | { error: string }> {
+  try {
+    return await store.saveRun(run);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "save failed";
+    return {
+      error: `Saving the run failed: ${message.replace(/postgres(?:ql)?:\/\/\S+/gi, "[redacted]")}`,
+    };
+  }
+}
+
 export async function runAnalysis(
   request: AnalysisRequest,
-  drafter: Pick<ThesisProvider, "draftThesis"> = createFixtureDrafter(),
+  { store, drafter = createFixtureDrafter() }: AnalysisDependencies,
 ): Promise<AnalysisOutcome> {
   const stages: ProgressStage[] = [];
   const note = (stage: ProgressStage) => {
@@ -102,61 +137,71 @@ export async function runAnalysis(
   note("collecting evidence");
   const packet = assembleEvidencePacket({
     game: request.game,
-    decisionCutoff: request.observedAt,
-    items: [scheduleEvidence(request.game, request.observedAt)],
+    decisionCutoff: request.nowIso,
+    items: [scheduleEvidence(request.game, request.scheduleRetrievedAt ?? request.nowIso)],
     gaps: ["Injury report was not collected.", "Weather was not collected."],
   });
 
   note("computing");
   const decimalOdds = americanToDecimal(offer.americanOdds);
   const decisiveBreakEven = breakEven(decimalOdds).decisive;
+  const policy = decidePolicy({
+    offerValid: true,
+    gameStarted: false,
+    materialEvidenceMissing: packet.gaps.length > 0,
+    releaseStatus: "unreleased",
+    probabilities: null,
+    decimalOdds,
+  });
   const thesisPacket = buildThesisPacket({
     items: packet.items,
     decimalOdds,
     decisiveBreakEven,
-    userLean: request.lean,
-    userRationale: request.rationale,
+    policy: {
+      version: policy.policyVersion,
+      conclusion: policy.conclusion,
+      blockingReason: policy.blockingReason,
+    },
   });
-  const evidencePacketSent = thesisRequestBody({
-    modelId: "fixture-drafter",
-    packet: thesisPacket,
-    repair: false,
-  });
-  if (request.lean && evidencePacketSent.includes(request.lean)) {
-    throw new Error("Private lean leaked into the evidence packet");
-  }
+  const evidencePacketHash = createHash("sha256")
+    .update(thesisRequestBody({ modelId: drafter.modelId, packet: thesisPacket, repair: false }))
+    .digest("hex");
 
   note("drafting");
   const drafted = await drafter.draftThesis({
-    modelId: "fixture-drafter",
+    modelId: drafter.modelId,
     catalog: [],
     packet: thesisPacket,
   });
 
   note("checking report");
   const checked = drafted.report ? validateThesisReport(drafted.report, thesisPacket) : null;
+  const common = {
+    parentId: request.parentId ?? null,
+    cutoffAt: request.nowIso,
+    game: snapshot(request.game),
+    offer,
+    lean: leanOf(request),
+    evidence: thesisPacket.items,
+    evidencePacketHash,
+    policy,
+    provider: drafter.id,
+    model: drafter.modelId,
+  };
+
   if (!checked?.ok) {
-    const failed = researchJournal.saveRun({
-      parentId: request.parentId ?? null,
+    const failureReason =
+      checked?.reasons.join("; ") ?? drafted.error?.message ?? "Report check failed";
+    const failed = await save(store, {
+      ...common,
       status: "failed",
       stages,
-      game: request.game,
-      offer,
-      lean: leanOf(request),
-      evidencePacketSent,
       report: null,
       renderedText: "",
-      failureReason: checked?.reasons.join("; ") ?? drafted.error?.message ?? "Report check failed",
-      policy: decidePolicy({
-        offerValid: true,
-        gameStarted: false,
-        materialEvidenceMissing: true,
-        releaseStatus: "unreleased",
-        probabilities: null,
-        decimalOdds,
-      }),
+      failureReason,
     });
-    return { ok: false, error: failed.failureReason ?? "Report check failed", run: failed };
+    if ("error" in failed) return { ok: false, error: `${failureReason}. ${failed.error}` };
+    return { ok: false, error: failureReason, run: failed };
   }
 
   const renderedText = [
@@ -167,26 +212,14 @@ export async function runAnalysis(
     `American odds ${offer.americanOdds}`,
   ].join("\n");
 
-  const run = researchJournal.saveRun({
-    parentId: request.parentId ?? null,
+  const run = await save(store, {
+    ...common,
     status: "completed",
     stages: progressStages.filter((stage) => stages.includes(stage)),
-    game: request.game,
-    offer,
-    lean: leanOf(request),
-    evidencePacketSent,
     report: checked.report,
     renderedText,
     failureReason: null,
-    policy: decidePolicy({
-      offerValid: true,
-      gameStarted: false,
-      materialEvidenceMissing: packet.gaps.length > 0,
-      releaseStatus: "unreleased",
-      probabilities: null,
-      decimalOdds,
-    }),
   });
-  await persistCompletedRun(run);
+  if ("error" in run) return { ok: false, error: run.error };
   return { ok: true, run };
 }

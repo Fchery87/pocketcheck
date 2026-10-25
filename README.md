@@ -2,7 +2,9 @@
 
 Personal sports handicapping research, beginning with NFL pregame moneylines, spreads, and totals. The user records an actual sportsbook offer, compares a sourced thesis with their own research, and tracks decisions and results.
 
-Status: Task 1 toolchain proof passed on 2026-10-25. The local page, fixture server action, checks, tests, and production build work together. No probability model or betting advantage has been validated.
+Status (2026-10-25): the research workflow runs end to end on the real nflverse schedule and saves every run to Neon. You pick an upcoming game, enter an offer and an optional private lean, and get a report with price mathematics, cited evidence, and the policy conclusion. Refreshes keep the earlier report unchanged. No probability model or betting advantage has been validated.
+
+Not yet wired into the app: injury, weather, and manual evidence (every run reports them as missing, so the policy concludes insufficient evidence); live AI providers and the Settings catalog (reports come from a deterministic fixture drafter, labelled as such); the baseline model; settlement, closing-line comparison, and summaries.
 
 ## Start here
 
@@ -31,27 +33,36 @@ Verified together on Node 24.15.0 and npm 11.19.0:
 
 SvelteKit 3 keeps configuration in `vite.config.ts`. There is no `svelte.config.js`. The `#lib` package import is the library alias. Server-only code lives under `src/lib/server` and imports include the `.ts` extension.
 
-`npm run check`, `npm test`, and `npm run build` passed. The development server, Vite preview, and Node production server all returned the fixture game `Fixture Away at Fixture Home`.
-
 Development does not enforce the production cross-site form check. Preview and the Node server do. The Node adapter treats requests as HTTPS unless a protocol is declared, so local HTTP needs `PROTOCOL_HEADER=x-forwarded-proto` and an `x-forwarded-proto: http` request header. Without it, or with a different request origin, the production form returns 403. Unknown routes return 404. Dev and preview bind to `127.0.0.1`; set `HOST=127.0.0.1` for the Node server because its default is all interfaces.
 
 ## Run locally
 
 ```sh
 npm install
+cp .env.example .env      # then set DATABASE_URL to your Neon connection string
+npm run db:migrate        # applies migrations/ in order
+npm run data:schedule     # downloads the nflverse schedule to data/sources/games.csv
 npm run dev
-npm run check
-npm test
+```
+
+The app needs `DATABASE_URL`. It shows an error rather than silently keeping the journal in memory. Re-run `npm run data:schedule` to pick up schedule changes; each download records its retrieval time in `data/sources/games.csv.json`.
+
+Checks:
+
+```sh
+npm run check             # format, lint, and Svelte/type checks
+npm test                  # unit tests, no database or network
+npm run test:integration  # writes to the DATABASE_URL database
+npm run test:e2e          # browser suite: fixture schedule, memory journal, fixed clock
 npm run build
-npm run preview
 ```
 
 Node production server:
 
 ```sh
-HOST=127.0.0.1 PORT=3000 PROTOCOL_HEADER=x-forwarded-proto node build/index.js
+HOST=127.0.0.1 PORT=3000 PROTOCOL_HEADER=x-forwarded-proto node --env-file=.env build/index.js
 ```
 
 ## Next implementation step
 
-Implement market mathematics, Task 2 of the plan. No database, live source, or model call is connected yet.
+The P1 items from the 2026-10-25 review: connect real providers and the Settings catalog, wire injury, weather, and manual evidence into runs, tighten report validation, enforce immutability on lean and evidence links, fix journal restore ordering, and give the integration tests their own database branch.

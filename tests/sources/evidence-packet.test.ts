@@ -57,6 +57,16 @@ describe("schedule evidence", () => {
     expect(homeFavored).not.toHaveProperty("selectedTeamLine");
     expect(homeDog).not.toHaveProperty("selectedTeamLine");
   });
+
+  it("skips a row with no kickoff time instead of failing the whole schedule", () => {
+    // The public file's 1999 rows have an empty gametime.
+    const header = scheduleCsv.split(/\r?\n/)[0];
+    const csv = `${scheduleCsv.trimEnd()}\n1999_01_MIN_ATL,1999,REG,1,1999-09-12,Sunday,,MIN,17,ATL,14,Home,,outdoors,ATL00,Georgia Dome\n`;
+    expect(header).toContain("gametime");
+    const ids = scheduleGamesFromCsv(csv, { retrievedAt }).map((game) => game.id);
+    expect(ids).not.toContain("1999_01_MIN_ATL");
+    expect(ids).toContain("2026_07_DAL_PHI");
+  });
 });
 
 describe("injury evidence", () => {

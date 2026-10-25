@@ -34,6 +34,8 @@ export type EvidenceRecord = {
   origin: "manual" | "automatic";
   completeness: string;
   completedAt: string | null;
+  /** The id the evidence packet and report citations use. */
+  packetItemId: string | null;
 };
 
 export type AnalysisRecord = {
@@ -53,6 +55,9 @@ export type AnalysisRecord = {
   failureReason: string | null;
   idempotencyKey: string | null;
   completedAt: string | null;
+  createdAt: string;
+  policy: unknown;
+  stages: unknown;
   evidenceIds: string[];
 };
 
@@ -64,6 +69,7 @@ export type ReportRecord = {
   usage: unknown;
   renderedText: string;
   completedAt: string;
+  body: unknown;
 };
 
 export type UserResearchRecord = {
@@ -81,6 +87,7 @@ export type BetRecord = {
   decimalOdds: number;
   placedAt: string;
   stakeUnits: number;
+  sportsbook: string | null;
 };
 
 export type SettlementRecord = {
@@ -113,7 +120,12 @@ export type SaveAnalysisInput = {
     id?: string;
     decimalOdds?: number;
   };
-  evidence: Array<Omit<EvidenceRecord, "id" | "completedAt"> & { id?: string }>;
+  evidence: Array<
+    Omit<EvidenceRecord, "id" | "completedAt" | "packetItemId"> & {
+      id?: string;
+      packetItemId?: string | null;
+    }
+  >;
   analysis: {
     id?: string;
     parentId?: string | null;
@@ -129,12 +141,15 @@ export type SaveAnalysisInput = {
     model?: string | null;
     failureReason?: string | null;
     idempotencyKey?: string | null;
+    policy?: unknown;
+    stages?: unknown;
   };
   report?: {
     claims: unknown;
     thesis: string;
     usage?: unknown;
     renderedText: string;
+    body?: unknown;
   };
   userResearch?: {
     lean?: string | null;
@@ -216,7 +231,8 @@ export class JournalRepository {
           INSERT INTO analyses (
             id, offer_id, parent_id, cutoff_at, status, conclusion,
             method_version, policy_version, schema_version, prompt_version,
-            evidence_packet_hash, provider, model, failure_reason, idempotency_key, completed_at
+            evidence_packet_hash, provider, model, failure_reason, idempotency_key, completed_at,
+            policy, stages
           ) VALUES (
             ${analysisId}, ${offerId}, ${input.analysis.parentId ?? null}, ${input.analysis.cutoffAt},
             ${input.analysis.status}, ${input.analysis.conclusion ?? null},
@@ -225,7 +241,8 @@ export class JournalRepository {
             ${input.analysis.evidencePacketHash ?? null}, ${input.analysis.provider ?? null},
             ${input.analysis.model ?? null}, ${input.analysis.failureReason ?? null},
             ${input.analysis.idempotencyKey ?? null},
-            ${completed ? completedAt : null}
+            ${completed ? completedAt : null},
+            ${jsonOrNull(tx, input.analysis.policy)}, ${jsonOrNull(tx, input.analysis.stages)}
           )
         `;
 
@@ -234,28 +251,29 @@ export class JournalRepository {
           await tx`
             INSERT INTO evidence (
               id, source_id, source_url, retrieved_at, published_at, effective_at,
-              checksum, body, origin, completeness, completed_at
+              checksum, body, origin, completeness, completed_at, packet_item_id
             ) VALUES (
               ${evidenceIds[index]}, ${item.sourceId}, ${item.sourceUrl}, ${item.retrievedAt},
               ${item.publishedAt}, ${item.effectiveAt}, ${item.checksum},
               ${tx.json(item.body as never)}, ${item.origin}, ${item.completeness},
-              ${completed ? completedAt : null}
+              ${completed ? completedAt : null}, ${item.packetItemId ?? null}
             )
           `;
           await tx`
-            INSERT INTO analysis_evidence (analysis_id, evidence_id, completeness)
-            VALUES (${analysisId}, ${evidenceIds[index]}, ${item.completeness})
+            INSERT INTO analysis_evidence (analysis_id, evidence_id, completeness, position)
+            VALUES (${analysisId}, ${evidenceIds[index]}, ${item.completeness}, ${index})
           `;
         }
 
         if (input.report) {
           await tx`
-            INSERT INTO reports (id, analysis_id, claims, thesis, usage, rendered_bytes, completed_at)
+            INSERT INTO reports (id, analysis_id, claims, thesis, usage, rendered_bytes, completed_at, body)
             VALUES (
               ${randomUUID()}, ${analysisId}, ${tx.json(input.report.claims as never)},
               ${input.report.thesis},
               ${input.report.usage ? tx.json(input.report.usage as never) : null},
-              ${Buffer.from(input.report.renderedText, "utf8")}, ${completedAt}
+              ${Buffer.from(input.report.renderedText, "utf8")}, ${completedAt},
+              ${jsonOrNull(tx, input.report.body)}
             )
           `;
         }
@@ -298,6 +316,74 @@ export class JournalRepository {
     };
   }
 
+  /** Like readRun, but null when the analysis does not exist. */
+  async findRun(analysisId: string) {
+    const rows = await this.sql<{ id: string }[]>`SELECT id FROM analyses WHERE id = ${analysisId}`;
+    return rows[0] ? this.readRun(analysisId) : null;
+  }
+
+  /** One row per completed analysis with its game and offer, newest first. */
+  async listCompletedSummaries() {
+    const rows = await this.sql<
+      {
+        id: string;
+        parent_id: string | null;
+        created_at: Date;
+        conclusion: string;
+        source_game_id: string;
+        home_team: string;
+        away_team: string;
+        kickoff_at: Date;
+        sportsbook: string;
+        market: Offer["market"];
+        selection: Offer["selection"];
+        point_line: string | null;
+        american_odds: number;
+      }[]
+    >`
+      SELECT a.id, a.parent_id, a.created_at, a.conclusion,
+             g.source_game_id, g.home_team, g.away_team, g.kickoff_at,
+             o.sportsbook, o.market, o.selection, o.point_line, o.american_odds
+      FROM analyses a
+      JOIN offers o ON o.id = a.offer_id
+      JOIN games g ON g.id = o.game_id
+      WHERE a.status = 'completed'
+      ORDER BY a.created_at DESC
+    `;
+    return rows.map((row) => ({
+      id: row.id,
+      parentId: row.parent_id,
+      createdAt: iso(row.created_at)!,
+      conclusion: row.conclusion,
+      game: {
+        id: row.source_game_id,
+        home: row.home_team,
+        away: row.away_team,
+        kickoff: iso(row.kickoff_at)!,
+      },
+      offer: {
+        sportsbook: row.sportsbook,
+        market: row.market,
+        selection: row.selection,
+        pointLine: num(row.point_line),
+        americanOdds: row.american_odds,
+      },
+    }));
+  }
+
+  /** Only an unfinished analysis can be marked interrupted. Completed rows stay immutable. */
+  async markInterrupted(analysisId: string): Promise<void> {
+    await this.sql`
+      UPDATE analyses SET status = 'interrupted'
+      WHERE id = ${analysisId} AND completed_at IS NULL AND status <> 'completed'
+    `;
+  }
+
+  async listBets(): Promise<BetRecord[]> {
+    const rows = await this.sql<BetRow[]>`SELECT * FROM bets ORDER BY created_at ASC`;
+    return rows.map(mapBet);
+  }
+
   async findAnalysisByIdempotencyKey(key: string): Promise<AnalysisRecord | null> {
     const rows = await this.sql<{ id: string }[]>`
       SELECT id FROM analyses WHERE idempotency_key = ${key}
@@ -311,13 +397,15 @@ export class JournalRepository {
     americanOdds: number;
     placedAt: string;
     stakeUnits: number;
+    sportsbook?: string | null;
   }): Promise<BetRecord> {
     const id = randomUUID();
     await this.sql`
-      INSERT INTO bets (id, offer_id, analysis_id, american_odds, decimal_odds, placed_at, stake_units)
+      INSERT INTO bets (id, offer_id, analysis_id, american_odds, decimal_odds, placed_at, stake_units, sportsbook)
       VALUES (
         ${id}, ${input.offerId}, ${input.analysisId ?? null}, ${input.americanOdds},
-        ${americanToDecimal(input.americanOdds)}, ${input.placedAt}, ${input.stakeUnits}
+        ${americanToDecimal(input.americanOdds)}, ${input.placedAt}, ${input.stakeUnits},
+        ${input.sportsbook ?? null}
       )
     `;
     const bet = await this.readBet(id);
@@ -479,11 +567,11 @@ export class JournalRepository {
         await tx`
           INSERT INTO evidence (
             id, source_id, source_url, retrieved_at, published_at, effective_at,
-            checksum, body, origin, completeness, completed_at
+            checksum, body, origin, completeness, completed_at, packet_item_id
           ) VALUES (
             ${evidenceIds.get(item.id)!}, ${item.sourceId}, ${item.sourceUrl}, ${item.retrievedAt},
             ${item.publishedAt}, ${item.effectiveAt}, ${item.checksum}, ${tx.json(item.body as never)},
-            ${item.origin}, ${item.completeness}, ${item.completedAt}
+            ${item.origin}, ${item.completeness}, ${item.completedAt}, ${item.packetItemId ?? null}
           )
         `;
       }
@@ -498,7 +586,8 @@ export class JournalRepository {
           INSERT INTO analyses (
             id, offer_id, parent_id, cutoff_at, status, conclusion,
             method_version, policy_version, schema_version, prompt_version,
-            evidence_packet_hash, provider, model, failure_reason, idempotency_key, completed_at
+            evidence_packet_hash, provider, model, failure_reason, idempotency_key, completed_at,
+            policy, stages
           ) VALUES (
             ${id}, ${offerIds.get(analysis.offerId)!},
             ${analysis.parentId ? (analysisIds.get(analysis.parentId) ?? null) : null},
@@ -507,23 +596,25 @@ export class JournalRepository {
             ${analysis.promptVersion}, ${analysis.evidencePacketHash}, ${analysis.provider},
             ${analysis.model}, ${analysis.failureReason},
             ${analysis.idempotencyKey ? `${analysis.idempotencyKey}:restored:${id}` : null},
-            ${analysis.completedAt}
+            ${analysis.completedAt},
+            ${jsonOrNull(tx, analysis.policy)}, ${jsonOrNull(tx, analysis.stages)}
           )
         `;
-        for (const evidenceId of analysis.evidenceIds) {
+        for (const [position, evidenceId] of analysis.evidenceIds.entries()) {
           await tx`
-            INSERT INTO analysis_evidence (analysis_id, evidence_id, completeness)
-            VALUES (${id}, ${evidenceIds.get(evidenceId)!}, 'restored')
+            INSERT INTO analysis_evidence (analysis_id, evidence_id, completeness, position)
+            VALUES (${id}, ${evidenceIds.get(evidenceId)!}, 'restored', ${position})
           `;
         }
       }
       for (const report of snapshot.reports) {
         await tx`
-          INSERT INTO reports (id, analysis_id, claims, thesis, usage, rendered_bytes, completed_at)
+          INSERT INTO reports (id, analysis_id, claims, thesis, usage, rendered_bytes, completed_at, body)
           VALUES (
             ${randomUUID()}, ${analysisIds.get(report.analysisId)!}, ${tx.json(report.claims as never)},
             ${report.thesis}, ${report.usage ? tx.json(report.usage as never) : null},
-            ${Buffer.from(report.renderedText, "utf8")}, ${report.completedAt}
+            ${Buffer.from(report.renderedText, "utf8")}, ${report.completedAt},
+            ${jsonOrNull(tx, report.body)}
           )
         `;
       }
@@ -537,11 +628,12 @@ export class JournalRepository {
       }
       for (const bet of snapshot.bets) {
         await tx`
-          INSERT INTO bets (id, offer_id, analysis_id, american_odds, decimal_odds, placed_at, stake_units)
+          INSERT INTO bets (id, offer_id, analysis_id, american_odds, decimal_odds, placed_at, stake_units, sportsbook)
           VALUES (
             ${betIds.get(bet.id)!}, ${offerIds.get(bet.offerId)!},
             ${bet.analysisId ? (analysisIds.get(bet.analysisId) ?? null) : null},
-            ${bet.americanOdds}, ${bet.decimalOdds}, ${bet.placedAt}, ${bet.stakeUnits}
+            ${bet.americanOdds}, ${bet.decimalOdds}, ${bet.placedAt}, ${bet.stakeUnits},
+            ${bet.sportsbook ?? null}
           )
         `;
       }
@@ -612,6 +704,7 @@ export class JournalRepository {
     if (!rows[0]) return null;
     const links = await this.sql<{ evidence_id: string }[]>`
       SELECT evidence_id FROM analysis_evidence WHERE analysis_id = ${id}
+      ORDER BY position ASC NULLS LAST
     `;
     return mapAnalysis(
       rows[0],
@@ -624,7 +717,7 @@ export class JournalRepository {
       SELECT e.* FROM evidence e
       JOIN analysis_evidence ae ON ae.evidence_id = e.id
       WHERE ae.analysis_id = ${analysisId}
-      ORDER BY e.created_at ASC
+      ORDER BY ae.position ASC NULLS LAST, e.created_at ASC
     `;
     return rows.map(mapEvidence);
   }
@@ -652,6 +745,10 @@ export class JournalRepository {
     const rows = await this.sql<SettlementRow[]>`SELECT * FROM settlements WHERE id = ${id}`;
     return rows[0] ? mapSettlement(rows[0]) : null;
   }
+}
+
+function jsonOrNull(tx: Pick<Sql, "json">, value: unknown) {
+  return value === undefined || value === null ? null : tx.json(value as never);
 }
 
 function isUniqueViolation(error: unknown): boolean {
@@ -699,6 +796,7 @@ type EvidenceRow = {
   origin: "manual" | "automatic";
   completeness: string;
   completed_at: Date | null;
+  packet_item_id: string | null;
 };
 
 type AnalysisRow = {
@@ -718,6 +816,9 @@ type AnalysisRow = {
   failure_reason: string | null;
   idempotency_key: string | null;
   completed_at: Date | null;
+  created_at: Date;
+  policy: unknown;
+  stages: unknown;
 };
 
 type ReportRow = {
@@ -728,6 +829,7 @@ type ReportRow = {
   usage: unknown;
   rendered_bytes: Buffer | Uint8Array;
   completed_at: Date;
+  body: unknown;
 };
 
 type ResearchRow = {
@@ -745,6 +847,7 @@ type BetRow = {
   decimal_odds: string;
   placed_at: Date;
   stake_units: string;
+  sportsbook: string | null;
 };
 
 type SettlementRow = {
@@ -805,6 +908,7 @@ function mapEvidence(row: EvidenceRow): EvidenceRecord {
     origin: row.origin,
     completeness: row.completeness,
     completedAt: iso(row.completed_at),
+    packetItemId: row.packet_item_id,
   };
 }
 
@@ -826,6 +930,9 @@ function mapAnalysis(row: AnalysisRow, evidenceIds: string[]): AnalysisRecord {
     failureReason: row.failure_reason,
     idempotencyKey: row.idempotency_key,
     completedAt: iso(row.completed_at),
+    createdAt: iso(row.created_at)!,
+    policy: row.policy,
+    stages: row.stages,
     evidenceIds,
   };
 }
@@ -842,6 +949,7 @@ function mapReport(row: ReportRow): ReportRecord {
     usage: row.usage,
     renderedText: bytes.toString("utf8"),
     completedAt: iso(row.completed_at)!,
+    body: row.body,
   };
 }
 
@@ -863,6 +971,7 @@ function mapBet(row: BetRow): BetRecord {
     decimalOdds: num(row.decimal_odds)!,
     placedAt: iso(row.placed_at)!,
     stakeUnits: num(row.stake_units)!,
+    sportsbook: row.sportsbook,
   };
 }
 

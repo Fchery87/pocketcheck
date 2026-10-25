@@ -13,10 +13,11 @@
     "preview": "vp preview",
     "prepare": "svelte-kit sync || echo ''",
     "check": "vp check && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "test": "vp test run --exclude tests/integration/**",
+    "test": "vp test run --exclude 'tests/integration/**'",
     "test:integration": "vp test run tests/integration",
     "db:migrate": "node scripts/migrate.mjs",
     "data:import": "node --experimental-strip-types scripts/data/import.ts",
+    "data:schedule": "node --experimental-strip-types scripts/data/schedule.ts",
     "model:fit": "node --experimental-strip-types scripts/model/fit.ts",
     "model:evaluate": "node --experimental-strip-types scripts/model/evaluate.ts",
     "test:e2e": "playwright test"
