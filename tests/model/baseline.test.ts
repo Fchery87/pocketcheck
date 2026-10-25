@@ -35,7 +35,12 @@ describe("prior-game features", () => {
     const before = buildFeatureRows([early]);
     const after = buildFeatureRows([later, early]);
     expect(after.find((row) => row.gameId === "early")).toEqual(before[0]);
-    const laterRow = after.find((row) => row.gameId === "later");
+    const plain = buildFeatureRows([later, early], {
+      gameDecay: 1,
+      seasonCarry: 1,
+      priorWeight: 0,
+    });
+    const laterRow = plain.find((row) => row.gameId === "later");
     expect(laterRow?.features.home_prior_margin).toBe(14);
     expect(before[0]?.features.home_prior_margin).toBe(0);
   });
@@ -47,7 +52,7 @@ describe("integer distributions", () => {
       readFileSync(new URL("./fixtures/synthetic-games.json", import.meta.url), "utf8"),
     ).games as PricedGame[];
     const artifact = fitArtifact(games, "2024-09-15T20:00:00Z");
-    const rows = buildFeatureRows(games);
+    const rows = buildFeatureRows(games, artifact.featureParameters);
     const row = rows.find((item) => item.gameId === "g5");
     expect(row).toBeTruthy();
     const predicted = predictGame(artifact, row!);
@@ -74,13 +79,15 @@ describe("evaluation", () => {
       readFileSync(new URL("./fixtures/synthetic-games.json", import.meta.url), "utf8"),
     ).games as PricedGame[];
     const artifact = fitArtifact(games, "2024-09-15T20:00:00Z");
-    const holdout = buildFeatureRows(games).filter((row) => row.kickoff > artifact.trainingCutoff);
+    const holdout = buildFeatureRows(games, artifact.featureParameters).filter(
+      (row) => row.kickoff > artifact.trainingCutoff,
+    );
     const forecasts = scoreHoldout(artifact, holdout, games);
-    const summary = summarize(forecasts, games);
+    const summary = summarize(forecasts);
     expect(summary.brier).toBeGreaterThan(0);
     expect(summary.logLoss).toBeGreaterThan(0);
     expect(summary.calibration.reduce((sum, bin) => sum + bin.count, 0)).toBe(summary.count);
-    expect(summary.baseline.name).toBe("constant-home-field");
+    expect(summary.baselines.length).toBeGreaterThan(0);
     expect(summary.coverage.missingPrices).toBeGreaterThan(0);
     expect(
       forecasts.some(
@@ -95,7 +102,10 @@ describe("evaluation", () => {
 
 describe("smoothed bins", () => {
   it("places positive probability on the integer nearest a residual of zero", () => {
-    const bins = integerMass({ residuals: [0], bandwidth: 1, support: { min: -2, max: 2 } }, 0);
+    const bins = integerMass(
+      { residuals: [0], bandwidth: 1, support: { min: -2, max: 2 }, keyWeights: [] },
+      0,
+    );
     const zero = bins.find((bin) => bin.points === 0);
     const edge = bins.find((bin) => bin.points === 2);
     expect(zero && edge && zero.probability > edge.probability).toBe(true);

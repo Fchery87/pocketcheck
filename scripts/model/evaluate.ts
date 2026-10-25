@@ -15,11 +15,11 @@ if (artifactChecksum(body) !== checksum) {
   throw new Error("Artifact checksum does not match its contents");
 }
 const games = readGames(fixturePath);
-const rows = buildFeatureRows(games).filter(
+const rows = buildFeatureRows(games, stored.featureParameters).filter(
   (row) => kickoffMs(row) > kickoffMs({ kickoff: stored.trainingCutoff }),
 );
 const forecasts = scoreHoldout(stored, rows, games);
-const summary = summarize(forecasts, games);
+const summary = summarize(forecasts);
 const report = {
   artifactChecksum: checksum,
   datasetHash: stored.datasetHash,
@@ -35,5 +35,6 @@ console.log(
     brier: summary.brier,
     logLoss: summary.logLoss,
     coverage: summary.coverage,
+    baselines: summary.baselines,
   }),
 );

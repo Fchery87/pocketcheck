@@ -3,18 +3,78 @@ export type MassBin = {
   probability: number;
 };
 
+/** Multiplies the smooth mass on one integer outcome. Outcomes not listed keep weight 1. */
+export type KeyWeight = {
+  points: number;
+  weight: number;
+};
+
 export type ResidualDistribution = {
   residuals: number[];
   bandwidth: number;
   support: { min: number; max: number };
+  keyWeights: KeyWeight[];
 };
 
 const MIN_SUPPORT = 21;
+
+/**
+ * bandwidth smooths the margin histogram enough to wash out key numbers. pseudoCount shrinks
+ * each weight toward 1, so a margin needs real evidence to move. Margins past maxAbs keep weight 1.
+ */
+export const KEY_NUMBER_SMOOTHING = {
+  bandwidth: 3,
+  pseudoCount: 5,
+  maxAbs: 40,
+};
+
+/**
+ * How much more or less often each integer margin happens than a smooth curve through the
+ * margin histogram predicts. Margins are pooled by absolute value, so 3 and -3 share a weight.
+ * NFL margins cluster on 3 and 7 and almost never tie, which a smoothed residual curve misses.
+ */
+export function keyNumberWeights(
+  margins: readonly number[],
+  options = KEY_NUMBER_SMOOTHING,
+): KeyWeight[] {
+  const { bandwidth, pseudoCount, maxAbs } = options;
+  // Count outcomes a little past maxAbs so the smooth curve near the edge has neighbors.
+  const reach = maxAbs + Math.ceil(4 * bandwidth);
+  const counts = new Map<number, number>();
+  for (const margin of margins) {
+    const points = Math.round(margin);
+    counts.set(points, (counts.get(points) ?? 0) + 1);
+  }
+  const kernelMass = Array.from({ length: 2 * reach + 1 }, (_, index) =>
+    kernel(index - reach, bandwidth),
+  );
+  const kernelTotal = kernelMass.reduce((sum, value) => sum + value, 0);
+  const smooth = (points: number) => {
+    let value = 0;
+    for (let offset = -reach; offset <= reach; offset += 1) {
+      value += (counts.get(points - offset) ?? 0) * (kernelMass[offset + reach] ?? 0);
+    }
+    return value / kernelTotal;
+  };
+  const pooled = (points: number, of: (points: number) => number) =>
+    points === 0 ? of(0) : of(points) + of(-points);
+
+  const weights: KeyWeight[] = [];
+  for (let points = 0; points <= maxAbs; points += 1) {
+    const observed = pooled(points, (value) => counts.get(value) ?? 0);
+    const expected = pooled(points, smooth);
+    const weight = (observed + pseudoCount) / (expected + pseudoCount);
+    weights.push({ points, weight });
+    if (points !== 0) weights.unshift({ points: -points, weight });
+  }
+  return weights;
+}
 
 export function fitResidualDistribution(
   residuals: readonly number[],
   bandwidth: number,
   padding = 14,
+  keyWeights: KeyWeight[] = [],
 ): ResidualDistribution {
   if (residuals.length === 0) throw new Error("Residual distribution needs training residuals");
   if (bandwidth <= 0) throw new Error("Residual bandwidth must be positive");
@@ -22,7 +82,7 @@ export function fitResidualDistribution(
   const high = Math.max(...residuals);
   const min = Math.floor(Math.min(low - padding, -MIN_SUPPORT));
   const max = Math.ceil(Math.max(high + padding, MIN_SUPPORT));
-  return { residuals: [...residuals], bandwidth, support: { min, max } };
+  return { residuals: [...residuals], bandwidth, support: { min, max }, keyWeights };
 }
 
 function kernel(distance: number, bandwidth: number): number {
@@ -32,12 +92,14 @@ function kernel(distance: number, bandwidth: number): number {
 
 export function integerMass(distribution: ResidualDistribution, mean: number): MassBin[] {
   const bins: MassBin[] = [];
+  const keyWeight = new Map(distribution.keyWeights.map((entry) => [entry.points, entry.weight]));
   let total = 0;
   for (let points = distribution.support.min; points <= distribution.support.max; points += 1) {
     let weight = 0;
     for (const residual of distribution.residuals) {
       weight += kernel(points - (mean + residual), distribution.bandwidth);
     }
+    weight *= keyWeight.get(points) ?? 1;
     bins.push({ points, probability: weight });
     total += weight;
   }

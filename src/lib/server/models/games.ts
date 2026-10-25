@@ -1,5 +1,7 @@
 export type CompletedGame = {
   id: string;
+  /** NFL season. A January playoff game belongs to the season that started the previous fall. */
+  season?: number;
   kickoff: string;
   home: string;
   away: string;

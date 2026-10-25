@@ -4,8 +4,10 @@ import { readGames, fitArtifact, assertUnreleased } from "../../src/lib/server/m
 
 const input = resolve(process.argv[2] ?? "tests/model/fixtures/synthetic-games.json");
 const output = resolve(process.argv[3] ?? "data/artifacts/baseline.json");
+// Optional training cutoff (an ISO time). Without one, the earliest 70% of games train.
+const cutoff = process.argv[4];
 const games = readGames(input);
-const artifact = fitArtifact(games);
+const artifact = fitArtifact(games, cutoff);
 assertUnreleased(artifact);
 mkdirSync(dirname(output), { recursive: true });
 writeFileSync(output, `${JSON.stringify(artifact, null, 2)}\n`);

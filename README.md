@@ -68,4 +68,4 @@ HOST=127.0.0.1 PORT=3000 PROTOCOL_HEADER=x-forwarded-proto node --env-file=.env 
 
 ## Next implementation step
 
-The P1 items from the 2026-10-25 review are done. Next are the P2 model items: out-of-sample residuals, key-number handling for spreads, realistic tie mass, season-aware rest days, and a baseline that is not constant.
+The P1 and P2 items from the 2026-10-25 review are done. The baseline is now fit and scored on real nflverse games against the no-vig closing market, and it still loses to that market (see `docs/research/model-evaluation.md`). Next: line-aware push probabilities on key numbers, quarterback and injury features, and a release policy that decides when an artifact may become `released-experimental`.

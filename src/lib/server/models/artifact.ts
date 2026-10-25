@@ -1,18 +1,23 @@
 import { createHash } from "node:crypto";
-import type { ResidualDistribution } from "./distribution.ts";
-import { FEATURE_DEFINITIONS } from "./features.ts";
+import type { ResidualDistribution, SideProbability } from "./distribution.ts";
+import { FEATURE_DEFINITIONS, type FeatureParameters } from "./features.ts";
 import type { FitParameters, LinearModel } from "./fit.ts";
 
 export type ReleaseStatus = "unreleased" | "released-experimental";
 
 export type ModelArtifact = {
   kind: "pocketcheck-baseline";
-  version: 1;
+  version: 2;
   releaseStatus: ReleaseStatus;
   datasetHash: string;
   trainingCutoff: string;
   featureDefinitions: typeof FEATURE_DEFINITIONS;
+  featureParameters: FeatureParameters;
+  /** walk-forward when the training window is large enough, otherwise in-sample. */
+  residualSource: "walk-forward" | "in-sample";
   fitParameters: FitParameters;
+  /** Outcome rates in the training window, for the base-rate baseline. */
+  baseRates: { moneyline: SideProbability };
   margin: { model: LinearModel; residuals: ResidualDistribution };
   total: { model: LinearModel; residuals: ResidualDistribution };
   checksum: string;
