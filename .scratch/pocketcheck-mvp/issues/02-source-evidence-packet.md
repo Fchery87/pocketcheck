@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] A minimized current-season schedule fixture covers game identity, kickoff in America/New_York, home and away teams, and venue. A future game has no invented final score.
 - [ ] Home-favored schedule spread signs are converted explicitly and tested. They are not treated as the user's selected-team line.

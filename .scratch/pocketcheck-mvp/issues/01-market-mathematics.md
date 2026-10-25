@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] Positive and negative American prices convert to decimal odds and back within a documented tolerance.
 - [ ] −110 yields decimal 1.9090909 and a 52.38095% decisive break-even. A hypothetical 55% no-push win probability yields +0.05 units of expected value per unit.
