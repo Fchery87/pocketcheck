@@ -12,6 +12,8 @@ import {
   type ResearchRun,
 } from "./memory-journal.ts";
 import type { ThesisProvider } from "../providers/contracts.ts";
+import { persistCompletedRun } from "./persist.ts";
+import { decidePolicy } from "./policy.ts";
 import { assembleEvidencePacket } from "../sources/packet.ts";
 import type { EvidenceItem, ScheduledGame } from "../sources/contracts.ts";
 
@@ -145,6 +147,14 @@ export async function runAnalysis(
       report: null,
       renderedText: "",
       failureReason: checked?.reasons.join("; ") ?? drafted.error?.message ?? "Report check failed",
+      policy: decidePolicy({
+        offerValid: true,
+        gameStarted: false,
+        materialEvidenceMissing: true,
+        releaseStatus: "unreleased",
+        probabilities: null,
+        decimalOdds,
+      }),
     });
     return { ok: false, error: failed.failureReason ?? "Report check failed", run: failed };
   }
@@ -168,6 +178,15 @@ export async function runAnalysis(
     report: checked.report,
     renderedText,
     failureReason: null,
+    policy: decidePolicy({
+      offerValid: true,
+      gameStarted: false,
+      materialEvidenceMissing: packet.gaps.length > 0,
+      releaseStatus: "unreleased",
+      probabilities: null,
+      decimalOdds,
+    }),
   });
+  await persistCompletedRun(run);
   return { ok: true, run };
 }

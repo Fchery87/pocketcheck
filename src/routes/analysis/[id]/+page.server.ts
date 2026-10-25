@@ -27,6 +27,7 @@ export const load: PageServerLoad = ({ params }) => {
     observedAt: run.offer.observedAt,
     tieRule: run.offer.rules.tie,
     renderedText: run.renderedText,
+    policy: run.policy,
   };
 };
 
@@ -38,6 +39,7 @@ export const actions = {
     const games = loadFixtureGames(resolve("tests/fixtures/sources/games-minimized.csv"), FIXTURE_NOW);
     const game = games.find((item) => item.id === parent.game.id) ?? parent.game;
     const pointLine = parent.offer.pointLine;
+    const postedOdds = Number(data.get("americanOdds"));
     const result = await runAnalysis({
       game,
       nowIso: FIXTURE_NOW,
@@ -45,7 +47,7 @@ export const actions = {
       market: parent.offer.market,
       selection: parent.offer.selection,
       pointLine: pointLine === null ? undefined : pointLine,
-      americanOdds: Number(data.get("americanOdds")),
+      americanOdds: Number.isFinite(postedOdds) ? postedOdds : parent.offer.americanOdds,
       observedAt: parent.offer.observedAt,
       tieRule: parent.offer.rules.tie ?? undefined,
       lean: parent.lean?.text,

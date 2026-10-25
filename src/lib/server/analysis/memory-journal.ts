@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Offer } from "#lib/domain/offer.ts";
 import type { ThesisReport } from "../providers/contracts.ts";
+import type { PolicyDecision } from "./policy.ts";
 import type { ScheduledGame } from "../sources/contracts.ts";
 
 /**
@@ -47,6 +48,7 @@ export type ResearchRun = {
   report: ThesisReport | null;
   renderedText: string;
   failureReason: string | null;
+  policy: PolicyDecision | null;
   createdAt: string;
 };
 
@@ -92,6 +94,7 @@ export function createMemoryJournal(): MemoryJournal {
         report: input.report,
         renderedText: input.renderedText,
         failureReason: input.failureReason,
+        policy: input.policy,
         createdAt: new Date().toISOString(),
       };
       runs.set(id, saved);

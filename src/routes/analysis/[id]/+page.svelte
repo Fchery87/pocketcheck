@@ -2,10 +2,6 @@
   import type { PageProps } from "./$types";
 
   let { data }: PageProps = $props();
-  let refreshOdds = $state("");
-  $effect(() => {
-    refreshOdds = String(data.americanOdds);
-  });
 </script>
 
 <main>
@@ -30,6 +26,22 @@
         <li>{gap}</li>
       {/each}
     </ul>
+    {#if data.policy}
+      <section data-testid="policy">
+        <h2>Policy</h2>
+        <p>{data.policy.conclusion}</p>
+        <p>{data.policy.policyVersion}</p>
+        <p>{data.policy.label}</p>
+        {#if data.policy.blockingReason}
+          <p>{data.policy.blockingReason}</p>
+        {/if}
+        <p>
+          Expected value {data.policy.expectedValuePerUnit === null
+            ? "unavailable"
+            : data.policy.expectedValuePerUnit}
+        </p>
+      </section>
+    {/if}
     {#if data.lean}
       <section data-testid="user-lean">
         <h2>Your lean</h2>
@@ -51,7 +63,11 @@
       <input type="hidden" name="rationale" value={data.lean?.rationale ?? ""} />
       <label>
         American odds
-        <input name="americanOdds" bind:value={refreshOdds} data-testid="refresh-odds" />
+        <input
+          name="americanOdds"
+          defaultValue={data.americanOdds}
+          data-testid="refresh-odds"
+        />
       </label>
       <button type="submit" data-testid="refresh">Refresh</button>
     </form>

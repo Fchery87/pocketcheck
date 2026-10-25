@@ -57,4 +57,22 @@
       required win rate among games that do not push.
     </p>
   </section>
+  <section>
+    <h2>Calibration and leakage</h2>
+    <p>
+      A probability is useful only if the stated chance matches later results in similar cases. Count the
+      samples in each bin. Do not trust a win rate by itself.
+    </p>
+    <p>
+      Leakage is using information that was not available before kickoff, including the final score, a
+      later injury update, or a revised season total. Feature rows may use only earlier games.
+    </p>
+  </section>
+  <section>
+    <h2>Kelly, as context only</h2>
+    <p>
+      Kelly stake sizing is a lesson about how sensitive a bet size is to a probability error. PocketCheck
+      does not recommend a personal stake.
+    </p>
+  </section>
 </main>
