@@ -16,6 +16,7 @@
     "test": "vp test run",
     "test:integration": "vp test run tests/integration",
     "db:migrate": "node scripts/migrate.mjs",
+    "data:import": "node --experimental-strip-types scripts/data/import.ts",
     "test:e2e": "echo \"Playwright is added in the research-flow task\" && exit 0"
   },
   "devDependencies": {

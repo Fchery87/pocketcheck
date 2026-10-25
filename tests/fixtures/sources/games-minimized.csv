@@ -1,0 +1,5 @@
+game_id,season,game_type,week,gameday,weekday,gametime,away_team,away_score,home_team,home_score,location,spread_line,roof,stadium_id,stadium
+2026_07_DAL_PHI,2026,REG,7,2026-10-26,Monday,20:15,DAL,,PHI,,Home,-4.5,outdoors,PHI00,Lincoln Financial Field
+2026_08_BAL_BUF,2026,REG,8,2026-11-01,Sunday,13:00,BAL,,BUF,,Home,3.5,outdoors,BUF00,Highmark Stadium
+2026_07_GB_DET,2026,REG,7,2026-10-25,Sunday,16:25,GB,,DET,,Home,3.5,dome,DET00,Ford Field
+2026_01_OLD_GAME,2026,REG,1,2026-09-10,Thursday,20:15,DAL,17,PHI,24,Home,-2.5,outdoors,PHI00,Lincoln Financial Field

@@ -4,7 +4,7 @@
 
 **Blocked by:** 02: Source evidence packet
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] Discovery lists every returned model. Incompatible entries stay visible with a reason and cannot draft a thesis.
 - [ ] grok-4.7 is preferred only when that account's catalog returns it. There is no silent provider or model switch.
