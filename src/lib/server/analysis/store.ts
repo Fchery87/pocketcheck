@@ -28,6 +28,14 @@ export const progressStages: ProgressStage[] = [
   "checking report",
 ];
 
+export type RunUsage = {
+  promptTokens: number | null;
+  completionTokens: number | null;
+  totalTokens: number | null;
+  /** US dollars, as the provider reported it. Null when it reported no cost. */
+  costUsd: number | null;
+};
+
 export type RunStatus = "completed" | "interrupted" | "failed";
 
 export type PrivateLean = {
@@ -60,6 +68,8 @@ export type ResearchRun = {
   evidencePacketHash: string;
   /** Missing evidence and caveats found while collecting, owned by the app, not the drafter. */
   gaps: string[];
+  /** Drafting usage as the provider reported it. Null when it reported none. */
+  usage: RunUsage | null;
   report: ThesisReport | null;
   renderedText: string;
   failureReason: string | null;

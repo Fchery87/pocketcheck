@@ -1,0 +1,38 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "gpt-image-2",
+      "object": "model",
+      "created": 1773290000,
+      "owned_by": "theclawbay",
+      "display_name": "GPT Image 2",
+      "context_window": null,
+      "supports_reasoning": false,
+      "supported_reasoning_efforts": [],
+      "default_reasoning_effort": null
+    },
+    {
+      "id": "grok-4.7",
+      "object": "model",
+      "created": 1773290000,
+      "owned_by": "theclawbay",
+      "display_name": "Grok 4.7",
+      "context_window": null,
+      "supports_reasoning": false,
+      "supported_reasoning_efforts": [],
+      "default_reasoning_effort": null
+    },
+    {
+      "id": "deepseek-v4-flash",
+      "object": "model",
+      "created": 1773290000,
+      "owned_by": "theclawbay",
+      "display_name": "DeepSeek V4 Flash",
+      "context_window": 1000000,
+      "supports_reasoning": false,
+      "supported_reasoning_efforts": [],
+      "default_reasoning_effort": null
+    }
+  ]
+}

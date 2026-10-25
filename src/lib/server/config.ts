@@ -1,17 +1,25 @@
 import { resolve } from "node:path";
 import {
   DATABASE_URL,
+  DEEPSEEK_API_KEY,
   NWS_USER_AGENT,
   POCKETCHECK_INJURY_CSV,
   POCKETCHECK_JOURNAL,
   POCKETCHECK_NOW,
   POCKETCHECK_SCHEDULE_CSV,
   POCKETCHECK_WEATHER,
+  THECLAWBAY_API_KEY,
 } from "$app/env/private";
-import { createDb } from "./db/client.ts";
+import { createDb, type Db } from "./db/client.ts";
 import { createSourceCollector, type EvidenceCollector } from "./analysis/evidence.ts";
 import { createNeonStore } from "./analysis/neon-store.ts";
 import { createMemoryStore, type ResearchStore } from "./analysis/store.ts";
+import type { ProviderId, ThesisDrafter, ThesisProvider } from "./providers/contracts.ts";
+import { createDeepSeekProvider } from "./providers/deepseek.ts";
+import { resolveDrafter } from "./providers/drafter.ts";
+import { createTheClawBayProvider } from "./providers/theclawbay.ts";
+import { createNeonSettings } from "./settings/neon-settings.ts";
+import { createMemorySettings, type SettingsStore } from "./settings/store.ts";
 import { fetchKickoffForecast } from "./sources/nws.ts";
 
 /**
@@ -61,20 +69,50 @@ export function evidenceCollector(): EvidenceCollector {
   });
 }
 
-let store: ResearchStore | undefined;
+let db: Db | undefined;
 
-/** The journal. Neon unless the memory journal is explicitly requested; never a silent fallback. */
-export function researchStore(): ResearchStore {
-  if (store) return store;
-  if (POCKETCHECK_JOURNAL === "memory") {
-    store = createMemoryStore();
-    return store;
-  }
+function database(): Db {
+  if (db) return db;
   if (!DATABASE_URL) {
     throw new ConfigError(
       "DATABASE_URL is not set. Add your Neon connection string to .env and run npm run db:migrate.",
     );
   }
-  store = createNeonStore(createDb(DATABASE_URL));
+  db = createDb(DATABASE_URL);
+  return db;
+}
+
+let store: ResearchStore | undefined;
+
+/** The journal. Neon unless the memory journal is explicitly requested; never a silent fallback. */
+export function researchStore(): ResearchStore {
+  store ??= POCKETCHECK_JOURNAL === "memory" ? createMemoryStore() : createNeonStore(database());
   return store;
+}
+
+let settings: SettingsStore | undefined;
+
+/** Non-secret settings, kept beside the journal. */
+export function settingsStore(): SettingsStore {
+  settings ??=
+    POCKETCHECK_JOURNAL === "memory" ? createMemorySettings() : createNeonSettings(database());
+  return settings;
+}
+
+/** Keys are read here and handed to provider adapters; nothing else sees them. */
+export function providerKeys(): Partial<Record<ProviderId, string>> {
+  return { theclawbay: THECLAWBAY_API_KEY, deepseek: DEEPSEEK_API_KEY };
+}
+
+export function makeProvider(id: ProviderId, apiKey: string): ThesisProvider {
+  return id === "theclawbay"
+    ? createTheClawBayProvider({ apiKey })
+    : createDeepSeekProvider({ apiKey });
+}
+
+/** The drafter chosen in Settings, or the reason it cannot be used. */
+export function thesisDrafter(): Promise<
+  { ok: true; drafter: ThesisDrafter } | { ok: false; error: string }
+> {
+  return resolveDrafter({ settings: settingsStore(), keys: providerKeys(), makeProvider });
 }

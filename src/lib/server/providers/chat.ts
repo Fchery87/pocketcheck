@@ -1,9 +1,12 @@
 import { validateThesisReport } from "../analysis/report-validation.ts";
 import { thesisRequestBody } from "../analysis/packet.ts";
 import {
+  ProviderError,
   classifyCatalogModel,
   parseCatalogPayload,
   type DraftThesisResult,
+  type ModelTest,
+  type ProviderErrorKind,
   type ModelCatalog,
   type ModelCatalogEntry,
   type ProviderOptions,
@@ -35,7 +38,13 @@ function readUsage(body: unknown): { usage: UsageRecord | null; usageCost: numbe
       completionTokens: numberOrNull(usage.completion_tokens),
       totalTokens: numberOrNull(usage.total_tokens),
     },
-    usageCost: typeof usage.cost === "number" ? usage.cost : null,
+    usageCost:
+      typeof usage.cost === "number"
+        ? usage.cost
+        : // xAI reports cost in ticks: 1 USD = 10^10 ticks.
+          typeof usage.cost_in_usd_ticks === "number"
+          ? usage.cost_in_usd_ticks / 1e10
+          : null,
   };
 }
 
@@ -45,6 +54,15 @@ function readContent(body: unknown): string | null {
   if (!Array.isArray(choices) || !choices[0] || typeof choices[0] !== "object") return null;
   const message = (choices[0] as { message?: { content?: unknown } }).message;
   return typeof message?.content === "string" ? message.content : null;
+}
+
+const CATALOG_TIMEOUT_MS = 15_000;
+const DRAFT_TIMEOUT_MS = 120_000;
+
+function statusKind(status: number): ProviderErrorKind {
+  if (status === 401 || status === 403) return "auth";
+  if (status === 429) return "rate_limit";
+  return "transport";
 }
 
 function failedDraft(
@@ -75,26 +93,93 @@ export function createChatProvider(input: {
   const now = input.options.now ?? (() => new Date().toISOString());
   const baseUrl = input.baseUrl.replace(/\/$/, "");
 
-  async function request(path: string, init?: RequestInit): Promise<Response> {
-    return fetchImpl(`${baseUrl}${path}`, {
-      ...init,
-      headers: {
-        authorization: `Bearer ${input.options.apiKey}`,
-        "content-type": "application/json",
-        ...init?.headers,
-      },
-    });
+  /** The whole exchange, body included, is bounded by the timeout. */
+  async function request(
+    path: string,
+    init: RequestInit,
+    timeoutMs: number,
+  ): Promise<{ status: number; ok: boolean; text: string }> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetchImpl(`${baseUrl}${path}`, {
+        ...init,
+        signal: controller.signal,
+        headers: {
+          authorization: `Bearer ${input.options.apiKey}`,
+          "content-type": "application/json",
+          ...init.headers,
+        },
+      });
+      return { status: response.status, ok: response.ok, text: await response.text() };
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new ProviderError("timeout", `${path} timed out after ${timeoutMs}ms`);
+      }
+      const detail = error instanceof Error ? error.message : "request failed";
+      throw new ProviderError("transport", `${path} failed: ${detail}`);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async function discoverModels(): Promise<ModelCatalog> {
-    const response = await request("/models");
-    const body = await response.json();
+    const response = await request("/models", {}, input.options.timeoutMs ?? CATALOG_TIMEOUT_MS);
+    if (!response.ok) {
+      throw new ProviderError(
+        statusKind(response.status),
+        `Model catalog request failed with HTTP ${response.status}`,
+        response.status,
+      );
+    }
+    const body = tryParse(response.text);
+    if (!body.ok) throw new ProviderError("transport", "Model catalog response is not JSON");
     return {
       provider: input.id,
       baseUrl,
       retrievedAt: now(),
-      entries: parseCatalogPayload(body).map(classifyCatalogModel),
+      entries: parseCatalogPayload(body.value).map(classifyCatalogModel),
     };
+  }
+
+  async function testModel(modelId: string): Promise<ModelTest> {
+    const testedAt = now();
+    try {
+      const response = await request(
+        "/chat/completions",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            model: modelId,
+            temperature: 0,
+            max_tokens: 2000,
+            response_format: { type: "json_object" },
+            messages: [
+              { role: "system", content: "Reply with a JSON object only." },
+              { role: "user", content: 'Return {"ok": true}.' },
+            ],
+          }),
+        },
+        input.options.timeoutMs ?? DRAFT_TIMEOUT_MS,
+      );
+      if (!response.ok) {
+        return { ok: false, reason: `HTTP ${response.status}`, testedAt };
+      }
+      const body = tryParse(response.text);
+      const content = body.ok ? readContent(body.value) : null;
+      const parsed = tryParse(content);
+      const answered =
+        parsed.ok && !!parsed.value && (parsed.value as { ok?: unknown }).ok === true;
+      return answered
+        ? { ok: true, reason: null, testedAt }
+        : { ok: false, reason: "The reply was not the requested JSON object", testedAt };
+    } catch (error) {
+      return {
+        ok: false,
+        reason: error instanceof ProviderError ? error.message : "test failed",
+        testedAt,
+      };
+    }
   }
 
   function selectionStatus(modelId: string, entries: ModelCatalogEntry[]) {
@@ -112,16 +197,30 @@ export function createChatProvider(input: {
     rejected?: string[],
   ): Promise<
     | { ok: true; payload: CompletionPayload }
-    | { ok: false; status: number; kind: "auth" | "rate_limit" | "transport" }
+    | { ok: false; status: number | null; kind: ProviderErrorKind; message: string }
   > {
-    const response = await request("/chat/completions", {
-      method: "POST",
-      body: thesisRequestBody({ modelId, packet, rejected }),
-    });
-    if (response.status === 401) return { ok: false, status: 401, kind: "auth" };
-    if (response.status === 429) return { ok: false, status: 429, kind: "rate_limit" };
-    if (!response.ok) return { ok: false, status: response.status, kind: "transport" };
-    const body = await response.json();
+    let response;
+    try {
+      response = await request(
+        "/chat/completions",
+        { method: "POST", body: thesisRequestBody({ modelId, packet, rejected }) },
+        input.options.timeoutMs ?? DRAFT_TIMEOUT_MS,
+      );
+    } catch (error) {
+      if (!(error instanceof ProviderError)) throw error;
+      return { ok: false, status: null, kind: error.kind, message: error.message };
+    }
+    if (!response.ok) {
+      const kind = statusKind(response.status);
+      return {
+        ok: false,
+        status: response.status,
+        kind,
+        message: `${kind} (HTTP ${response.status})`,
+      };
+    }
+    const parsedBody = tryParse(response.text);
+    const body = parsedBody.ok ? parsedBody.value : null;
     const usage = readUsage(body);
     return {
       ok: true,
@@ -152,7 +251,7 @@ export function createChatProvider(input: {
     const first = await complete(draftInput.modelId, draftInput.packet);
     if (!first.ok) {
       return failedDraft(draftInput.packet, draftInput.modelId, {
-        error: { kind: first.kind, status: first.status, message: first.kind },
+        error: { kind: first.kind, status: first.status, message: first.message },
       });
     }
 
@@ -181,7 +280,7 @@ export function createChatProvider(input: {
     if (!second.ok) {
       return failedDraft(draftInput.packet, draftInput.modelId, {
         repairAttempted: true,
-        error: { kind: second.kind, status: second.status, message: second.kind },
+        error: { kind: second.kind, status: second.status, message: second.message },
       });
     }
     const repaired = tryParse(second.payload.content);
@@ -220,6 +319,7 @@ export function createChatProvider(input: {
     id: input.id,
     baseUrl,
     discoverModels,
+    testModel,
     selectionStatus,
     draftThesis,
   };

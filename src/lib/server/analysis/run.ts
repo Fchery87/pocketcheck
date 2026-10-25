@@ -232,6 +232,15 @@ export async function runAnalysis(
     policy,
     provider: drafter.id,
     model: drafter.modelId,
+    usage:
+      drafted.usage || drafted.usageCost !== null
+        ? {
+            promptTokens: drafted.usage?.promptTokens ?? null,
+            completionTokens: drafted.usage?.completionTokens ?? null,
+            totalTokens: drafted.usage?.totalTokens ?? null,
+            costUsd: drafted.usageCost,
+          }
+        : null,
   };
 
   if (!checked?.ok) {

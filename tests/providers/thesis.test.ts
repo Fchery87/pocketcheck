@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { americanToDecimal, breakEven } from "../../src/lib/domain/odds.ts";
-import { buildThesisPacket } from "../../src/lib/server/analysis/packet.ts";
+import { buildThesisPacket, thesisRequestBody } from "../../src/lib/server/analysis/packet.ts";
 import { validateThesisReport } from "../../src/lib/server/analysis/report-validation.ts";
 import type { EvidenceItem } from "../../src/lib/server/sources/contracts.ts";
 import { createDeepSeekProvider } from "../../src/lib/server/providers/deepseek.ts";
@@ -153,7 +153,11 @@ describe("model discovery", () => {
       reason: "not a text thesis model",
     });
     expect(selection.entries.find((entry) => entry.id === "text-embed-3")?.compatible).toBe(false);
-    expect(selection.entries.find((entry) => entry.id === "grok-4.7")?.compatible).toBe(true);
+    // Listed but untested: TheClawBay does not declare capabilities.
+    expect(selection.entries.find((entry) => entry.id === "grok-4.7")).toMatchObject({
+      compatible: false,
+      capability: "untested",
+    });
   });
 
   it("does not substitute another provider when grok-4.7 is absent", async () => {
@@ -234,7 +238,7 @@ describe("thesis drafting", () => {
   }
 
   const compatible: ModelCatalogEntry[] = [
-    { id: "grok-4.7", object: "model", compatible: true, reason: null },
+    { id: "grok-4.7", object: "model", compatible: true, reason: null, capability: "tested" },
   ];
 
   it("sends the evidence packet and precomputed numbers without the user lean", async () => {
@@ -330,6 +334,30 @@ describe("thesis drafting", () => {
   function reportWith(overrides: Record<string, unknown>) {
     return { ...JSON.parse(validReportJson()), ...overrides };
   }
+
+  it("names each field that has the wrong shape", () => {
+    // What grok-4.7 returned on 2026-10-25 before the prompt spelled out the types.
+    const result = validateThesisReport(
+      reportWith({
+        claims: [{ text: "Hurts is questionable.", stance: "oppose", evidenceIds: ["ev-injury"] }],
+        uncertainty: ["Lineup is unresolved."],
+      }),
+      packet(),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reasons.join(" ")).toMatch(
+      /claims\[0\]\.stance must be "supporting" or "opposing"/,
+    );
+    expect(result.reasons.join(" ")).toMatch(/uncertainty must be a string/);
+  });
+
+  it("tells the model each field's type and allowed values", () => {
+    const body = JSON.parse(thesisRequestBody({ modelId: "m", packet: packet() }));
+    const rules = body.messages[0].content as string;
+    expect(rules).toContain('stance is exactly "supporting" or "opposing"');
+    expect(rules).toMatch(/uncertainty: string/);
+  });
 
   it("rejects a claim that cites no evidence", () => {
     const result = validateThesisReport(

@@ -1,5 +1,9 @@
 import type { ThesisPacket, ThesisReport } from "../providers/contracts.ts";
-import { forbiddenProbabilityKeys, isThesisReportShape } from "./report-schema.ts";
+import {
+  forbiddenProbabilityKeys,
+  isThesisReportShape,
+  reportShapeProblems,
+} from "./report-schema.ts";
 
 const NUMBER_TOLERANCE = 1e-6;
 // "62%", "62.5 %", "70 percent".
@@ -48,7 +52,7 @@ export function validateThesisReport(value: unknown, packet: ThesisPacket): Repo
     reasons.push(`Model supplied a probability field: ${probabilityKeys.join(", ")}`);
   }
   if (!isThesisReportShape(value)) {
-    reasons.push("Malformed report");
+    reasons.push(...reportShapeProblems(value));
     return { ok: false, reasons };
   }
   const allowed = new Set(packet.items.map((item) => item.id));

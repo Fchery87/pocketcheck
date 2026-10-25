@@ -9,6 +9,7 @@ import {
   now,
   researchStore,
   schedulePath,
+  thesisDrafter,
 } from "#lib/server/config.ts";
 import type { Actions, PageServerLoad } from "./$types";
 
@@ -61,6 +62,9 @@ export const actions = {
     if (!game)
       return fail(400, { error: `Game ${parent.game.id} is no longer in the schedule file` });
 
+    const drafting = await thesisDrafter();
+    if (!drafting.ok) return fail(503, { error: drafting.error });
+
     const sportsbook = String(data.get("sportsbook") ?? "").trim() || parent.offer.sportsbook;
     const result = await runAnalysis(
       {
@@ -79,7 +83,7 @@ export const actions = {
         parentId: parent.id,
         carriedEvidence: parent.evidence.filter((item) => item.origin === "manual"),
       },
-      { store: store(), collect: evidenceCollector() },
+      { store: store(), drafter: drafting.drafter, collect: evidenceCollector() },
     );
     if (result.run) redirect(303, `/analysis/${result.run.id}`);
     return fail(400, { error: result.ok ? "Refresh failed" : result.error });

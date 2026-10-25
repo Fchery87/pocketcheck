@@ -101,3 +101,15 @@ test("a started game cannot be selected", async ({ page }) => {
     0,
   );
 });
+
+test("settings starts on the fixture drafter without calling a provider", async ({ page }) => {
+  await page.goto("/settings");
+  await expect(page.getByTestId("current-drafter")).toHaveText("Current: fixture");
+  await expect(page.getByTestId("catalog-status-theclawbay")).toContainText("Catalog not loaded");
+  await expect(page.getByTestId("catalog-status-deepseek")).toContainText("Catalog not loaded");
+  // Untested or uncached models cannot be chosen; only the fixture is offered.
+  await expect(page.locator('input[name="drafter"]')).toHaveCount(1);
+  await page.getByTestId("choose-drafter").click();
+  await expect(page.getByTestId("form-success")).toHaveText("Drafter saved.");
+  await expect(page.locator("body")).not.toContainText("sk-");
+});

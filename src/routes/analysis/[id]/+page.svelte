@@ -168,6 +168,21 @@
     </section>
   {/if}
 
+  {#if !fixture}
+    <p data-testid="usage">
+      {#if run.usage}
+        Drafting used {run.usage.totalTokens ?? "an unreported number of"} tokens
+        {#if run.usage.promptTokens !== null && run.usage.completionTokens !== null}
+          ({run.usage.promptTokens} prompt, {run.usage.completionTokens} completion)
+        {/if}. Cost {run.usage.costUsd === null
+          ? "not reported"
+          : `$${run.usage.costUsd.toFixed(4)}, as reported by ${run.provider}`}.
+      {:else}
+        {run.provider} reported no usage for this run.
+      {/if}
+    </p>
+  {/if}
+
   <ol data-testid="progress">
     {#each run.stages as stage (stage)}
       <li>{stage}</li>

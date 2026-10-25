@@ -28,41 +28,49 @@ export function forbiddenProbabilityKeys(value: unknown, path = ""): string[] {
   });
 }
 
-export function isThesisReportShape(value: unknown): value is ThesisReport {
-  if (!value || typeof value !== "object") return false;
+/** Every way the value differs from the report shape, naming the field, for the repair request. */
+export function reportShapeProblems(value: unknown): string[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return ["The report must be a JSON object"];
+  }
   const record = value as Record<string, unknown>;
-  if (typeof record.conclusion !== "string") return false;
-  if (typeof record.summary !== "string") return false;
-  if (typeof record.uncertainty !== "string") return false;
-  if (
-    !Array.isArray(record.assumptions) ||
-    !record.assumptions.every((item) => typeof item === "string")
-  ) {
-    return false;
+  const problems: string[] = [];
+  for (const field of ["conclusion", "summary", "uncertainty"]) {
+    if (typeof record[field] !== "string") problems.push(`${field} must be a string`);
   }
-  if (
-    !Array.isArray(record.missingInputs) ||
-    !record.missingInputs.every((item) => typeof item === "string")
-  ) {
-    return false;
+  for (const field of ["assumptions", "missingInputs", "changeConditions"]) {
+    const items = record[field];
+    if (!Array.isArray(items) || !items.every((item) => typeof item === "string")) {
+      problems.push(`${field} must be an array of strings`);
+    }
   }
-  if (
-    !Array.isArray(record.changeConditions) ||
-    !record.changeConditions.every((item) => typeof item === "string")
-  ) {
-    return false;
+  for (const field of ["decimalOdds", "decisiveBreakEven"]) {
+    if (typeof record[field] !== "number") problems.push(`${field} must be a number`);
   }
-  if (typeof record.decimalOdds !== "number" || typeof record.decisiveBreakEven !== "number")
-    return false;
-  if (!Array.isArray(record.claims)) return false;
-  return record.claims.every((claim) => {
-    if (!claim || typeof claim !== "object") return false;
+  if (!Array.isArray(record.claims)) {
+    problems.push("claims must be an array");
+    return problems;
+  }
+  record.claims.forEach((claim, index) => {
+    const at = `claims[${index}]`;
+    if (!claim || typeof claim !== "object") {
+      problems.push(`${at} must be an object`);
+      return;
+    }
     const row = claim as Record<string, unknown>;
-    return (
-      typeof row.text === "string" &&
-      (row.stance === "supporting" || row.stance === "opposing") &&
-      Array.isArray(row.evidenceIds) &&
-      row.evidenceIds.every((id) => typeof id === "string")
-    );
+    if (typeof row.text !== "string") problems.push(`${at}.text must be a string`);
+    if (row.stance !== "supporting" && row.stance !== "opposing") {
+      problems.push(
+        `${at}.stance must be "supporting" or "opposing", not ${JSON.stringify(row.stance)}`,
+      );
+    }
+    if (!Array.isArray(row.evidenceIds) || !row.evidenceIds.every((id) => typeof id === "string")) {
+      problems.push(`${at}.evidenceIds must be an array of strings`);
+    }
   });
+  return problems;
+}
+
+export function isThesisReportShape(value: unknown): value is ThesisReport {
+  return reportShapeProblems(value).length === 0;
 }

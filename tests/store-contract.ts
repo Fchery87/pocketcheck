@@ -40,6 +40,20 @@ const overridingDrafter: ThesisDrafter = (() => {
   };
 })();
 
+const meteredDrafter: ThesisDrafter = (() => {
+  const inner = createFixtureDrafter();
+  return {
+    ...inner,
+    async draftThesis(input) {
+      return {
+        ...(await inner.draftThesis(input)),
+        usage: { promptTokens: 2844, completionTokens: 167, totalTokens: 3011 },
+        usageCost: 0.00168708,
+      };
+    },
+  };
+})();
+
 /** Behaviour every research store must share. Run against memory and against Neon. */
 export function describeStoreContract(name: string, makeStore: () => ResearchStore) {
   describe(`${name} research store`, () => {
@@ -48,6 +62,18 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
       const outcome = await runAnalysis(request(), { store });
       expect(outcome.ok, outcome.ok ? "" : outcome.error).toBe(true);
       expect(await store.getRun(outcome.run!.id)).toEqual(outcome.run);
+    });
+
+    it("keeps the drafter's reported usage and cost", async () => {
+      const store = makeStore();
+      const outcome = await runAnalysis(request(), { store, drafter: meteredDrafter });
+      const saved = await store.getRun(outcome.run!.id);
+      expect(saved?.usage).toEqual({
+        promptTokens: 2844,
+        completionTokens: 167,
+        totalTokens: 3011,
+        costUsd: 0.00168708,
+      });
     });
 
     it("keeps a refreshed run linked to an unchanged parent", async () => {

@@ -4,7 +4,14 @@ import type { ThesisReport } from "../providers/contracts.ts";
 import type { EvidenceFacts, EvidenceItem } from "../sources/contracts.ts";
 import { JournalRepository, type EvidenceRecord } from "../db/repository.ts";
 import type { PolicyDecision } from "./policy.ts";
-import type { ActualBet, ProgressStage, ResearchRun, ResearchStore, RunStatus } from "./store.ts";
+import type {
+  ActualBet,
+  ProgressStage,
+  ResearchRun,
+  ResearchStore,
+  RunStatus,
+  RunUsage,
+} from "./store.ts";
 
 /** What an evidence row's body holds, so the packet item comes back unchanged. */
 type EvidenceBody = {
@@ -98,6 +105,7 @@ export function createNeonStore(sql: Sql): ResearchStore {
       evidence: evidence.map(evidenceItem),
       evidencePacketHash: analysis.evidencePacketHash ?? "",
       gaps: Array.isArray(analysis.gaps) ? (analysis.gaps as string[]) : [],
+      usage: (analysis.usage as RunUsage | null) ?? null,
       report: (report?.body as ThesisReport | null | undefined) ?? null,
       renderedText: report?.renderedText ?? "",
       failureReason: analysis.failureReason,
@@ -147,6 +155,7 @@ export function createNeonStore(sql: Sql): ResearchStore {
           policy: run.policy,
           stages: run.stages,
           gaps: run.gaps,
+          usage: run.usage,
           evidencePacketHash: run.evidencePacketHash,
           provider: run.provider,
           model: run.model,

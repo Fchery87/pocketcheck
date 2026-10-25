@@ -13,6 +13,7 @@ import {
   now,
   researchStore,
   schedulePath,
+  thesisDrafter,
 } from "#lib/server/config.ts";
 import type { Actions, PageServerLoad } from "./$types";
 
@@ -83,6 +84,8 @@ export const actions = {
       if (error instanceof ConfigError) return refuse(503, error.message);
       throw error;
     }
+    const drafting = await thesisDrafter();
+    if (!drafting.ok) return refuse(503, drafting.error);
 
     const pointLineRaw = values.pointLine ?? "";
     const result = await runAnalysis(
@@ -101,7 +104,7 @@ export const actions = {
         rationale: values.rationale,
         manualEvidence: manual.entries,
       },
-      { store, collect: evidenceCollector() },
+      { store, drafter: drafting.drafter, collect: evidenceCollector() },
     );
     if (!result.ok) {
       if (result.run) redirect(303, `/analysis/${result.run.id}`);

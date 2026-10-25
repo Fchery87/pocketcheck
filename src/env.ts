@@ -29,6 +29,14 @@ export const variables = defineEnvVars({
     description:
       "Set to off to skip NWS forecasts (the browser suite does). Normal use leaves it unset.",
   },
+  THECLAWBAY_API_KEY: {
+    schema: optional,
+    description: "TheClawBay API key. Server-only; never shown or stored.",
+  },
+  DEEPSEEK_API_KEY: {
+    schema: optional,
+    description: "DeepSeek API key. Server-only; never shown or stored.",
+  },
   NWS_USER_AGENT: {
     schema: optional,
     description: "User-Agent for api.weather.gov. NWS asks for contact details, such as an email.",

@@ -96,6 +96,11 @@ describe("research run", () => {
     expect(outcome.run?.model).toBe("fixture-drafter");
   });
 
+  it("records unknown usage as unknown, not zero", async () => {
+    const outcome = await runAnalysis(request(), { store: createMemoryStore() });
+    expect(outcome.run?.usage).toBeNull();
+  });
+
   it("saves the evidence items the report cites so they can be inspected later", async () => {
     const store = createMemoryStore();
     const outcome = await runAnalysis(request(), { store });

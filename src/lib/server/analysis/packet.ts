@@ -26,7 +26,7 @@ const THESIS_RULES = [
   "Copy decimalOdds and decisiveBreakEven exactly.",
   "Set conclusion to policy.conclusion exactly and explain the policy result. Do not choose a different conclusion.",
   "Do not add win, loss, push, or probability fields, and do not state percentages other than the supplied break-even or one given in the evidence.",
-  "Fields: conclusion, summary, claims[{text,stance,evidenceIds}], assumptions, uncertainty, missingInputs, changeConditions, decimalOdds, decisiveBreakEven.",
+  'Fields: conclusion: string; summary: string; claims[{text,stance,evidenceIds}]: array of {text: string, stance, evidenceIds: array of strings}, where stance is exactly "supporting" or "opposing"; assumptions: array of strings; uncertainty: string; missingInputs: array of strings; changeConditions: array of strings; decimalOdds: number; decisiveBreakEven: number.',
 ].join(" ");
 
 /** `rejected` holds the reasons the previous draft failed; when present, this is the repair request. */
@@ -50,6 +50,9 @@ export function thesisRequestBody(input: {
   return JSON.stringify({
     model: input.modelId,
     temperature: 0,
+    // Reasoning models spend hidden tokens before answering; a tight cap truncates the JSON.
+    max_tokens: 8000,
+    response_format: { type: "json_object" },
     messages: [
       { role: "system", content: instruction },
       {

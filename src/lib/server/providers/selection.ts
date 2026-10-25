@@ -6,7 +6,8 @@ export function selectThesisModel(
 ): { preferredId: string | null; entries: ModelCatalogEntry[] } {
   const preferredId =
     input.provider === "theclawbay" &&
-    entries.some((entry) => entry.id === "grok-4.7" && entry.compatible)
+    // Suggested even while untested; it still has to pass a test before it can draft.
+    entries.some((entry) => entry.id === "grok-4.7" && entry.capability !== "unsupported")
       ? "grok-4.7"
       : null;
   return { preferredId, entries: entries.map((entry) => ({ ...entry })) };
