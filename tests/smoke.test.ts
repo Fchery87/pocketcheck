@@ -4,11 +4,13 @@ import { describe, expect, it } from "vite-plus/test";
 
 describe("fixture game action", () => {
   it("returns the fixture game name from the page load", () => {
-    expect(load({} as never)).toEqual({ gameName: fixtureGameName });
+    const result = load({} as never);
+    expect(result.gameName).toBe(fixtureGameName);
+    expect(result.games.length).toBeGreaterThan(0);
   });
 
-  it("returns the fixture game name from the default action", async () => {
-    const result = await actions.default({} as never);
-    expect(result).toEqual({ gameName: "Fixture Away at Fixture Home" });
+  it("keeps the fixture game name available without a default action", () => {
+    expect(actions.analyze).toBeTypeOf("function");
+    expect(fixtureGameName).toBe("Fixture Away at Fixture Home");
   });
 });

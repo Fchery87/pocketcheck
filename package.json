@@ -17,9 +17,10 @@
     "test:integration": "vp test run tests/integration",
     "db:migrate": "node scripts/migrate.mjs",
     "data:import": "node --experimental-strip-types scripts/data/import.ts",
-    "test:e2e": "echo \"Playwright is added in the research-flow task\" && exit 0"
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@sveltejs/adapter-node": "^6.0.0",
     "@sveltejs/kit": "^3.0.0",
     "@sveltejs/vite-plugin-svelte": "^7.2.0",
