@@ -1,0 +1,27 @@
+{
+  "properties": {
+    "updated": "2026-10-25T16:00:00-04:00",
+    "periods": [
+      {
+        "number": 1,
+        "startTime": "2026-10-26T18:00:00-04:00",
+        "endTime": "2026-10-26T21:00:00-04:00",
+        "temperature": 58,
+        "temperatureUnit": "F",
+        "windSpeed": "10 mph",
+        "windDirection": "SW",
+        "shortForecast": "Partly Cloudy"
+      },
+      {
+        "number": 2,
+        "startTime": "2026-10-26T21:00:00-04:00",
+        "endTime": "2026-10-27T00:00:00-04:00",
+        "temperature": 54,
+        "temperatureUnit": "F",
+        "windSpeed": "8 mph",
+        "windDirection": "W",
+        "shortForecast": "Clear"
+      }
+    ]
+  }
+}

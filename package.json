@@ -14,6 +14,7 @@
     "prepare": "svelte-kit sync || echo ''",
     "check": "vp check && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "test": "vp test run",
+    "data:import": "node --experimental-strip-types scripts/data/import.ts",
     "test:e2e": "echo \"Playwright is added in the research-flow task\" && exit 0"
   },
   "devDependencies": {
