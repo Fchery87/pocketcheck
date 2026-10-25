@@ -4,7 +4,7 @@
 
 **Blocked by:** 03: Immutable research journal, 04: Checked thesis from a chosen model
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] Analyze shows the game date, kickoff, timezone, venue, and home and away teams, and rejects a game that has already started.
 - [ ] The optional initial lean is saved and compared only after the independent report exists. It is absent from the evidence packet.
