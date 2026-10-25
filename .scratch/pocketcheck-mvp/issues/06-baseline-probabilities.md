@@ -4,7 +4,7 @@
 
 **Blocked by:** 01: Market mathematics, 02: Source evidence packet
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] Synthetic dated games prove a later result cannot change an earlier feature row.
 - [ ] Probabilities come from an explicit distribution with integer tie and push mass. A predicted mean alone is not a cover probability.
