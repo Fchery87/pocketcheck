@@ -1,0 +1,131 @@
+import { americanToDecimal, PriceError } from "#lib/domain/odds.ts";
+
+export type Market = "moneyline" | "spread" | "total";
+export type SideSelection = "home" | "away" | "over" | "under";
+export type TieRule = "push" | "loss" | "win" | "void";
+
+export type OfferRules = {
+  period: "full-game";
+  overtime: "included";
+  tie?: TieRule;
+};
+
+export type OpposingPrice = {
+  sportsbook: string;
+  pointLine?: number;
+  americanOdds: number;
+  observedAt: string;
+};
+
+export type OfferInput = {
+  gameId: string;
+  sportsbook: string;
+  market: Market;
+  selection: SideSelection;
+  pointLine?: number;
+  americanOdds: number;
+  observedAt: string;
+  kickoffAt: string;
+  rules: OfferRules;
+  opposing?: OpposingPrice;
+};
+
+export type Offer = {
+  gameId: string;
+  sportsbook: string;
+  market: Market;
+  selection: SideSelection;
+  pointLine: number | null;
+  americanOdds: number;
+  decimalOdds: number;
+  observedAt: string;
+  kickoffAt: string;
+  rules: {
+    period: "full-game";
+    overtime: "included";
+    tie: TieRule | null;
+  };
+  opposing: OpposingPrice | null;
+};
+
+export class OfferError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OfferError";
+  }
+}
+
+function requireTime(value: string, label: string): number {
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) {
+    throw new OfferError(`Invalid ${label}`);
+  }
+  return time;
+}
+
+export function parseOffer(input: OfferInput): Offer {
+  const observed = requireTime(input.observedAt, "observation time");
+  const kickoff = requireTime(input.kickoffAt, "kickoff");
+  if (observed >= kickoff) {
+    throw new OfferError("The game has already started");
+  }
+  if (!input.gameId || !input.sportsbook) {
+    throw new OfferError("Game and sportsbook are required");
+  }
+
+  let decimalOdds: number;
+  try {
+    decimalOdds = americanToDecimal(input.americanOdds);
+  } catch (error) {
+    if (error instanceof PriceError) {
+      throw new OfferError(error.message);
+    }
+    throw error;
+  }
+
+  const needsLine = input.market === "spread" || input.market === "total";
+  if (needsLine && !Number.isFinite(input.pointLine)) {
+    throw new OfferError(`A ${input.market} requires a point line`);
+  }
+  if (input.market === "moneyline" && input.rules.tie === undefined) {
+    throw new OfferError("A moneyline requires a tie rule");
+  }
+  if (input.market === "spread" && input.selection !== "home" && input.selection !== "away") {
+    throw new OfferError("A spread selection must be home or away");
+  }
+  if (input.market === "total" && input.selection !== "over" && input.selection !== "under") {
+    throw new OfferError("A total selection must be over or under");
+  }
+  if (input.market === "moneyline" && input.selection !== "home" && input.selection !== "away") {
+    throw new OfferError("A moneyline selection must be home or away");
+  }
+
+  if (input.opposing) {
+    const sameBook = input.opposing.sportsbook === input.sportsbook;
+    const sameLine = (input.opposing.pointLine ?? null) === (input.pointLine ?? null);
+    const opposingObserved = requireTime(input.opposing.observedAt, "opposing observation time");
+    const closeInTime = Math.abs(opposingObserved - observed) <= 15 * 60 * 1000;
+    if (!sameBook || !sameLine || !closeInTime) {
+      throw new OfferError("Opposing price is not comparable");
+    }
+    americanToDecimal(input.opposing.americanOdds);
+  }
+
+  return {
+    gameId: input.gameId,
+    sportsbook: input.sportsbook,
+    market: input.market,
+    selection: input.selection,
+    pointLine: input.pointLine ?? null,
+    americanOdds: input.americanOdds,
+    decimalOdds,
+    observedAt: input.observedAt,
+    kickoffAt: input.kickoffAt,
+    rules: {
+      period: "full-game",
+      overtime: "included",
+      tie: input.rules.tie ?? null,
+    },
+    opposing: input.opposing ?? null,
+  };
+}
