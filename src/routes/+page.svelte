@@ -87,7 +87,6 @@
       Rationale
       <input name="rationale" />
     </label>
-    <input type="hidden" name="parentId" value={form?.parentId ?? ""} />
     <button type="submit" data-testid="analyze">Analyze</button>
   </form>
 

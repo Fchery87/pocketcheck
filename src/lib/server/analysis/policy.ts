@@ -58,7 +58,7 @@ function priceCutoff(probabilities: OutcomeProbabilities | null, target: number 
 
 export function decidePolicy(input: PolicyInput): PolicyDecision {
   const cutoff = priceCutoff(input.probabilities, input.targetExpectedValue);
-  const base = {
+  const base: Omit<PolicyDecision, "conclusion" | "blockingReason" | "expectedValuePerUnit"> = {
     policyVersion: POLICY_VERSION,
     experimental: true as const,
     priceCutoff: cutoff,

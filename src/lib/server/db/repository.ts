@@ -495,7 +495,7 @@ export class JournalRepository {
             evidence_packet_hash, provider, model, failure_reason, idempotency_key, completed_at
           ) VALUES (
             ${id}, ${offerIds.get(analysis.offerId)!},
-            ${analysis.parentId ? analysisIds.get(analysis.parentId) : null},
+            ${analysis.parentId ? (analysisIds.get(analysis.parentId) ?? null) : null},
             ${analysis.cutoffAt}, ${analysis.status}, ${analysis.conclusion},
             ${analysis.methodVersion}, ${analysis.policyVersion}, ${analysis.schemaVersion},
             ${analysis.promptVersion}, ${analysis.evidencePacketHash}, ${analysis.provider},
@@ -534,7 +534,7 @@ export class JournalRepository {
           INSERT INTO bets (id, offer_id, analysis_id, american_odds, decimal_odds, placed_at, stake_units)
           VALUES (
             ${betIds.get(bet.id)!}, ${offerIds.get(bet.offerId)!},
-            ${bet.analysisId ? analysisIds.get(bet.analysisId) : null},
+            ${bet.analysisId ? (analysisIds.get(bet.analysisId) ?? null) : null},
             ${bet.americanOdds}, ${bet.decimalOdds}, ${bet.placedAt}, ${bet.stakeUnits}
           )
         `;
@@ -549,12 +549,12 @@ export class JournalRepository {
           INSERT INTO settlements (
             id, bet_id, offer_id, result, rules, source, reason, settled_at, corrects_id
           ) VALUES (
-            ${settlementIds.get(settlement.id)!},
-            ${settlement.betId ? betIds.get(settlement.betId) : null},
-            ${settlement.offerId ? offerIds.get(settlement.offerId) : null},
+            ${settlementIds.get(settlement.id) ?? null},
+            ${settlement.betId ? (betIds.get(settlement.betId) ?? null) : null},
+            ${settlement.offerId ? (offerIds.get(settlement.offerId) ?? null) : null},
             ${settlement.result}, ${settlement.rules}, ${settlement.source}, ${settlement.reason},
             ${settlement.settledAt},
-            ${settlement.correctsId ? settlementIds.get(settlement.correctsId) : null}
+            ${settlement.correctsId ? (settlementIds.get(settlement.correctsId) ?? null) : null}
           )
         `;
       }
