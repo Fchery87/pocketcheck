@@ -58,6 +58,8 @@ export type ResearchRun = {
   lean: PrivateLean | null;
   evidence: EvidenceItem[];
   evidencePacketHash: string;
+  /** Missing evidence and caveats found while collecting, owned by the app, not the drafter. */
+  gaps: string[];
   report: ThesisReport | null;
   renderedText: string;
   failureReason: string | null;

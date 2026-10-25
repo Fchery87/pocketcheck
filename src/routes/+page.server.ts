@@ -1,9 +1,19 @@
 import { fail, redirect } from "@sveltejs/kit";
 import { easternTime } from "#lib/format.ts";
-import { localInputValue, parseObservedAt } from "#lib/server/analysis/form.ts";
+import {
+  localInputValue,
+  parseManualEvidence,
+  parseObservedAt,
+} from "#lib/server/analysis/form.ts";
 import { runAnalysis } from "#lib/server/analysis/run.ts";
 import { readSchedule, upcomingGames } from "#lib/server/analysis/schedule.ts";
-import { ConfigError, now, researchStore, schedulePath } from "#lib/server/config.ts";
+import {
+  ConfigError,
+  evidenceCollector,
+  now,
+  researchStore,
+  schedulePath,
+} from "#lib/server/config.ts";
 import type { Actions, PageServerLoad } from "./$types";
 
 const FIELDS = [
@@ -52,22 +62,25 @@ export const actions = {
   analyze: async ({ request }) => {
     const data = await request.formData();
     const values: Values = Object.fromEntries(FIELDS.map((name) => [name, field(data, name)]));
+    const manual = parseManualEvidence(data);
+    // Every failure hands the entered values back so nothing has to be retyped.
+    const refuse = (status: number, error: string) =>
+      fail(status, { error, values, manual: manual.rows });
+    if (!manual.ok) return refuse(400, manual.error);
     const nowIso = now();
     const schedule = readSchedule(schedulePath());
-    if (!schedule.ok) return fail(503, { error: schedule.reason, values });
+    if (!schedule.ok) return refuse(503, schedule.reason);
     const game = schedule.games.find((item) => item.id === values.gameId);
-    if (!game) return fail(400, { error: "Choose a game", values });
-    if (!upcomingGames([game], nowIso).length) {
-      return fail(400, { error: "The game has already started", values });
-    }
+    if (!game) return refuse(400, "Choose a game");
+    if (!upcomingGames([game], nowIso).length) return refuse(400, "The game has already started");
     const observedAt = parseObservedAt(values.observedAt ?? "");
-    if (!observedAt) return fail(400, { error: "Enter when you observed this price", values });
+    if (!observedAt) return refuse(400, "Enter when you observed this price");
 
     let store;
     try {
       store = researchStore();
     } catch (error) {
-      if (error instanceof ConfigError) return fail(503, { error: error.message, values });
+      if (error instanceof ConfigError) return refuse(503, error.message);
       throw error;
     }
 
@@ -86,12 +99,13 @@ export const actions = {
         tieRule: values.tieRule as "push" | "loss" | "win" | "void",
         lean: values.lean,
         rationale: values.rationale,
+        manualEvidence: manual.entries,
       },
-      { store },
+      { store, collect: evidenceCollector() },
     );
     if (!result.ok) {
       if (result.run) redirect(303, `/analysis/${result.run.id}`);
-      return fail(400, { error: result.error, values });
+      return refuse(400, result.error);
     }
     redirect(303, `/analysis/${result.run.id}`);
   },

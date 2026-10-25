@@ -9,11 +9,13 @@ type ForecastPeriod = {
   windSpeed?: string;
   windDirection?: string;
   shortForecast?: string;
+  probabilityOfPrecipitation?: { value?: number | null };
 };
 
 type ForecastPayload = {
   properties?: {
-    updated?: string;
+    /** When the forecast was issued. generatedAt is only when this response was rendered. */
+    updateTime?: string;
     periods?: ForecastPeriod[];
   };
 };
@@ -61,8 +63,8 @@ export function kickoffForecastEvidence(input: {
       reason: "No forecast coverage for the kickoff period.",
     };
   }
-  const updated = input.payload?.properties?.updated;
-  const publishedAt = updated ? new Date(updated).toISOString() : "unknown";
+  const issued = Date.parse(input.payload?.properties?.updateTime ?? "");
+  const publishedAt = Number.isFinite(issued) ? new Date(issued).toISOString() : "unknown";
   const wind = [period.windDirection, period.windSpeed].filter(Boolean).join(" ");
   return {
     state: "applicable",
@@ -78,6 +80,7 @@ export function kickoffForecastEvidence(input: {
         temperatureF: period.temperatureUnit === "F" ? (period.temperature ?? null) : null,
         wind,
         shortForecast: period.shortForecast ?? "",
+        precipitationChancePercent: period.probabilityOfPrecipitation?.value ?? null,
         periodStart: new Date(period.startTime ?? "").toISOString(),
         periodEnd: new Date(period.endTime ?? "").toISOString(),
       },

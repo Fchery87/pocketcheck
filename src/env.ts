@@ -20,4 +20,17 @@ export const variables = defineEnvVars({
     schema: optional,
     description: "Schedule CSV path. Defaults to data/sources/games.csv.",
   },
+  POCKETCHECK_INJURY_CSV: {
+    schema: optional,
+    description: "Injury CSV path. Defaults to data/sources/injuries_<season>.csv.",
+  },
+  POCKETCHECK_WEATHER: {
+    schema: optional,
+    description:
+      "Set to off to skip NWS forecasts (the browser suite does). Normal use leaves it unset.",
+  },
+  NWS_USER_AGENT: {
+    schema: optional,
+    description: "User-Agent for api.weather.gov. NWS asks for contact details, such as an email.",
+  },
 });

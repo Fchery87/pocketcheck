@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
-// playwright.config.ts pins the fixture schedule, a memory journal, the clock
-// (2026-10-25T16:00Z), and TZ=America/New_York for the dev server.
+// playwright.config.ts pins the fixture schedule and injury file, a memory journal, the
+// clock (2026-10-25T16:00Z), weather off, and TZ=America/New_York for the dev server.
 
 test("offer, report, refresh, and unchanged prior report", async ({ page }) => {
   await page.goto("/");
@@ -18,6 +18,8 @@ test("offer, report, refresh, and unchanged prior report", async ({ page }) => {
   await page.getByTestId("lean").fill("PHI");
   await page.getByTestId("rationale").fill("private rationale sentinel");
   await page.getByTestId("observed-at").fill("2026-10-25T11:30");
+  await page.getByTestId("manual-text").fill("Beat reporter: Barkley practiced fully Friday.");
+  await page.getByTestId("manual-url").fill("https://example.test/barkley-friday");
   await page.getByTestId("analyze").click();
 
   // One conclusion, owned by the policy.
@@ -40,9 +42,16 @@ test("offer, report, refresh, and unchanged prior report", async ({ page }) => {
   await expect(page.getByTestId("citations")).toContainText("DAL at PHI, Lincoln Financial Field");
   await expect(page.getByTestId("citations")).toContainText("nflverse-schedule");
   await expect(page.getByTestId("citations")).toContainText("published unknown");
-  await expect(page.getByTestId("missing-evidence")).toContainText("Injury report");
+  // Gaps come from evidence collection, not from the drafter.
+  await expect(page.getByTestId("evidence-gaps")).toContainText("Weather collection is off");
+  await expect(page.getByTestId("evidence-gaps")).toContainText("no publication time");
+  // Injury rows from the cached file and the user's own evidence are both in the run.
+  await expect(page.getByTestId("all-evidence")).toContainText("Saquon Barkley");
+  await expect(page.getByTestId("all-evidence")).toContainText(
+    "Beat reporter: Barkley practiced fully Friday.",
+  );
   await expect(page.getByTestId("assumptions")).toContainText("Full-game rules");
-  await expect(page.getByTestId("uncertainty")).toContainText("No injury or weather evidence");
+  await expect(page.getByTestId("uncertainty")).toContainText("Evidence is incomplete");
   await expect(page.getByTestId("change-conditions")).toContainText("different American price");
   await expect(page.getByTestId("drafter")).toContainText("fixture-drafter");
 
@@ -60,6 +69,10 @@ test("offer, report, refresh, and unchanged prior report", async ({ page }) => {
   await expect(page).not.toHaveURL(firstUrl);
   await expect(page.getByTestId("price")).toContainText("-105");
   await expect(page.getByTestId("observed-at-display")).toContainText("11:50");
+  // The refresh keeps the evidence the user entered.
+  await expect(page.getByTestId("all-evidence")).toContainText(
+    "Beat reporter: Barkley practiced fully Friday.",
+  );
 
   await page.goto(firstUrl);
   await expect(page.getByTestId("summary")).toHaveText(firstSummary);

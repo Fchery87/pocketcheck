@@ -7,9 +7,11 @@ export function buildThesisPacket(input: {
   decimalOdds: number;
   decisiveBreakEven: number;
   policy: PacketPolicy;
+  gaps?: string[];
 }): ThesisPacket {
   return {
     items: input.items.map((item) => ({ ...item, facts: { ...item.facts } })),
+    gaps: [...(input.gaps ?? [])],
     decimalOdds: input.decimalOdds,
     decisiveBreakEven: input.decisiveBreakEven,
     policy: { ...input.policy },
@@ -20,9 +22,10 @@ const THESIS_RULES = [
   "Draft a sourced thesis as a JSON object. No markdown.",
   "Cite only evidence ids from the packet. Every claim cites at least one id.",
   "Include at least one opposing claim: the strongest evidence against the thesis.",
+  "List every packet gap in missingInputs.",
   "Copy decimalOdds and decisiveBreakEven exactly.",
   "Set conclusion to policy.conclusion exactly and explain the policy result. Do not choose a different conclusion.",
-  "Do not add win, loss, push, or probability fields, and do not state percentages other than the supplied break-even.",
+  "Do not add win, loss, push, or probability fields, and do not state percentages other than the supplied break-even or one given in the evidence.",
   "Fields: conclusion, summary, claims[{text,stance,evidenceIds}], assumptions, uncertainty, missingInputs, changeConditions, decimalOdds, decisiveBreakEven.",
 ].join(" ");
 
@@ -53,6 +56,7 @@ export function thesisRequestBody(input: {
         role: "user",
         content: JSON.stringify({
           evidence,
+          gaps: input.packet.gaps,
           decimalOdds: input.packet.decimalOdds,
           decisiveBreakEven: input.packet.decisiveBreakEven,
           policy: input.packet.policy,

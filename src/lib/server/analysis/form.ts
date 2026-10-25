@@ -26,3 +26,38 @@ export function localInputValue(iso: string): string {
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
+
+export type ManualEvidenceRow = { text: string; url: string; time: string };
+
+export type ManualEvidenceForm =
+  | {
+      ok: true;
+      rows: ManualEvidenceRow[];
+      entries: Array<{ text: string; url: string; sourceTime: string }>;
+    }
+  | { ok: false; rows: ManualEvidenceRow[]; error: string };
+
+/**
+ * Reads the repeated manualText, manualUrl, and manualTime fields. Blank rows are skipped. A
+ * blank source time means the source did not say when it was published.
+ */
+export function parseManualEvidence(data: FormData): ManualEvidenceForm {
+  const all = (name: string) => data.getAll(name).map((value) => String(value).trim());
+  const [texts, urls, times] = [all("manualText"), all("manualUrl"), all("manualTime")];
+  const rows = texts
+    .map((text, index) => ({ text, url: urls[index] ?? "", time: times[index] ?? "" }))
+    .filter((row) => row.text || row.url || row.time);
+  const entries = [];
+  for (const [index, row] of rows.entries()) {
+    const sourceTime = row.time ? parseObservedAt(row.time) : "unknown";
+    if (!sourceTime) {
+      return {
+        ok: false,
+        rows,
+        error: `Manual evidence ${index + 1}: the source time is not a date and time`,
+      };
+    }
+    entries.push({ text: row.text, url: row.url, sourceTime });
+  }
+  return { ok: true, rows, entries };
+}

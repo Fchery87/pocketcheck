@@ -38,11 +38,11 @@ export function createFixtureDrafter(): ThesisDrafter {
               ]
             : [],
           assumptions: ["Full-game rules, including overtime, match the entered offer."],
-          uncertainty: "No injury or weather evidence was available to the drafter.",
-          missingInputs: [
-            "Injury report is not in the fixture packet.",
-            "Weather is not in the fixture packet.",
-          ],
+          uncertainty:
+            input.packet.gaps.length > 0
+              ? "Evidence is incomplete; the gaps are listed with this report."
+              : "The fixture drafter does not weigh the evidence.",
+          missingInputs: [...input.packet.gaps],
           changeConditions: ["A different American price requires a new report."],
           decimalOdds: input.packet.decimalOdds,
           decisiveBreakEven: input.packet.decisiveBreakEven,

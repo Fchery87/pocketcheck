@@ -1,0 +1,10 @@
+{
+  "properties": {
+    "gridId": "PHI",
+    "gridX": 50,
+    "gridY": 76,
+    "forecast": "https://api.weather.gov/gridpoints/PHI/50,76/forecast",
+    "forecastHourly": "https://api.weather.gov/gridpoints/PHI/50,76/forecast/hourly",
+    "timeZone": "America/New_York"
+  }
+}

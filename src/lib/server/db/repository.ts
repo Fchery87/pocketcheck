@@ -59,6 +59,7 @@ export type AnalysisRecord = {
   createdAt: string;
   policy: unknown;
   stages: unknown;
+  gaps: unknown;
   evidenceIds: string[];
 };
 
@@ -144,6 +145,7 @@ export type SaveAnalysisInput = {
     idempotencyKey?: string | null;
     policy?: unknown;
     stages?: unknown;
+    gaps?: unknown;
   };
   report?: {
     claims: unknown;
@@ -233,7 +235,7 @@ export class JournalRepository {
             id, offer_id, parent_id, cutoff_at, status, conclusion,
             method_version, policy_version, schema_version, prompt_version,
             evidence_packet_hash, provider, model, failure_reason, idempotency_key, completed_at,
-            policy, stages
+            policy, stages, gaps
           ) VALUES (
             ${analysisId}, ${offerId}, ${input.analysis.parentId ?? null}, ${input.analysis.cutoffAt},
             ${input.analysis.status}, ${input.analysis.conclusion ?? null},
@@ -243,7 +245,8 @@ export class JournalRepository {
             ${input.analysis.model ?? null}, ${input.analysis.failureReason ?? null},
             ${input.analysis.idempotencyKey ?? null},
             ${completed ? completedAt : null},
-            ${jsonOrNull(tx, input.analysis.policy)}, ${jsonOrNull(tx, input.analysis.stages)}
+            ${jsonOrNull(tx, input.analysis.policy)}, ${jsonOrNull(tx, input.analysis.stages)},
+            ${jsonOrNull(tx, input.analysis.gaps)}
           )
         `;
 
@@ -589,7 +592,7 @@ export class JournalRepository {
             id, offer_id, parent_id, cutoff_at, status, conclusion,
             method_version, policy_version, schema_version, prompt_version,
             evidence_packet_hash, provider, model, failure_reason, idempotency_key, completed_at,
-            created_at, policy, stages
+            created_at, policy, stages, gaps
           ) VALUES (
             ${analysis.id}, ${analysis.offerId}, ${analysis.parentId},
             ${analysis.cutoffAt}, ${analysis.status}, ${analysis.conclusion},
@@ -597,7 +600,8 @@ export class JournalRepository {
             ${analysis.promptVersion}, ${analysis.evidencePacketHash}, ${analysis.provider},
             ${analysis.model}, ${analysis.failureReason}, ${analysis.idempotencyKey},
             ${analysis.completedAt}, ${analysis.createdAt},
-            ${jsonOrNull(tx, analysis.policy)}, ${jsonOrNull(tx, analysis.stages)}
+            ${jsonOrNull(tx, analysis.policy)}, ${jsonOrNull(tx, analysis.stages)},
+            ${jsonOrNull(tx, analysis.gaps)}
           )
           ON CONFLICT DO NOTHING
         `;
@@ -790,6 +794,7 @@ type AnalysisRow = {
   created_at: Date;
   policy: unknown;
   stages: unknown;
+  gaps: unknown;
 };
 
 type ReportRow = {
@@ -904,6 +909,7 @@ function mapAnalysis(row: AnalysisRow, evidenceIds: string[]): AnalysisRecord {
     createdAt: iso(row.created_at)!,
     policy: row.policy,
     stages: row.stages,
+    gaps: row.gaps,
     evidenceIds,
   };
 }

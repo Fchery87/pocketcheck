@@ -35,6 +35,8 @@ export type PacketPolicy = {
 
 export type ThesisPacket = ThesisCalculations & {
   items: EvidenceItem[];
+  /** Missing evidence and caveats the report must acknowledge. */
+  gaps: string[];
   policy: PacketPolicy;
 };
 

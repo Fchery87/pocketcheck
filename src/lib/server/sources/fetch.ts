@@ -2,7 +2,7 @@ import { assertNflverseGamesHeader } from "./nflverse.ts";
 
 export type FetchLike = (
   url: string,
-  init: { signal: AbortSignal },
+  init: { signal: AbortSignal; headers?: Record<string, string> },
 ) => Promise<{
   ok: boolean;
   text: () => Promise<string>;
@@ -18,6 +18,7 @@ export async function fetchBounded(
     timeoutMs: number;
     schema: "csv" | "nflverse-games" | "json";
     fetch: FetchLike;
+    headers?: Record<string, string>;
   },
 ): Promise<FetchResult> {
   const controller = new AbortController();
@@ -29,7 +30,10 @@ export async function fetchBounded(
     }, input.timeoutMs);
   });
   try {
-    const response = await Promise.race([input.fetch(url, { signal: controller.signal }), timeout]);
+    const response = await Promise.race([
+      input.fetch(url, { signal: controller.signal, headers: input.headers }),
+      timeout,
+    ]);
     if (!response.ok) return { ok: false, url, failure: `HTTP failure for ${url}` };
     const body = await response.text();
     if (input.schema === "nflverse-games") {

@@ -2,9 +2,9 @@
 
 Personal sports handicapping research, beginning with NFL pregame moneylines, spreads, and totals. The user records an actual sportsbook offer, compares a sourced thesis with their own research, and tracks decisions and results.
 
-Status (2026-10-25): the research workflow runs end to end on the real nflverse schedule and saves every run to Neon. You pick an upcoming game, enter an offer and an optional private lean, and get a report with price mathematics, cited evidence, and the policy conclusion. Refreshes keep the earlier report unchanged. No probability model or betting advantage has been validated.
+Status (2026-10-25): the research workflow runs end to end on the real nflverse schedule and saves every run to Neon. You pick an upcoming game, enter an offer, your own evidence, and an optional private lean, and get a report with price mathematics, cited evidence, evidence gaps, and the policy conclusion. Each run collects the nflverse injury report for both teams and the NWS kickoff forecast for U.S. outdoor venues. Refreshes keep the earlier report unchanged. No probability model or betting advantage has been validated.
 
-Not yet wired into the app: injury, weather, and manual evidence (every run reports them as missing, so the policy concludes insufficient evidence); live AI providers and the Settings catalog (reports come from a deterministic fixture drafter, labelled as such); the baseline model; settlement, closing-line comparison, and summaries.
+Not yet wired into the app: live AI providers and the Settings catalog (reports come from a deterministic fixture drafter, labelled as such); the baseline model; settlement, closing-line comparison, and summaries.
 
 ## Start here
 
@@ -42,10 +42,11 @@ npm install
 cp .env.example .env      # then set DATABASE_URL to your Neon connection string
 npm run db:migrate        # applies migrations/ in order
 npm run data:schedule     # downloads the nflverse schedule to data/sources/games.csv
+npm run data:injuries     # downloads this season's nflverse injury report; re-run before analyzing
 npm run dev
 ```
 
-The app needs `DATABASE_URL`. It shows an error rather than silently keeping the journal in memory. Re-run `npm run data:schedule` to pick up schedule changes; each download records its retrieval time in `data/sources/games.csv.json`.
+The app needs `DATABASE_URL`. It shows an error rather than silently keeping the journal in memory. Re-run `npm run data:schedule` to pick up schedule changes; each download records its retrieval time in a `.json` file beside it. Injury reports change Wednesday through game day; a report flags an injury file more than a day old. Weather is fetched from api.weather.gov at analysis time; set `NWS_USER_AGENT` to identify yourself with an email, as NWS asks. International venues have no NWS forecast and show that as a gap.
 
 Checks:
 
@@ -65,4 +66,4 @@ HOST=127.0.0.1 PORT=3000 PROTOCOL_HEADER=x-forwarded-proto node --env-file=.env 
 
 ## Next implementation step
 
-The remaining P1 items from the 2026-10-25 review: wire injury, weather, and manual evidence into runs, then connect real providers and the Settings catalog.
+The remaining P1 item from the 2026-10-25 review: connect real providers (TheClawBay, DeepSeek) and the Settings catalog, with request timeouts and capability checks.

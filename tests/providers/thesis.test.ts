@@ -396,6 +396,19 @@ describe("thesis drafting", () => {
     expect(supplied.ok).toBe(true);
   });
 
+  it("allows a percentage that an evidence item supplies", () => {
+    const withRain = buildThesisPacket({
+      ...calculations(),
+      items: [...items, { ...items[1]!, id: "ev-rain", facts: { precipitationChancePercent: 40 } }],
+      policy: packet().policy,
+    });
+    const result = validateThesisReport(
+      reportWith({ uncertainty: "The forecast gives a 40% chance of rain at kickoff." }),
+      withRain,
+    );
+    expect(result.ok).toBe(true);
+  });
+
   it("rejects altered decimal odds outside 1e-6", () => {
     const math = calculations();
     const altered = validateThesisReport(

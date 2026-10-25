@@ -6,6 +6,11 @@
   const run = $derived(data.run);
   const report = $derived(data.run.report);
   const fixture = $derived(run.provider === "fixture");
+  // The drafter's own notes, minus the gaps already listed from evidence collection.
+  const drafterNotes = $derived(
+    (report?.missingInputs ?? []).filter((note) => !run.gaps.includes(note)),
+  );
+  const published = (at: string) => (at === "unknown" ? "unknown" : easternTime(at));
 </script>
 
 <main>
@@ -55,6 +60,19 @@
     </section>
   {/if}
 
+  <section>
+    <h2>Evidence gaps</h2>
+    {#if run.gaps.length > 0}
+      <ul data-testid="evidence-gaps">
+        {#each run.gaps as gap (gap)}
+          <li>{gap}</li>
+        {/each}
+      </ul>
+    {:else}
+      <p data-testid="evidence-gaps">None found while collecting evidence.</p>
+    {/if}
+  </section>
+
   {#if report}
     <section>
       <h2>Thesis</h2>
@@ -83,7 +101,7 @@
             {:else}
               {item.excerpt ?? JSON.stringify(item.facts)}
               ({item.sourceId}, {item.origin}, retrieved {easternTime(item.retrievedAt)}, published
-              {item.publishedAt === "unknown" ? "unknown" : easternTime(item.publishedAt)})
+              {published(item.publishedAt)})
               {#if item.url && /^https?:\/\//i.test(item.url)}<a href={item.url} rel="noreferrer">source</a>{/if}
             {/if}
           </li>
@@ -92,12 +110,14 @@
     </section>
 
     <section>
-      <h2>Missing inputs</h2>
-      <ul data-testid="missing-evidence">
-        {#each report.missingInputs as gap (gap)}
-          <li>{gap}</li>
-        {/each}
-      </ul>
+      {#if drafterNotes.length > 0}
+        <h2>The drafter also noted</h2>
+        <ul data-testid="missing-evidence">
+          {#each drafterNotes as note (note)}
+            <li>{note}</li>
+          {/each}
+        </ul>
+      {/if}
       <h2>Assumptions</h2>
       <ul data-testid="assumptions">
         {#each report.assumptions as assumption (assumption)}
@@ -117,14 +137,26 @@
     <section>
       <h2>Drafting failed</h2>
       <p data-testid="failure">{run.failureReason}</p>
-      <p>The evidence and price mathematics below are kept.</p>
-      <ul data-testid="citations">
-        {#each run.evidence as item (item.id)}
-          <li><code>{item.id}</code> {item.excerpt ?? JSON.stringify(item.facts)} ({item.sourceId})</li>
-        {/each}
-      </ul>
+      <p>The evidence and price mathematics are kept.</p>
     </section>
   {/if}
+
+  <section>
+    <h2>All evidence in this run</h2>
+    <ul data-testid="all-evidence">
+      {#each run.evidence as item (item.id)}
+        <li>
+          <code>{item.id}</code>
+          {item.excerpt ?? Object.entries(item.facts)
+              .filter(([, value]) => value !== null && value !== "")
+              .map(([key, value]) => `${key}: ${value}`)
+              .join(", ")}
+          ({item.origin}, published {published(item.publishedAt)})
+          {#if item.url && /^https?:\/\//i.test(item.url)}<a href={item.url} rel="noreferrer">source</a>{/if}
+        </li>
+      {/each}
+    </ul>
+  </section>
 
   {#if run.lean}
     <section data-testid="user-lean">

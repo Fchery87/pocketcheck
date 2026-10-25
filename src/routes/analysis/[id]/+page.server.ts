@@ -3,7 +3,13 @@ import { americanToDecimal, breakEven } from "#lib/domain/odds.ts";
 import { localInputValue, parseObservedAt } from "#lib/server/analysis/form.ts";
 import { runAnalysis } from "#lib/server/analysis/run.ts";
 import { readSchedule } from "#lib/server/analysis/schedule.ts";
-import { ConfigError, now, researchStore, schedulePath } from "#lib/server/config.ts";
+import {
+  ConfigError,
+  evidenceCollector,
+  now,
+  researchStore,
+  schedulePath,
+} from "#lib/server/config.ts";
 import type { Actions, PageServerLoad } from "./$types";
 
 function store() {
@@ -71,8 +77,9 @@ export const actions = {
         lean: parent.lean?.text,
         rationale: parent.lean?.rationale,
         parentId: parent.id,
+        carriedEvidence: parent.evidence.filter((item) => item.origin === "manual"),
       },
-      { store: store() },
+      { store: store(), collect: evidenceCollector() },
     );
     if (result.run) redirect(303, `/analysis/${result.run.id}`);
     return fail(400, { error: result.ok ? "Refresh failed" : result.error });

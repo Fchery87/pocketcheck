@@ -7,9 +7,19 @@ const PERCENTAGE = /(\d+(?:\.\d+)?)\s*(?:%|percent\b)/gi;
 // A restated break-even may be rounded to one decimal place.
 const PERCENT_ROUNDING = 0.05;
 
+/** The break-even, plus any evidence fact named `...Percent`, such as a precipitation chance. */
+function suppliedPercentages(packet: ThesisPacket): number[] {
+  const fromEvidence = packet.items.flatMap((item) =>
+    Object.entries(item.facts)
+      .filter(([key, value]) => key.endsWith("Percent") && typeof value === "number")
+      .map(([, value]) => value as number),
+  );
+  return [packet.decisiveBreakEven * 100, ...fromEvidence];
+}
+
 /** Percentages in the report's prose that the packet did not supply. */
 function inventedPercentages(report: ThesisReport, packet: ThesisPacket): string[] {
-  const supplied = packet.decisiveBreakEven * 100;
+  const supplied = suppliedPercentages(packet);
   const prose = [
     report.summary,
     report.uncertainty,
@@ -20,7 +30,9 @@ function inventedPercentages(report: ThesisReport, packet: ThesisPacket): string
   ];
   return prose.flatMap((text) =>
     [...text.matchAll(PERCENTAGE)]
-      .filter((match) => Math.abs(Number(match[1]) - supplied) > PERCENT_ROUNDING)
+      .filter((match) =>
+        supplied.every((value) => Math.abs(Number(match[1]) - value) > PERCENT_ROUNDING),
+      )
       .map((match) => match[0]),
   );
 }

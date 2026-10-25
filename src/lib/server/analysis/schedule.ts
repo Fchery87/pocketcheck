@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { readDownloadRecord } from "../sources/download-record.ts";
 import { scheduleGamesFromCsv } from "../sources/nflverse.ts";
 import type { ScheduledGame } from "../sources/contracts.ts";
 import { gameHasStarted } from "./games.ts";
@@ -7,27 +8,12 @@ export type ScheduleRead =
   | { ok: true; path: string; games: ScheduledGame[]; retrievedAt: string }
   | { ok: false; path: string; reason: string };
 
-/** Written beside the CSV by `npm run data:schedule`. */
-type DownloadRecord = { retrievedAt?: string };
-
-function retrievedAtOf(path: string): string {
-  try {
-    const record = JSON.parse(readFileSync(`${path}.json`, "utf8")) as DownloadRecord;
-    if (record.retrievedAt && Number.isFinite(Date.parse(record.retrievedAt))) {
-      return new Date(record.retrievedAt).toISOString();
-    }
-  } catch {
-    // No download record. Fall back to when the file was last written.
-  }
-  return statSync(path).mtime.toISOString();
-}
-
 export function readSchedule(path: string): ScheduleRead {
   if (!existsSync(path)) {
     return { ok: false, path, reason: `No schedule file at ${path}. Run npm run data:schedule.` };
   }
   try {
-    const retrievedAt = retrievedAtOf(path);
+    const { retrievedAt } = readDownloadRecord(path);
     return {
       ok: true,
       path,

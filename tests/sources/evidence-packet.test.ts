@@ -152,6 +152,7 @@ describe("weather evidence", () => {
         temperatureF: 58,
         wind: "SW 10 mph",
         shortForecast: "Partly Cloudy",
+        precipitationChancePercent: 20,
         periodStart: "2026-10-26T22:00:00.000Z",
         periodEnd: "2026-10-27T01:00:00.000Z",
       },

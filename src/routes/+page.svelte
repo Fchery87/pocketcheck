@@ -6,6 +6,8 @@
   const selected = $derived(data.games.find((game) => game.id === selectedId) ?? data.games[0]);
   const value = (name: string, fallback = "") =>
     (form?.values as Record<string, string> | undefined)?.[name] ?? fallback;
+  const blankRow = () => ({ text: "", url: "", time: "" });
+  let manualRows = $derived(form?.manual?.length ? form.manual : [blankRow()]);
 </script>
 
 <main>
@@ -85,6 +87,32 @@
         <option value="void">void</option>
       </select>
     </label>
+    <fieldset data-testid="manual-evidence">
+      <legend>Your evidence (optional)</legend>
+      <p>
+        A club injury report, a beat reporter's note, a forecast. Leave the time blank if the source
+        does not say when it was published. Anything dated after now is excluded from this report.
+      </p>
+      {#each manualRows as row, index (index)}
+        <div>
+          <label>
+            Note
+            <textarea name="manualText" rows="2" data-testid="manual-text">{row.text}</textarea>
+          </label>
+          <label>
+            Link
+            <input name="manualUrl" type="url" value={row.url} data-testid="manual-url" />
+          </label>
+          <label>
+            Published
+            <input name="manualTime" type="datetime-local" value={row.time} data-testid="manual-time" />
+          </label>
+        </div>
+      {/each}
+      <button type="button" onclick={() => (manualRows = [...manualRows, blankRow()])}>
+        Add another
+      </button>
+    </fieldset>
     <label>
       Your lean (kept private until the report exists)
       <input name="lean" value={value("lean")} data-testid="lean" />

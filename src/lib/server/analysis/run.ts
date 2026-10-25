@@ -18,7 +18,9 @@ import {
 import type { ThesisDrafter } from "../providers/contracts.ts";
 import { decidePolicy } from "./policy.ts";
 import { assembleEvidencePacket } from "../sources/packet.ts";
-import type { EvidenceItem, ScheduledGame } from "../sources/contracts.ts";
+import { createManualEvidence } from "../sources/manual.ts";
+import type { EvidenceItem, ScheduledGame, SourceTime } from "../sources/contracts.ts";
+import { noSources, type EvidenceCollector } from "./evidence.ts";
 
 export type { ThesisDrafter };
 
@@ -38,11 +40,18 @@ export type AnalysisRequest = {
   lean?: string;
   rationale?: string;
   parentId?: string | null;
+  /** Entered with the offer. Entry time is the run time. */
+  manualEvidence?: ManualEvidenceInput[];
+  /** Manual evidence from the run being refreshed, kept as it was entered. */
+  carriedEvidence?: EvidenceItem[];
 };
+
+export type ManualEvidenceInput = { text: string; url: string; sourceTime: SourceTime };
 
 export type AnalysisDependencies = {
   store: ResearchStore;
   drafter?: ThesisDrafter;
+  collect?: EvidenceCollector;
 };
 
 export type AnalysisOutcome =
@@ -99,7 +108,7 @@ async function save(store: ResearchStore, run: NewRun): Promise<ResearchRun | { 
 
 export async function runAnalysis(
   request: AnalysisRequest,
-  { store, drafter = createFixtureDrafter() }: AnalysisDependencies,
+  { store, drafter = createFixtureDrafter(), collect = noSources }: AnalysisDependencies,
 ): Promise<AnalysisOutcome> {
   const stages: ProgressStage[] = [];
   const note = (stage: ProgressStage) => {
@@ -133,13 +142,48 @@ export async function runAnalysis(
     return { ok: false, error: message };
   }
 
+  let manual: EvidenceItem[];
+  try {
+    manual = (request.manualEvidence ?? []).map((entry) =>
+      createManualEvidence({
+        text: entry.text,
+        url: entry.url,
+        sourceTime: entry.sourceTime,
+        enteredAt: request.nowIso,
+      }),
+    );
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Invalid manual evidence" };
+  }
+
   note("collecting evidence");
+  const collected = await collect(request.game, request.nowIso);
   const packet = assembleEvidencePacket({
     game: request.game,
     decisionCutoff: request.nowIso,
-    items: [scheduleEvidence(request.game, request.scheduleRetrievedAt ?? request.nowIso)],
-    gaps: ["Injury report was not collected.", "Weather was not collected."],
+    items: [
+      scheduleEvidence(request.game, request.scheduleRetrievedAt ?? request.nowIso),
+      ...collected.items,
+      ...(request.carriedEvidence ?? []),
+      ...manual,
+    ],
+    gaps: collected.gaps,
   });
+  const conflictGaps = packet.conflicts.map(
+    (conflict) => `Sources disagree on ${conflict.factKey}: ${conflict.itemIds.join(", ")}.`,
+  );
+  const late = packet.rejectedAfterCutoff;
+  const gaps = [
+    ...packet.gaps,
+    ...conflictGaps,
+    ...(late.length > 0
+      ? [
+          `Excluded ${late.length} evidence item${late.length === 1 ? "" : "s"} dated after the decision cutoff: ${late
+            .map((item) => item.excerpt ?? item.id)
+            .join("; ")}`,
+        ]
+      : []),
+  ];
 
   note("computing");
   const decimalOdds = americanToDecimal(offer.americanOdds);
@@ -147,13 +191,14 @@ export async function runAnalysis(
   const policy = decidePolicy({
     offerValid: true,
     gameStarted: false,
-    materialEvidenceMissing: packet.gaps.length > 0,
+    materialEvidenceMissing: collected.materialGaps.length > 0 || conflictGaps.length > 0,
     releaseStatus: "unreleased",
     probabilities: null,
     decimalOdds,
   });
   const thesisPacket = buildThesisPacket({
     items: packet.items,
+    gaps,
     decimalOdds,
     decisiveBreakEven,
     policy: {
@@ -183,6 +228,7 @@ export async function runAnalysis(
     lean: leanOf(request),
     evidence: thesisPacket.items,
     evidencePacketHash,
+    gaps,
     policy,
     provider: drafter.id,
     model: drafter.modelId,

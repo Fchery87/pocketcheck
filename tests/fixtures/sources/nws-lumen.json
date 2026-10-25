@@ -1,6 +1,7 @@
 {
   "properties": {
-    "updated": "2026-10-25T16:00:00-04:00",
+    "generatedAt": "2026-10-25T20:40:00+00:00",
+    "updateTime": "2026-10-25T16:00:00-04:00",
     "periods": [
       {
         "number": 1,
@@ -10,7 +11,11 @@
         "temperatureUnit": "F",
         "windSpeed": "10 mph",
         "windDirection": "SW",
-        "shortForecast": "Partly Cloudy"
+        "shortForecast": "Partly Cloudy",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 20
+        }
       },
       {
         "number": 2,
@@ -20,7 +25,11 @@
         "temperatureUnit": "F",
         "windSpeed": "8 mph",
         "windDirection": "W",
-        "shortForecast": "Clear"
+        "shortForecast": "Clear",
+        "probabilityOfPrecipitation": {
+          "unitCode": "wmoUnit:percent",
+          "value": 10
+        }
       }
     ]
   }
