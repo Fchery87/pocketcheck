@@ -282,6 +282,29 @@ describe("thesis drafting", () => {
     expect(probability.reasons.join(" ")).toMatch(/probabilit/i);
   });
 
+  it("rejects a report conclusion that disagrees with the policy result", () => {
+    const math = calculations();
+    const disagreed = validateThesisReport(
+      {
+        conclusion: "experimental value candidate",
+        summary: "model overrode the policy",
+        claims: [],
+        assumptions: [],
+        uncertainty: "none",
+        missingInputs: [],
+        changeConditions: [],
+        decimalOdds: math.decimalOdds,
+        decisiveBreakEven: math.decisiveBreakEven,
+      },
+      packet(),
+      { conclusion: "pass" },
+    );
+    expect(disagreed.ok).toBe(false);
+    if (!disagreed.ok) {
+      expect(disagreed.reasons.join(" ")).toMatch(/disagrees with the policy result/);
+    }
+  });
+
   it("rejects altered decimal odds outside 1e-6", () => {
     const math = calculations();
     const altered = validateThesisReport(

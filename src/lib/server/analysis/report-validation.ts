@@ -1,11 +1,16 @@
 import type { ThesisPacket, ThesisReport } from "../providers/contracts.ts";
 import { forbiddenProbabilityKeys, isThesisReportShape } from "./report-schema.ts";
+import type { PolicyDecision } from "./policy.ts";
 
 const NUMBER_TOLERANCE = 1e-6;
 
 export type ReportValidation = { ok: true; report: ThesisReport } | { ok: false; reasons: string[] };
 
-export function validateThesisReport(value: unknown, packet: ThesisPacket): ReportValidation {
+export function validateThesisReport(
+  value: unknown,
+  packet: ThesisPacket,
+  policy?: Pick<PolicyDecision, "conclusion">,
+): ReportValidation {
   const reasons: string[] = [];
   const probabilityKeys = forbiddenProbabilityKeys(value);
   if (probabilityKeys.length > 0) {
@@ -26,6 +31,11 @@ export function validateThesisReport(value: unknown, packet: ThesisPacket): Repo
   }
   if (Math.abs(value.decisiveBreakEven - packet.decisiveBreakEven) > NUMBER_TOLERANCE) {
     reasons.push("decisiveBreakEven does not match the supplied value");
+  }
+  if (policy && value.conclusion !== policy.conclusion) {
+    reasons.push(
+      `Report conclusion "${value.conclusion}" disagrees with the policy result "${policy.conclusion}"`,
+    );
   }
   if (reasons.length > 0) return { ok: false, reasons };
   return {
