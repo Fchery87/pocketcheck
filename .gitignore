@@ -25,3 +25,7 @@ vite.config.ts.timestamp-*
 
 # Local model artifacts
 data/artifacts/
+
+# Playwright
+test-results/
+playwright-report/
