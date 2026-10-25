@@ -55,7 +55,8 @@ export async function persistCompletedRun(run: ResearchRun): Promise<{ saved: bo
         },
       ],
       analysis: {
-        parentId: null,
+        id: run.id,
+        parentId: run.parentId,
         cutoffAt: run.offer.observedAt,
         status: "completed",
         conclusion: run.report?.conclusion ?? null,

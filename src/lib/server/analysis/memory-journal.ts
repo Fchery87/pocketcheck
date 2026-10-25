@@ -65,6 +65,7 @@ export type MemoryJournal = {
   saveRun: (run: Omit<ResearchRun, "id" | "createdAt"> & { id?: string }) => ResearchRun;
   get: (id: string) => ResearchRun | null;
   listCompleted: () => ResearchRun[];
+  listInProgress: () => ResearchRun[];
   markInterrupted: (id: string) => ResearchRun | null;
   recordBet: (bet: Omit<ActualBet, "id">) => ActualBet;
   listBets: () => ActualBet[];
@@ -105,6 +106,9 @@ export function createMemoryJournal(): MemoryJournal {
     },
     listCompleted() {
       return [...runs.values()].filter((run) => run.status === "completed");
+    },
+    listInProgress() {
+      return [...runs.values()].filter((run) => run.status !== "completed" && run.status !== "interrupted");
     },
     markInterrupted(id) {
       const run = runs.get(id);
