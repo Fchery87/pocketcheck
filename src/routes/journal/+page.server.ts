@@ -3,6 +3,7 @@ import { parseOffer, type Market, type OfferRules, type SideSelection, type TieR
 import { ConfigError, now, researchStore } from "#lib/server/config.ts";
 import { journalSummaries } from "#lib/server/analysis/summary.ts";
 import type { SettlementNoticeKind } from "#lib/server/analysis/store.ts";
+import type { JournalExport } from "#lib/server/db/repository.ts";
 import type { Actions, PageServerLoad } from "./$types";
 
 function store() {
@@ -241,5 +242,33 @@ export const actions = {
         error: cause instanceof Error ? cause.message : "Closing observation was not saved",
       });
     }
+  },
+  restore: async ({ request }) => {
+    const data = await request.formData();
+    const file = data.get("backup");
+    if (!(file instanceof File) || file.size === 0) {
+      return fail(400, { restored: false, error: "Choose a version 1 journal backup to restore." });
+    }
+    let backup: JournalExport;
+    try {
+      backup = JSON.parse(await file.text()) as JournalExport;
+    } catch {
+      return fail(400, { restored: false, error: "That file is not a journal backup." });
+    }
+    const journal = store();
+    const before = await journal.listCompleted();
+    try {
+      await journal.restoreJournal(backup);
+    } catch (cause) {
+      const after = await journal.listCompleted();
+      if (JSON.stringify(after) !== JSON.stringify(before)) {
+        throw new Error("A rejected journal restore changed the destination.");
+      }
+      return fail(400, {
+        restored: false,
+        error: cause instanceof Error ? cause.message : "Journal restore failed.",
+      });
+    }
+    return { restored: true, error: null };
   },
 } satisfies Actions;

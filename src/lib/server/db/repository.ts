@@ -158,6 +158,21 @@ export type SettlementRecord = {
   correctsId: string | null;
 };
 
+export type SettlementNoticeRecord = {
+  id: string;
+  eventId: string;
+  analysisId: string;
+  betId: string | null;
+  kind: "final" | "postponed" | "void" | "unresolved";
+  homeScore: number | null;
+  awayScore: number | null;
+  source: string;
+  reason: string | null;
+  correctsId: string | null;
+  recordedAt: string;
+  payloadKey: string;
+};
+
 export type JournalExport = {
   version: 1;
   games: GameRecord[];
@@ -169,6 +184,8 @@ export type JournalExport = {
   bets: BetRecord[];
   settlements: SettlementRecord[];
   closings: ClosingRecord[];
+  /** Application settlement events. Absent only on a backup written before they were included. */
+  settlementNotices?: SettlementNoticeRecord[];
 };
 
 export type SaveAnalysisInput = {
@@ -1022,6 +1039,13 @@ export class JournalRepository {
           ORDER BY created_at ASC
         `
       : [];
+    const notices = ids.length
+      ? await this.sql<SettlementNoticeRow[]>`
+          SELECT * FROM settlement_notices
+          WHERE analysis_id = ANY(${ids}::uuid[])
+          ORDER BY recorded_at ASC
+        `
+      : [];
     return {
       version: 1,
       games: games.map(mapGame),
@@ -1033,155 +1057,33 @@ export class JournalRepository {
       bets: bets.map(mapBet),
       settlements: settlements.map(mapSettlement),
       closings: closings.map(mapClosing),
+      settlementNotices: notices.map(mapSettlementNotice),
     };
   }
 
   /**
-   * Restore an export with its original ids, times, and keys. Rows already present are left
-   * alone, so restoring the same snapshot twice changes nothing. Games are matched by
-   * source_game_id, since the schedule may already have created the same game under another id.
+   * Restore a version 1 backup with its original ids, times, and relationships.
+   * The whole backup is checked before any write. An identical record is left
+   * alone, so restoring the same snapshot twice changes nothing. A conflicting
+   * identifier aborts the import and leaves the destination unchanged.
+   * Games already stored under the same source id keep that row when the
+   * schedule fields match. Pending and ambiguous attempts are stored as records
+   * only. Restore does not call a source or a provider.
    */
   async restoreJournal(snapshot: JournalExport): Promise<JournalExport> {
-    const gameIds = new Map<string, string>();
+    assertRestorable(snapshot);
 
     await this.sql.begin(async (tx) => {
-      for (const game of snapshot.games) {
-        await tx`
-          INSERT INTO games (
-            id, source_game_id, season, week, away_team, home_team, kickoff_at, venue, status
-          ) VALUES (
-            ${game.id}, ${game.sourceGameId}, ${game.season}, ${game.week},
-            ${game.awayTeam}, ${game.homeTeam}, ${game.kickoffAt}, ${game.venue}, ${game.status}
-          )
-          ON CONFLICT DO NOTHING
-        `;
-        const rows = await tx<{ id: string }[]>`
-          SELECT id FROM games WHERE source_game_id = ${game.sourceGameId}
-        `;
-        gameIds.set(game.id, rows[0]?.id ?? game.id);
-      }
-      for (const offer of snapshot.offers) {
-        await tx`
-          INSERT INTO offers (
-            id, game_id, sportsbook, market, selection, point_line, american_odds, decimal_odds,
-            observed_at, entered_at, kickoff_at, rules, opposing, completed_at
-          ) VALUES (
-            ${offer.id}, ${gameIds.get(offer.gameId) ?? offer.gameId}, ${offer.sportsbook},
-            ${offer.market}, ${offer.selection}, ${offer.pointLine}, ${offer.americanOdds},
-            ${offer.decimalOdds}, ${offer.observedAt}, ${offer.enteredAt}, ${offer.kickoffAt},
-            ${tx.json(offer.rules as never)},
-            ${offer.opposing ? tx.json(offer.opposing as never) : null},
-            ${offer.completedAt}
-          )
-          ON CONFLICT DO NOTHING
-        `;
-      }
-      const evidenceById = new Map(snapshot.evidence.map((item) => [item.id, item]));
-      for (const item of snapshot.evidence) {
-        await tx`
-          INSERT INTO evidence (
-            id, source_id, source_url, retrieved_at, published_at, effective_at,
-            checksum, body, origin, completeness, completed_at, packet_item_id
-          ) VALUES (
-            ${item.id}, ${item.sourceId}, ${item.sourceUrl}, ${item.retrievedAt},
-            ${item.publishedAt}, ${item.effectiveAt}, ${item.checksum}, ${tx.json(item.body as never)},
-            ${item.origin}, ${item.completeness}, ${item.completedAt}, ${item.packetItemId ?? null}
-          )
-          ON CONFLICT DO NOTHING
-        `;
-      }
-      for (const analysis of parentsFirst(snapshot.analyses, (row) => row.parentId)) {
-        await tx`
-          INSERT INTO analyses (
-            id, offer_id, parent_id, cutoff_at, status, conclusion,
-            method_version, policy_version, schema_version, prompt_version,
-            evidence_packet_hash, provider, model, failure_reason, idempotency_key, completed_at,
-            created_at, policy, stages, gaps, usage, probability_model, snapshot,
-            assessment_role, assessment_role_reason, primary_analysis_id
-          ) VALUES (
-            ${analysis.id}, ${analysis.offerId}, ${analysis.parentId},
-            ${analysis.cutoffAt}, ${analysis.status}, ${analysis.conclusion},
-            ${analysis.methodVersion}, ${analysis.policyVersion}, ${analysis.schemaVersion},
-            ${analysis.promptVersion}, ${analysis.evidencePacketHash}, ${analysis.provider},
-            ${analysis.model}, ${analysis.failureReason}, ${analysis.idempotencyKey},
-            ${analysis.completedAt}, ${analysis.createdAt},
-            ${jsonOrNull(tx, analysis.policy)}, ${jsonOrNull(tx, analysis.stages)},
-            ${jsonOrNull(tx, analysis.gaps)}, ${jsonOrNull(tx, analysis.usage)},
-            ${jsonOrNull(tx, analysis.probabilityModel)}, ${tx.json(analysis.snapshot as never)},
-            ${analysis.assessmentRole}, ${analysis.assessmentRoleReason}, ${analysis.primaryAnalysisId}
-          )
-          ON CONFLICT DO NOTHING
-        `;
-        for (const [position, evidenceId] of analysis.evidenceIds.entries()) {
-          await tx`
-            INSERT INTO analysis_evidence (analysis_id, evidence_id, completeness, position)
-            VALUES (
-              ${analysis.id}, ${evidenceId},
-              ${evidenceById.get(evidenceId)?.completeness ?? "complete"}, ${position}
-            )
-            ON CONFLICT DO NOTHING
-          `;
-        }
-      }
-      for (const report of snapshot.reports) {
-        await tx`
-          INSERT INTO reports (id, analysis_id, claims, thesis, usage, rendered_bytes, completed_at, body)
-          VALUES (
-            ${report.id}, ${report.analysisId}, ${tx.json(report.claims as never)},
-            ${report.thesis}, ${report.usage ? tx.json(report.usage as never) : null},
-            ${Buffer.from(report.renderedText, "utf8")}, ${report.completedAt},
-            ${jsonOrNull(tx, report.body)}
-          )
-          ON CONFLICT DO NOTHING
-        `;
-      }
-      for (const research of snapshot.userResearch) {
-        await tx`
-          INSERT INTO user_research (id, analysis_id, lean, rationale)
-          VALUES (${research.id}, ${research.analysisId}, ${research.lean}, ${research.rationale})
-          ON CONFLICT DO NOTHING
-        `;
-      }
-      for (const bet of snapshot.bets) {
-        await tx`
-          INSERT INTO bets (
-            id, offer_id, analysis_id, submission_id, contract, contract_fingerprint,
-            american_odds, decimal_odds, placed_at, stake_units, sportsbook
-          ) VALUES (
-            ${bet.id}, ${bet.offerId}, ${bet.analysisId}, ${bet.submissionId ?? null},
-            ${bet.contract ? tx.json(bet.contract as never) : null},
-            ${bet.contractFingerprint ?? null}, ${bet.americanOdds}, ${bet.decimalOdds},
-            ${bet.placedAt}, ${bet.stakeUnits}, ${bet.sportsbook ?? null}
-          )
-          ON CONFLICT DO NOTHING
-        `;
-      }
-      for (const settlement of parentsFirst(snapshot.settlements, (row) => row.correctsId)) {
-        await tx`
-          INSERT INTO settlements (
-            id, bet_id, offer_id, result, rules, source, reason, settled_at, corrects_id
-          ) VALUES (
-            ${settlement.id}, ${settlement.betId}, ${settlement.offerId}, ${settlement.result},
-            ${settlement.rules}, ${settlement.source}, ${settlement.reason},
-            ${settlement.settledAt}, ${settlement.correctsId}
-          )
-          ON CONFLICT DO NOTHING
-        `;
-      }
-      for (const closing of snapshot.closings ?? []) {
-        await tx`
-          INSERT INTO closing_observations (
-            id, analysis_id, bet_id, provenance, sportsbook, market, selection, point_line,
-            rules, american_odds, decimal_odds, observed_at, source
-          ) VALUES (
-            ${closing.id}, ${closing.analysisId}, ${closing.betId}, ${closing.provenance},
-            ${closing.sportsbook}, ${closing.market}, ${closing.selection}, ${closing.pointLine},
-            ${tx.json(closing.rules as never)}, ${closing.americanOdds}, ${closing.decimalOdds},
-            ${closing.observedAt}, ${closing.source}
-          )
-          ON CONFLICT DO NOTHING
-        `;
-      }
+      const gameIds = await restoreGames(tx, snapshot.games);
+      await restoreOffers(tx, snapshot.offers, gameIds);
+      await restoreEvidence(tx, snapshot.evidence);
+      await restoreAnalyses(tx, snapshot.analyses);
+      await restoreReports(tx, snapshot.reports);
+      await restoreResearch(tx, snapshot.userResearch);
+      await restoreBets(tx, snapshot.bets);
+      await restoreSettlements(tx, snapshot.settlements);
+      await restoreClosings(tx, snapshot.closings);
+      await restoreSettlementNotices(tx, snapshot.settlementNotices ?? []);
     });
 
     return this.exportJournal(snapshot.analyses.map((row) => row.id));
@@ -1271,6 +1173,456 @@ function stripAnalysisSecrets(analysis: AnalysisRecord): AnalysisRecord {
     stages: stripSecrets(analysis.stages),
     usage: stripSecrets(analysis.usage),
   };
+}
+
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** Supported journal backup format. Version 1 is the only importable backup. */
+export const SUPPORTED_JOURNAL_BACKUP_VERSION = 1;
+
+/**
+ * Reject a backup before any write. Callers can restore version 1 only when every
+ * identifier, snapshot, and relationship is present and internally consistent.
+ */
+export function assertRestorable(snapshot: JournalExport): void {
+  if (snapshot?.version !== SUPPORTED_JOURNAL_BACKUP_VERSION) {
+    throw new Error(
+      `Unsupported journal backup version. Version ${SUPPORTED_JOURNAL_BACKUP_VERSION} is the only supported backup.`,
+    );
+  }
+  const tables = [
+    snapshot.games,
+    snapshot.offers,
+    snapshot.evidence,
+    snapshot.analyses,
+    snapshot.reports,
+    snapshot.userResearch,
+    snapshot.bets,
+    snapshot.settlements,
+    snapshot.closings,
+  ];
+  if (tables.some((rows) => !Array.isArray(rows))) {
+    throw new Error("Journal backup is missing a required record list.");
+  }
+  const games = idsOf(snapshot.games, "game");
+  const offers = idsOf(snapshot.offers, "offer");
+  const evidence = idsOf(snapshot.evidence, "evidence");
+  const analyses = idsOf(snapshot.analyses, "analysis");
+  const reports = idsOf(snapshot.reports, "report");
+  const research = idsOf(snapshot.userResearch, "user research");
+  const bets = idsOf(snapshot.bets, "bet");
+  const settlements = idsOf(snapshot.settlements, "settlement");
+  idsOf(snapshot.closings, "closing observation");
+  const notices = idsOf(snapshot.settlementNotices ?? [], "settlement notice");
+
+  for (const offer of snapshot.offers) {
+    requireReference(games, offer.gameId, `Offer ${offer.id} is missing its game.`);
+    requireShape(offer.market, ["moneyline", "spread", "total"], `Offer ${offer.id} has an unknown market.`);
+  }
+  for (const analysis of snapshot.analyses) {
+    requireReference(offers, analysis.offerId, `Analysis ${analysis.id} is missing its offer.`);
+    if (analysis.parentId) {
+      requireReference(
+        analyses,
+        analysis.parentId,
+        `Analysis ${analysis.id} is missing its parent relationship.`,
+      );
+    }
+    if (analysis.primaryAnalysisId) {
+      requireReference(
+        analyses,
+        analysis.primaryAnalysisId,
+        `Analysis ${analysis.id} is missing its primary analysis relationship.`,
+      );
+    }
+    if (!analysis.snapshot || analysis.snapshot.version !== 1) {
+      throw new Error(`Analysis ${analysis.id} has an unsupported snapshot version.`);
+    }
+    if (analysis.snapshot.provenance !== "captured" && analysis.snapshot.provenance !== "legacy-unknown") {
+      throw new Error(`Analysis ${analysis.id} has an unknown snapshot provenance.`);
+    }
+    for (const evidenceId of analysis.evidenceIds) {
+      requireReference(evidence, evidenceId, `Analysis ${analysis.id} is missing linked evidence.`);
+    }
+    if (analysis.status === "completed" && (analysis.conclusion === null || analysis.completedAt === null)) {
+      throw new Error(`Completed analysis ${analysis.id} is missing its conclusion or completion time.`);
+    }
+    if (!["pending", "running", "completed", "failed", "interrupted"].includes(analysis.status)) {
+      throw new Error(`Analysis ${analysis.id} has an unknown status.`);
+    }
+  }
+  if (hasCycle(snapshot.analyses)) {
+    throw new Error("Analysis parent relationships contain a cycle.");
+  }
+  for (const report of snapshot.reports) {
+    requireReference(analyses, report.analysisId, `Report ${report.id} is missing its analysis.`);
+  }
+  if (reports.size !== snapshot.reports.length || research.size !== snapshot.userResearch.length) {
+    throw new Error("Journal backup repeats an identifier.");
+  }
+  for (const row of snapshot.userResearch) {
+    requireReference(analyses, row.analysisId, `User research ${row.id} is missing its analysis.`);
+  }
+  for (const bet of snapshot.bets) {
+    requireReference(offers, bet.offerId, `Bet ${bet.id} is missing its offer.`);
+    if (bet.analysisId) {
+      requireReference(analyses, bet.analysisId, `Bet ${bet.id} is missing its analysis.`);
+    }
+  }
+  for (const settlement of snapshot.settlements) {
+    if (!settlement.betId && !settlement.offerId) {
+      throw new Error(`Settlement ${settlement.id} is missing the record it grades.`);
+    }
+    if (settlement.betId) {
+      requireReference(bets, settlement.betId, `Settlement ${settlement.id} is missing its bet.`);
+    }
+    if (settlement.offerId) {
+      requireReference(offers, settlement.offerId, `Settlement ${settlement.id} is missing its offer.`);
+    }
+    if (settlement.correctsId) {
+      requireReference(
+        settlements,
+        settlement.correctsId,
+        `Settlement ${settlement.id} is missing the notice it corrects.`,
+      );
+    }
+  }
+  if (hasSettlementCycle(snapshot.settlements)) {
+    throw new Error("Settlement correction relationships contain a cycle.");
+  }
+  for (const notice of snapshot.settlementNotices ?? []) {
+    requireReference(analyses, notice.analysisId, `Settlement notice ${notice.id} is missing its analysis.`);
+    if (notice.betId) {
+      requireReference(bets, notice.betId, `Settlement notice ${notice.id} is missing its bet.`);
+    }
+    if (notice.correctsId) {
+      requireReference(
+        notices,
+        notice.correctsId,
+        `Settlement notice ${notice.id} is missing the notice it corrects.`,
+      );
+    }
+    if (!notice.eventId || !notice.recordedAt || !notice.payloadKey) {
+      throw new Error(`Settlement notice ${notice.id} is missing its event history.`);
+    }
+  }
+  if (hasSettlementCycle((snapshot.settlementNotices ?? []).map((row) => ({
+    id: row.id,
+    correctsId: row.correctsId,
+  })))) {
+    throw new Error("Settlement notice correction relationships contain a cycle.");
+  }
+  for (const closing of snapshot.closings) {
+    if (!closing.analysisId && !closing.betId) {
+      throw new Error(`Closing observation ${closing.id} is missing the record it observes.`);
+    }
+    if (closing.analysisId) {
+      requireReference(analyses, closing.analysisId, `Closing observation ${closing.id} is missing its analysis.`);
+    }
+    if (closing.betId) {
+      requireReference(bets, closing.betId, `Closing observation ${closing.id} is missing its bet.`);
+    }
+  }
+}
+
+function idsOf(rows: Array<{ id: string }>, label: string): Set<string> {
+  const ids = new Set<string>();
+  for (const row of rows) {
+    if (typeof row?.id !== "string" || !UUID.test(row.id)) {
+      throw new Error(`Journal backup has a malformed ${label} identifier.`);
+    }
+    if (ids.has(row.id)) throw new Error(`Journal backup repeats ${label} identifier ${row.id}.`);
+    ids.add(row.id);
+  }
+  return ids;
+}
+
+function requireReference(ids: Set<string>, id: string | null | undefined, message: string): void {
+  if (!id || !ids.has(id)) throw new Error(message);
+}
+
+function requireShape(value: string, allowed: readonly string[], message: string): void {
+  if (!allowed.includes(value)) throw new Error(message);
+}
+
+function hasCycle(rows: Array<{ id: string; parentId: string | null }>): boolean {
+  const parent = new Map(rows.map((row) => [row.id, row.parentId]));
+  for (const row of rows) {
+    const seen = new Set<string>();
+    let current: string | null = row.id;
+    while (current) {
+      if (seen.has(current)) return true;
+      seen.add(current);
+      current = parent.get(current) ?? null;
+    }
+  }
+  return false;
+}
+
+function hasSettlementCycle(rows: Array<{ id: string; correctsId: string | null }>): boolean {
+  return hasCycle(rows.map((row) => ({ id: row.id, parentId: row.correctsId })));
+}
+
+type RestoreTx = Sql;
+
+function sameRecord(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function conflict(label: string, id: string): never {
+  throw new Error(`Conflicting ${label} identifier ${id} does not match the saved record.`);
+}
+
+async function restoreGames(tx: RestoreTx, games: GameRecord[]): Promise<Map<string, string>> {
+  const gameIds = new Map<string, string>();
+  for (const game of games) {
+    const existing = await tx<GameRow[]>`
+      SELECT * FROM games WHERE id = ${game.id} OR source_game_id = ${game.sourceGameId}
+    `;
+    if (existing[0]) {
+      const stored = mapGame(existing[0]);
+      const sameSchedule = sameRecord({ ...stored, id: game.id }, game);
+      if (!sameSchedule) conflict("game", game.id);
+      gameIds.set(game.id, stored.id);
+      continue;
+    }
+    await tx`
+      INSERT INTO games (
+        id, source_game_id, season, week, away_team, home_team, kickoff_at, venue, status
+      ) VALUES (
+        ${game.id}, ${game.sourceGameId}, ${game.season}, ${game.week},
+        ${game.awayTeam}, ${game.homeTeam}, ${game.kickoffAt}, ${game.venue}, ${game.status}
+      )
+    `;
+    gameIds.set(game.id, game.id);
+  }
+  return gameIds;
+}
+
+async function restoreOffers(
+  tx: RestoreTx,
+  offers: OfferRecord[],
+  gameIds: Map<string, string>,
+): Promise<void> {
+  for (const offer of offers) {
+    const gameId = gameIds.get(offer.gameId) ?? offer.gameId;
+    const incoming = { ...offer, gameId };
+    const existing = await tx<OfferRow[]>`SELECT * FROM offers WHERE id = ${offer.id}`;
+    if (existing[0]) {
+      if (!sameRecord(mapOffer(existing[0]), incoming)) conflict("offer", offer.id);
+      continue;
+    }
+    await tx`
+      INSERT INTO offers (
+        id, game_id, sportsbook, market, selection, point_line, american_odds, decimal_odds,
+        observed_at, entered_at, kickoff_at, rules, opposing, completed_at
+      ) VALUES (
+        ${offer.id}, ${gameId}, ${offer.sportsbook},
+        ${offer.market}, ${offer.selection}, ${offer.pointLine}, ${offer.americanOdds},
+        ${offer.decimalOdds}, ${offer.observedAt}, ${offer.enteredAt}, ${offer.kickoffAt},
+        ${tx.json(offer.rules as never)},
+        ${offer.opposing ? tx.json(offer.opposing as never) : null},
+        ${offer.completedAt}
+      )
+    `;
+  }
+}
+
+async function restoreEvidence(tx: RestoreTx, evidence: EvidenceRecord[]): Promise<void> {
+  for (const item of evidence) {
+    const existing = await tx<EvidenceRow[]>`SELECT * FROM evidence WHERE id = ${item.id}`;
+    if (existing[0]) {
+      if (!sameRecord(mapEvidence(existing[0]), item)) conflict("evidence", item.id);
+      continue;
+    }
+    await tx`
+      INSERT INTO evidence (
+        id, source_id, source_url, retrieved_at, published_at, effective_at,
+        checksum, body, origin, completeness, completed_at, packet_item_id
+      ) VALUES (
+        ${item.id}, ${item.sourceId}, ${item.sourceUrl}, ${item.retrievedAt},
+        ${item.publishedAt}, ${item.effectiveAt}, ${item.checksum}, ${tx.json(item.body as never)},
+        ${item.origin}, ${item.completeness}, ${item.completedAt}, ${item.packetItemId ?? null}
+      )
+    `;
+  }
+}
+
+async function restoreAnalyses(tx: RestoreTx, analyses: AnalysisRecord[]): Promise<void> {
+  const evidenceByAnalysis = new Map(analyses.map((row) => [row.id, row.evidenceIds]));
+  for (const analysis of parentsFirst(analyses, (row) => row.parentId)) {
+    const existing = await tx<AnalysisRow[]>`SELECT * FROM analyses WHERE id = ${analysis.id}`;
+    if (existing[0]) {
+      const links = await tx<{ evidence_id: string }[]>`
+        SELECT evidence_id FROM analysis_evidence WHERE analysis_id = ${analysis.id}
+        ORDER BY position ASC NULLS LAST
+      `;
+      const stored = mapAnalysis(
+        existing[0],
+        links.map((row) => row.evidence_id),
+      );
+      if (!sameRecord(stripAnalysisSecrets(stored), stripAnalysisSecrets(analysis))) {
+        conflict("analysis", analysis.id);
+      }
+      continue;
+    }
+    await tx`
+      INSERT INTO analyses (
+        id, offer_id, parent_id, cutoff_at, status, conclusion,
+        method_version, policy_version, schema_version, prompt_version,
+        evidence_packet_hash, provider, model, failure_reason, idempotency_key, completed_at,
+        created_at, policy, stages, gaps, usage, probability_model, snapshot,
+        assessment_role, assessment_role_reason, primary_analysis_id
+      ) VALUES (
+        ${analysis.id}, ${analysis.offerId}, ${analysis.parentId},
+        ${analysis.cutoffAt}, ${analysis.status}, ${analysis.conclusion},
+        ${analysis.methodVersion}, ${analysis.policyVersion}, ${analysis.schemaVersion},
+        ${analysis.promptVersion}, ${analysis.evidencePacketHash}, ${analysis.provider},
+        ${analysis.model}, ${analysis.failureReason}, ${analysis.idempotencyKey},
+        ${analysis.completedAt}, ${analysis.createdAt},
+        ${jsonOrNull(tx, analysis.policy)}, ${jsonOrNull(tx, analysis.stages)},
+        ${jsonOrNull(tx, analysis.gaps)}, ${jsonOrNull(tx, analysis.usage)},
+        ${jsonOrNull(tx, analysis.probabilityModel)}, ${tx.json(stripSecrets(analysis.snapshot) as never)},
+        ${analysis.assessmentRole}, ${analysis.assessmentRoleReason}, ${analysis.primaryAnalysisId}
+      )
+    `;
+    const evidenceIds = evidenceByAnalysis.get(analysis.id) ?? [];
+    for (const [position, evidenceId] of evidenceIds.entries()) {
+      const evidence = await tx<{ completeness: string }[]>`
+        SELECT completeness FROM evidence WHERE id = ${evidenceId}
+      `;
+      await tx`
+        INSERT INTO analysis_evidence (analysis_id, evidence_id, completeness, position)
+        VALUES (
+          ${analysis.id}, ${evidenceId},
+          ${evidence[0]?.completeness ?? "complete"}, ${position}
+        )
+      `;
+    }
+  }
+}
+
+async function restoreReports(tx: RestoreTx, reports: ReportRecord[]): Promise<void> {
+  for (const report of reports) {
+    const existing = await tx<ReportRow[]>`SELECT * FROM reports WHERE id = ${report.id}`;
+    if (existing[0]) {
+      if (!sameRecord(mapReport(existing[0]), report)) conflict("report", report.id);
+      continue;
+    }
+    await tx`
+      INSERT INTO reports (id, analysis_id, claims, thesis, usage, rendered_bytes, completed_at, body)
+      VALUES (
+        ${report.id}, ${report.analysisId}, ${tx.json(report.claims as never)},
+        ${report.thesis}, ${report.usage ? tx.json(report.usage as never) : null},
+        ${Buffer.from(report.renderedText, "utf8")}, ${report.completedAt},
+        ${jsonOrNull(tx, report.body)}
+      )
+    `;
+  }
+}
+
+async function restoreResearch(tx: RestoreTx, rows: UserResearchRecord[]): Promise<void> {
+  for (const research of rows) {
+    const existing = await tx<ResearchRow[]>`SELECT * FROM user_research WHERE id = ${research.id}`;
+    if (existing[0]) {
+      if (!sameRecord(mapResearch(existing[0]), research)) conflict("user research", research.id);
+      continue;
+    }
+    await tx`
+      INSERT INTO user_research (id, analysis_id, lean, rationale)
+      VALUES (${research.id}, ${research.analysisId}, ${research.lean}, ${research.rationale})
+    `;
+  }
+}
+
+async function restoreBets(tx: RestoreTx, bets: BetRecord[]): Promise<void> {
+  for (const bet of bets) {
+    const existing = await tx<BetRow[]>`SELECT * FROM bets WHERE id = ${bet.id}`;
+    if (existing[0]) {
+      if (!sameRecord(mapBet(existing[0]), bet)) conflict("bet", bet.id);
+      continue;
+    }
+    await tx`
+      INSERT INTO bets (
+        id, offer_id, analysis_id, submission_id, contract, contract_fingerprint,
+        american_odds, decimal_odds, placed_at, stake_units, sportsbook
+      ) VALUES (
+        ${bet.id}, ${bet.offerId}, ${bet.analysisId}, ${bet.submissionId ?? null},
+        ${bet.contract ? tx.json(bet.contract as never) : null},
+        ${bet.contractFingerprint ?? null}, ${bet.americanOdds}, ${bet.decimalOdds},
+        ${bet.placedAt}, ${bet.stakeUnits}, ${bet.sportsbook ?? null}
+      )
+    `;
+  }
+}
+
+async function restoreSettlements(tx: RestoreTx, settlements: SettlementRecord[]): Promise<void> {
+  for (const settlement of parentsFirst(settlements, (row) => row.correctsId)) {
+    const existing = await tx<SettlementRow[]>`SELECT * FROM settlements WHERE id = ${settlement.id}`;
+    if (existing[0]) {
+      if (!sameRecord(mapSettlement(existing[0]), settlement)) conflict("settlement", settlement.id);
+      continue;
+    }
+    await tx`
+      INSERT INTO settlements (
+        id, bet_id, offer_id, result, rules, source, reason, settled_at, corrects_id
+      ) VALUES (
+        ${settlement.id}, ${settlement.betId}, ${settlement.offerId}, ${settlement.result},
+        ${settlement.rules}, ${settlement.source}, ${settlement.reason},
+        ${settlement.settledAt}, ${settlement.correctsId}
+      )
+    `;
+  }
+}
+
+async function restoreSettlementNotices(
+  tx: RestoreTx,
+  notices: SettlementNoticeRecord[],
+): Promise<void> {
+  for (const notice of parentsFirst(notices, (row) => row.correctsId)) {
+    const existing = await tx<SettlementNoticeRow[]>`
+      SELECT * FROM settlement_notices WHERE id = ${notice.id} OR event_id = ${notice.eventId}
+    `;
+    if (existing[0]) {
+      const stored = mapSettlementNotice(existing[0]);
+      if (stored.id !== notice.id || !sameRecord(stored, notice)) conflict("settlement notice", notice.id);
+      continue;
+    }
+    await tx`
+      INSERT INTO settlement_notices (
+        id, event_id, analysis_id, bet_id, kind, home_score, away_score,
+        source, reason, corrects_id, recorded_at, payload_key
+      ) VALUES (
+        ${notice.id}, ${notice.eventId}, ${notice.analysisId}, ${notice.betId}, ${notice.kind},
+        ${notice.homeScore}, ${notice.awayScore}, ${notice.source}, ${notice.reason},
+        ${notice.correctsId}, ${notice.recordedAt}, ${notice.payloadKey}
+      )
+    `;
+  }
+}
+
+async function restoreClosings(tx: RestoreTx, closings: ClosingRecord[]): Promise<void> {
+  for (const closing of closings) {
+    const existing = await tx<ClosingRow[]>`
+      SELECT * FROM closing_observations WHERE id = ${closing.id}
+    `;
+    if (existing[0]) {
+      if (!sameRecord(mapClosing(existing[0]), closing)) conflict("closing observation", closing.id);
+      continue;
+    }
+    await tx`
+      INSERT INTO closing_observations (
+        id, analysis_id, bet_id, provenance, sportsbook, market, selection, point_line,
+        rules, american_odds, decimal_odds, observed_at, source
+      ) VALUES (
+        ${closing.id}, ${closing.analysisId}, ${closing.betId}, ${closing.provenance},
+        ${closing.sportsbook}, ${closing.market}, ${closing.selection}, ${closing.pointLine},
+        ${tx.json(closing.rules as never)}, ${closing.americanOdds}, ${closing.decimalOdds},
+        ${closing.observedAt}, ${closing.source}
+      )
+    `;
+  }
 }
 
 function jsonOrNull(tx: Pick<Sql, "json">, value: unknown) {
@@ -1658,5 +2010,37 @@ function mapSettlement(row: SettlementRow): SettlementRecord {
     reason: row.reason,
     settledAt: iso(row.settled_at)!,
     correctsId: row.corrects_id,
+  };
+}
+
+type SettlementNoticeRow = {
+  id: string;
+  event_id: string;
+  analysis_id: string;
+  bet_id: string | null;
+  kind: SettlementNoticeRecord["kind"];
+  home_score: number | null;
+  away_score: number | null;
+  source: string;
+  reason: string | null;
+  corrects_id: string | null;
+  recorded_at: Date | string;
+  payload_key: string;
+};
+
+function mapSettlementNotice(row: SettlementNoticeRow): SettlementNoticeRecord {
+  return {
+    id: row.id,
+    eventId: row.event_id,
+    analysisId: row.analysis_id,
+    betId: row.bet_id,
+    kind: row.kind,
+    homeScore: row.home_score,
+    awayScore: row.away_score,
+    source: row.source,
+    reason: row.reason,
+    correctsId: row.corrects_id,
+    recordedAt: iso(row.recorded_at)!,
+    payloadKey: row.payload_key,
   };
 }

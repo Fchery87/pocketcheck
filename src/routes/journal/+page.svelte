@@ -14,7 +14,20 @@
       Download journal backup
     </a>
     Version 1 includes research, bets, attempts, and outcomes. It omits credentials and bulk source caches.
+    Restoring version 1 checks the whole file first. A damaged or conflicting backup changes nothing.
   </p>
+  <form method="POST" action="?/restore" enctype="multipart/form-data" data-testid="restore-form">
+    <label>
+      Restore a version 1 backup
+      <input name="backup" type="file" accept="application/json" required data-testid="restore-file" />
+    </label>
+    <button type="submit">Restore journal</button>
+  </form>
+  {#if form?.restored}
+    <p data-testid="restore-recorded">Journal restored. Pending attempts stay readable and are not replayed.</p>
+  {:else if form?.error && form?.restored === false}
+    <p data-testid="form-error">{form.error}</p>
+  {/if}
   <h2>Assessments</h2>
   <p>Every completed assessment is listed, including passes. Refreshes are listed separately from their originals.</p>
   <ul data-testid="assessments">

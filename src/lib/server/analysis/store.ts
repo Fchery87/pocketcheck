@@ -9,6 +9,8 @@ import type { SavedForecast } from "./forecast-record.ts";
 import type { PolicyDecision } from "./policy.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
 import type { AttemptRequest } from "./attempt.ts";
+import type { JournalExport } from "../db/repository.ts";
+import { assertRestorable } from "../db/repository.ts";
 import { classifyPregameRuns, type PregameRun } from "./primary.ts";
 
 /**
@@ -347,6 +349,14 @@ export type ResearchStore = {
   recordUnclassifiedCompleted?: (run: ResearchRun) => Promise<void>;
   /** Test seam: an archived price with no observation time. */
   recordArchivedClosing?: (closing: ArchivedClosing) => Promise<ClosingObservation>;
+  /** Version 1 journal backup. Credentials and bulk caches are not included. */
+  exportJournal: () => Promise<JournalExport>;
+  /**
+   * Restore a validated backup. Identical records are kept once. A bad backup
+   * or a conflicting identifier changes nothing. Pending attempts stay records
+   * and are not sent to a source or provider.
+   */
+  restoreJournal: (backup: JournalExport) => Promise<JournalExport>;
 };
 
 export function createMemoryStore(): ResearchStore {
@@ -524,6 +534,42 @@ export function createMemoryStore(): ResearchStore {
         "archived-untimestamped",
       );
       return structuredClone(saved);
+    },
+    async exportJournal() {
+      return memoryBackup(runs, bets, closings, notices);
+    },
+    async restoreJournal(backup) {
+      assertRestorable(backup);
+      const incoming = memoryFromBackup(backup);
+      for (const [id, run] of incoming.runs) {
+        const existing = runs.get(id);
+        if (existing && JSON.stringify(existing) !== JSON.stringify(run)) {
+          throw new Error(`Conflicting analysis identifier ${id} does not match the saved record.`);
+        }
+      }
+      for (const bet of incoming.bets) {
+        const existing = bets.find((item) => item.id === bet.id);
+        if (existing && JSON.stringify(existing) !== JSON.stringify(bet)) {
+          throw new Error(`Conflicting bet identifier ${bet.id} does not match the saved record.`);
+        }
+      }
+      for (const [id, run] of incoming.runs) {
+        if (!runs.has(id)) runs.set(id, run);
+        if (run.request?.id) requests.set(run.request.id, id);
+      }
+      for (const bet of incoming.bets) {
+        if (!bets.some((item) => item.id === bet.id)) {
+          bets.push(bet);
+          submissions.set(bet.submissionId, bet.id);
+        }
+      }
+      for (const closing of incoming.closings) {
+        if (!closings.some((item) => item.id === closing.id)) closings.push(closing);
+      }
+      for (const notice of incoming.notices) {
+        if (!notices.some((item) => item.id === notice.id)) notices.push(notice);
+      }
+      return memoryBackup(runs, bets, closings, notices);
     },
   };
 }
@@ -842,4 +888,53 @@ function readMemorySettlement(
     rules: bet.rules,
   });
   return { assessment, bet: gradeFromNotices(contract, forRun) };
+}
+
+type MemoryJournal = JournalExport & {
+  runs: ResearchRun[];
+  actualBets: ActualBet[];
+  closingObservations: ClosingObservation[];
+  notices: StoredNotice[];
+};
+
+function memoryBackup(
+  runs: Map<string, ResearchRun>,
+  bets: ActualBet[],
+  closings: ClosingObservation[],
+  notices: StoredNotice[],
+): MemoryJournal {
+  return {
+    version: 1,
+    games: [],
+    offers: [],
+    evidence: [],
+    analyses: [],
+    reports: [],
+    userResearch: [],
+    bets: [],
+    settlements: [],
+    closings: [],
+    runs: [...runs.values()].map((run) => structuredClone(run)),
+    actualBets: bets.map((bet) => structuredClone(bet)),
+    closingObservations: closings.map((closing) => structuredClone(closing)),
+    notices: notices.map((notice) => structuredClone(notice)),
+  };
+}
+
+function memoryFromBackup(backup: JournalExport): {
+  runs: Map<string, ResearchRun>;
+  bets: ActualBet[];
+  closings: ClosingObservation[];
+  notices: StoredNotice[];
+} {
+  const body = backup as MemoryJournal;
+  if (!Array.isArray(body.runs)) {
+    throw new Error("Journal backup is missing its analysis records.");
+  }
+  return {
+    runs: new Map(body.runs.map((run) => [run.id, structuredClone(run)])),
+    bets: (body.actualBets ?? []).map((bet) => structuredClone(bet)),
+    closings: (body.closingObservations ?? []).map((closing) => structuredClone(closing)),
+    notices: (body.notices ?? []).map((notice) => structuredClone(notice)),
+  };
 }
