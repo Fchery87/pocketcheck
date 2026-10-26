@@ -81,6 +81,18 @@ describe("NWS kickoff forecast", () => {
     expect(result.reason).toMatch(/NWS/);
   });
 
+  it("records null and invalid forecast JSON as a gap instead of throwing", async () => {
+    for (const body of ["null", "{", "[]"]) {
+      const { fetch } = recorder((url) =>
+        url.includes("/points/") ? live(url) : { ok: true, body },
+      );
+      const result = await fetchKickoffForecast({ game: outdoor, nowIso, fetch, userAgent });
+      expect(result.state, body).toBe("missing");
+      expect(result.item, body).toBeNull();
+      expect(result.reason, body).toMatch(/payload|not JSON/i);
+    }
+  });
+
   it("reports a forecast that never answers as a timeout gap", async () => {
     const { fetch } = recorder((url) => (url.includes("/points/") ? live(url) : "hang"));
     const result = await fetchKickoffForecast({

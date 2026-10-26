@@ -61,10 +61,28 @@ export async function fetchKickoffForecast(input: {
   if (!hourly.ok) {
     return { state: "missing", item: null, reason: `NWS forecast failed: ${hourly.failure}` };
   }
+  let payload: unknown;
+  try {
+    payload = JSON.parse(hourly.body);
+  } catch {
+    return {
+      state: "missing",
+      item: null,
+      reason:
+        "NWS forecast payload was not valid JSON. Retrieval did not establish a kickoff forecast.",
+    };
+  }
+  if (payload === null || typeof payload !== "object") {
+    return {
+      state: "missing",
+      item: null,
+      reason: "NWS forecast payload was empty. Retrieval did not establish a kickoff forecast.",
+    };
+  }
   return kickoffForecastEvidence({
     roof: game.venue.roof,
     kickoff: game.kickoff,
-    payload: JSON.parse(hourly.body),
+    payload,
     retrievedAt: input.nowIso,
     sourceUrl: hourlyUrl,
   });

@@ -5,6 +5,7 @@ export type ManualEvidenceInput = {
   url: string;
   sourceTime: string;
   covers?: "injury-report" | "weather";
+  team?: string;
 };
 
 export type RequestInputs = {
@@ -14,6 +15,7 @@ export type RequestInputs = {
     url: string;
     sourceTime: string;
     covers: "injury-report" | "weather" | null;
+    team: string | null;
   }[];
   carriedEvidence: EvidenceItem[];
   drafter: { provider: string; modelId: string };

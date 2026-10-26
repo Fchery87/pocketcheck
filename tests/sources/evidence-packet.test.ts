@@ -117,6 +117,36 @@ describe("injury evidence", () => {
     expect(result.gaps.join(" ")).toMatch(/publication time/i);
   });
 
+  it("treats an explicit empty marker as a clean report and missing rows as unknown", () => {
+    const header = injuryCsv.split(/\r?\n/)[0]!;
+    const blank = `${header}\n2026,REG,REG,PHI,7,,,,,,,,,,,,\n`;
+    const unmarked = injuryEvidenceFromCsv(blank, {
+      season: 2026,
+      week: 7,
+      teams: ["PHI", "DAL"],
+      retrievedAt,
+      sourceUrl: "https://example.test/injuries.csv",
+    });
+    // A row with no status is still not an empty report.
+    expect(unmarked.teams).toEqual({ PHI: "unknown", DAL: "unknown" });
+    expect(unmarked.items).toEqual([]);
+
+    const established = injuryEvidenceFromCsv(
+      `${header},coverage\n2026,REG,REG,PHI,7,,,,,,,,,,,,empty\n`,
+      {
+        season: 2026,
+        week: 7,
+        teams: ["PHI", "DAL"],
+        retrievedAt,
+        sourceUrl: "https://example.test/injuries.csv",
+      },
+    );
+    expect(established.teams.PHI).toBe("empty");
+    expect(established.teams.DAL).toBe("unknown");
+    expect(established.gaps.join(" ")).toMatch(/DAL/);
+    expect(established.gaps.join(" ")).not.toMatch(/PHI, DAL/);
+  });
+
   it("does not treat a 2024 payload as 2026 coverage", () => {
     const onlyOld = injuryCsv
       .split("\n")

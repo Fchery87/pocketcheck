@@ -5,9 +5,13 @@ import { parseCsv } from "./nflverse.ts";
 const PUBLICATION_GAP =
   "nflverse injury rows have no publication time. publishedAt stays unknown. Confirm material designations with a manual club report.";
 
+export type InjuryTeamCoverage = "players" | "empty" | "unknown";
+
 export type InjuryRead = {
   items: EvidenceItem[];
   gaps: string[];
+  /** Coverage established for each requested team. Player rows never imply the other team. */
+  teams: Record<string, InjuryTeamCoverage>;
 };
 
 export function injuryEvidenceFromCsv(
@@ -30,9 +34,28 @@ export function injuryEvidenceFromCsv(
       (row.report_status ?? "") !== "",
   );
   const gaps = [PUBLICATION_GAP];
-  if (matching.length === 0) {
+  const teams: Record<string, InjuryTeamCoverage> = {};
+  const uncovered: string[] = [];
+  for (const team of input.teams) {
+    const rowsForTeam = matching.filter((row) => row.team === team);
+    const empty = rows.some(
+      (row) =>
+        Number(row.season) === input.season &&
+        Number(row.week) === input.week &&
+        row.team === team &&
+        (row.report_status ?? "") === "" &&
+        (row.coverage ?? "") === "empty",
+    );
+    if (rowsForTeam.length > 0) teams[team] = "players";
+    else if (empty) teams[team] = "empty";
+    else {
+      teams[team] = "unknown";
+      uncovered.push(team);
+    }
+  }
+  if (uncovered.length > 0) {
     gaps.unshift(
-      `No ${input.season} week ${input.week} injury rows for ${input.teams.join(", ")}. Do not substitute another season. Use manual evidence.`,
+      `No ${input.season} week ${input.week} injury coverage for ${uncovered.join(", ")}. Absence of player rows is not a clean report. Do not substitute another season or another team. Use manual evidence scoped to each missing team.`,
     );
   }
   const items = matching.map((row) =>
@@ -55,5 +78,5 @@ export function injuryEvidenceFromCsv(
       },
     }),
   );
-  return { items, gaps };
+  return { items, gaps, teams };
 }
