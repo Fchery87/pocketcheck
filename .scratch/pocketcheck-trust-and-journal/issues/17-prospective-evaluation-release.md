@@ -20,7 +20,7 @@
 - [x] Keep timestamped executable offers distinct from closing comparison observations. Report the sample, missing observations, and provenance without asserting profitability from release eligibility.
 - [x] Expose protocol identity, evaluation results, and blocking reasons through the existing model pipeline and relevant application model status. Preserve the deterministic policy and experimental labeling.
 - [x] Verify valid passing and failing protocols with controlled frozen records, including restore and replay. No ticket requires waiting for 500 real future games or claiming that a market has earned release.
-- [x] Run the established verification entry point and disposable database job, and verify the separate summary and recovery workflows remain intact.
+- [ ] Run the established verification entry point and disposable database job, and verify the separate summary and recovery workflows remain intact. The ticket implementation verified prospective, release, and model-status unit tests. The integration owner runs `npm run verify` and `npm run verify:database` after the merge.
 - [x] Update model and capability documentation so development results, prospective evidence, and released eligibility have distinct accurate meanings.
 
 ## Answer
