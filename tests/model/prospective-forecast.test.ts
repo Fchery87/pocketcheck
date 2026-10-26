@@ -76,9 +76,9 @@ describe("frozen prospective forecasts", () => {
       market: "moneyline",
       eligible: false,
     });
-    expect(frozen.probabilities.win + frozen.probabilities.loss + frozen.probabilities.push).toBeCloseTo(
-      1,
-    );
+    expect(
+      frozen.probabilities.win + frozen.probabilities.loss + frozen.probabilities.push,
+    ).toBeCloseTo(1);
   });
 
   it("keeps the saved forecast after the current schedule, artifact, starters, and score change", () => {
@@ -89,7 +89,11 @@ describe("frozen prospective forecasts", () => {
       away: "TB",
       starters: {
         home: { state: "assumed" as const, identity: "hurts", evidenceAt: cutoff },
-        away: { state: "known" as const, identity: "mayfield", evidenceAt: "2024-09-28T12:00:00.000Z" },
+        away: {
+          state: "known" as const,
+          identity: "mayfield",
+          evidenceAt: "2024-09-28T12:00:00.000Z",
+        },
       },
     };
     const original: ProspectiveForecast = freezeProspectiveForecast({
@@ -101,7 +105,16 @@ describe("frozen prospective forecasts", () => {
       policyVersion: "policy-2026-10-25.2",
     });
     const replacement = fitArtifact(
-      [...history, { ...history[0]!, id: "late", homeScore: 3, awayScore: 40, kickoff: "2024-09-27T17:00:00.000Z" }],
+      [
+        ...history,
+        {
+          ...history[0]!,
+          id: "late",
+          homeScore: 3,
+          awayScore: 40,
+          kickoff: "2024-09-27T17:00:00.000Z",
+        },
+      ],
       "2024-09-28T18:00:00.000Z",
     );
     const replayed = replayProspectiveForecast(original, {

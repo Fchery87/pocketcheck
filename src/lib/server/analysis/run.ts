@@ -1,7 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { ManualEvidenceInput } from "./attempt.ts";
 import { americanToDecimal, breakEven } from "#lib/domain/odds.ts";
-import { OfferError, parseOffer, type Offer, type OfferInput, type TieRule } from "#lib/domain/offer.ts";
+import {
+  OfferError,
+  parseOffer,
+  type Offer,
+  type OfferInput,
+  type TieRule,
+} from "#lib/domain/offer.ts";
 import { buildThesisPacket, thesisRequestBody } from "./packet.ts";
 import { redactText } from "./redact.ts";
 import { validateThesisReport } from "./report-validation.ts";

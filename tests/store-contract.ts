@@ -303,7 +303,8 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
         inputAvailability: {
           version: "decision-time-starters-v1",
           results: "strictly-before-decision-cutoff",
-          starters: "known and assumed identities require evidence at or before the decision cutoff",
+          starters:
+            "known and assumed identities require evidence at or before the decision cutoff",
         },
         artifact: { checksum: "a".repeat(64), version: 4 as const },
         features: { home_qb_share: 1, away_qb_share: 0.5 },
@@ -317,7 +318,11 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
         policyVersion: "policy-2026-10-25.2",
       };
       const first = (
-        await runAnalysis(request(), { store, model: unreleasedModel, forecast: async () => forecast })
+        await runAnalysis(request(), {
+          store,
+          model: unreleasedModel,
+          forecast: async () => forecast,
+        })
       ).run!;
       expect(first.forecast).toEqual(forecast);
       const changed = (
@@ -337,7 +342,11 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
               probabilities: { win: 0.2, loss: 0.75, push: 0.05 },
               policyVersion: "policy-later",
               starters: {
-                home: { state: "known", identity: "backup", evidenceAt: "2026-10-26T15:00:00.000Z" },
+                home: {
+                  state: "known",
+                  identity: "backup",
+                  evidenceAt: "2026-10-26T15:00:00.000Z",
+                },
                 away: { state: "known", identity: "other", evidenceAt: "2026-10-26T15:00:00.000Z" },
               },
             }),
