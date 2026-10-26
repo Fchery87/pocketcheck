@@ -938,10 +938,10 @@ export function describeStoreContract(
     });
 
     it("records a closing observation and reads the price comparison back", async () => {
-      const store = makeStore();
+      const store = await makeStore();
       const run = (
         await runAnalysis(
-          request({ market: "spread", selection: "home", pointLine: -3.5, americanOdds: -110 }),
+          ask({ market: "spread", selection: "home", pointLine: -3.5, americanOdds: -110 }),
           { store },
         )
       ).run!;
@@ -980,8 +980,8 @@ export function describeStoreContract(
     });
 
     it("keeps an earlier closing when a later one is recorded for the same subject", async () => {
-      const store = makeStore();
-      const run = (await runAnalysis(request(), { store })).run!;
+      const store = await makeStore();
+      const run = (await runAnalysis(ask(), { store })).run!;
       const first = await store.recordClosing({
         subject: { kind: "analysis", id: run.id },
         sportsbook: "Example Book",
@@ -1009,10 +1009,10 @@ export function describeStoreContract(
     });
 
     it("shows a moved point line separately and does not call it an odds change", async () => {
-      const store = makeStore();
+      const store = await makeStore();
       const run = (
         await runAnalysis(
-          request({ market: "spread", selection: "home", pointLine: -3.5, americanOdds: -110 }),
+          ask({ market: "spread", selection: "home", pointLine: -3.5, americanOdds: -110 }),
           { store },
         )
       ).run!;
@@ -1037,8 +1037,8 @@ export function describeStoreContract(
     });
 
     it("marks a missing comparable closing unavailable instead of zero", async () => {
-      const store = makeStore();
-      const run = (await runAnalysis(request(), { store })).run!;
+      const store = await makeStore();
+      const run = (await runAnalysis(ask(), { store })).run!;
       const views = await store.listClosings();
       expect(views.filter((item) => item.subject.id === run.id)).toEqual([]);
       const recorded = await store.recordBet({
@@ -1058,10 +1058,10 @@ export function describeStoreContract(
     });
 
     it("compares an actual bet against its own contract, not the researched offer", async () => {
-      const store = makeStore();
+      const store = await makeStore();
       const run = (
         await runAnalysis(
-          request({ market: "spread", selection: "home", pointLine: -3, americanOdds: -110 }),
+          ask({ market: "spread", selection: "home", pointLine: -3, americanOdds: -110 }),
           { store },
         )
       ).run!;
@@ -1098,9 +1098,9 @@ export function describeStoreContract(
     });
 
     it("does not treat an untimestamped archived close as an observed offer", async () => {
-      const store = makeStore();
+      const store = await makeStore();
       if (!store.recordArchivedClosing) return;
-      const run = (await runAnalysis(request(), { store })).run!;
+      const run = (await runAnalysis(ask(), { store })).run!;
       await store.recordArchivedClosing({
         subject: { kind: "analysis", id: run.id },
         sportsbook: "Archived Book",
