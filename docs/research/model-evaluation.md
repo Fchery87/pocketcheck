@@ -28,7 +28,7 @@ npm run model:evaluate -- data/artifacts/baseline.json data/sources/games.csv da
 npm run model:release -- data/artifacts/baseline.json data/artifacts/baseline-evaluation.json data/artifacts/baseline-released.json
 ```
 
-The fit command also accepts the synthetic JSON fixture in `tests/model/fixtures/`. Without a cutoff, the earliest 70% of games train. The artifact (version 3) stores the dataset hash, feature definitions and parameters, training cutoff, fit parameters, base rates, residual source, residual support, key weights, and a checksum of those fields. Artifacts stay under `data/artifacts/`, which is gitignored. Evaluating on the full history takes about a minute.
+The fit command also accepts the synthetic JSON fixture in `tests/model/fixtures/`. Without a cutoff, the earliest 70% of games train. The artifact (version 4) stores the dataset hash, feature definitions and parameters, training cutoff, fit parameters, base rates, residual source, residual support, key weights, a walk-forward calibration table, and a checksum of those fields. Artifacts stay under `data/artifacts/`, which is gitignored. Evaluating on the full history takes about 10 seconds.
 
 ## Baselines
 
@@ -102,7 +102,48 @@ Beating the training base rate does not count, because the model does that while
 
 `npm run model:evaluate` prints each market's decision and reason. `npm run model:release` accepts only an evaluation of that exact artifact (matching checksum). It writes a new artifact with `releaseStatus: "released-experimental"`, the passing `releasedMarkets`, and a fresh checksum, and leaves the input unchanged. When no market passes, it exits with the reasons and writes nothing. `valueEligibility(artifact, market)` is true only for a released artifact and a released market.
 
-On the numbers above, no market passes.
+On the numbers above, no market passes. The refit that added the calibration table did not change the scores.
+
+## Uncertainty
+
+The artifact records a walk-forward calibration table per market (`uncertainty`, method `walk-forward-calibration`). It is built only from forecasts inside the training window. Each block is predicted by a model and a residual distribution fit on earlier blocks, and the holdout is never inspected. Forecasts are grouped into 20 bins of decisive win probability, each 0.05 wide.
+
+Each bin stores its sides, its NFL slates, the mean predicted probability, the observed rate, and a conservative rate. The conservative rate is the lower end of a 90% interval from a slate-clustered bootstrap: 1,000 resamples, seed `20261025`, with every game in one NFL week (Tuesday through Monday, Eastern time) resampled together. A bin with fewer than 60 sides, or fewer than 2 slates, has no conservative rate.
+
+On the 1999–2021 window the populated bins and decisive sides were:
+
+| Market    | Populated bins | Decisive sides | Bins with a conservative rate |
+| --------- | -------------- | -------------- | ----------------------------- |
+| Moneyline | 18             | 7,034          | 16                            |
+| Spread    | 16             | 6,836          | 8                             |
+| Total     | 14             | 6,928          | 8                             |
+
+The two moneyline bins under 0.10 and over 0.90 have 13 sides each, so their uncertainty cannot be assessed. Across the usable bins the conservative rate sits below the observed rate. The middle moneyline bin (0.45–0.50) predicted 0.475, observed 0.477, and its conservative rate is 0.448.
+
+At run time the offer's decisive win probability `q` becomes `min(q, conservativeRate + (q − meanPredicted))`, which never exceeds the model's own estimate. When the bin cannot be assessed, the run says so instead of guessing.
+
+## Value threshold
+
+`VALUE_THRESHOLD` in `src/lib/domain/threshold.ts` is `{ version: "threshold-2026-10-25", conservativeExpectedValue: 0 }`. It was frozen before this holdout was examined. Evaluation reports how it would have behaved and never tunes it. The report uses closing prices as a stand-in for the offer, and the spec forbids treating closing prices as executable, so the counts below are descriptive.
+
+For a released market the policy (`policy-2026-10-25.2`) now works in this order:
+
+- No positive expected value at the recorded price: pass.
+- Uncertainty cannot be assessed: insufficient evidence.
+- The point estimate is positive but the conservative expected value is not above 0: experimental lean.
+- Otherwise: experimental value candidate.
+
+On the 2022+ holdout, using closing prices:
+
+| Market    | Assessed | Would clear 0 | Decisive | Wins | Observed rate | Mean break-even | 90% interval   |
+| --------- | -------- | ------------- | -------- | ---- | ------------- | --------------- | -------------- |
+| Moneyline | 1,242    | 257           | 255      | 112  | 0.439         | 0.473           | 0.395 to 0.485 |
+| Spread    | 1,221    | 39            | 37       | 18   | 0.486         | 0.511           | 0.343 to 0.628 |
+| Total     | 1,235    | 7             | 7        | 3    | 0.429         | 0.501           | 0.143 to 0.714 |
+
+Every observed rate is below its mean break-even, and every interval includes values below it. The threshold would not have found a profitable set.
+
+Each baseline comparison also carries a slate-clustered 90% interval for the model's log loss minus the baseline's. Against the no-vig market the intervals are moneyline 0.010 to 0.025, spread 0.008 to 0.023, and total 0.008 to 0.022. Each excludes 0, so the model's loss to the market is larger than slate noise. The interval against the training base rate is entirely negative, which only says the model beats a constant.
 
 ## In research runs
 
@@ -122,4 +163,4 @@ Each run asks the configured artifact (`POCKETCHECK_MODEL_ARTIFACT`, default `da
 - nflverse closing prices come from one archived source per game, not a consensus or a timestamped close.
 - Opponent strength is recency-weighted margin and points plus quarterback share and rating. There are no other injury features and no weather.
 - Most upcoming games list no starter, so the features assume each team's usual starter. A starter ruled out on the injury report is not yet reflected.
-- For a released market, the policy calls any positive expected value an experimental value candidate. The spec also asks for an explicit uncertainty assessment before that conclusion. That is not built yet, and no market is released.
+- A market becomes an experimental value candidate only when its conservative expected value clears the frozen threshold above. No market is released, so no run reaches that conclusion today.
