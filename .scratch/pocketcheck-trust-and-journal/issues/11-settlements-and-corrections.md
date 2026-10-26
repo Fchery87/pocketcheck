@@ -18,7 +18,7 @@
 - [x] Ignore repeated notices without double-counting results. Reject conflicting reuse of an event identifier.
 - [x] A correction references the earlier notice and requires a reason. Show the full history and effective result without deleting or overwriting prior notices.
 - [x] Grade differing research and actual-bet lines independently, including a score where -3 pushes but -3.5 loses.
-- [ ] Verify duplicates, postponements, corrections, market rules, and durable readback through the application journal boundary and production-browser acceptance. Memory store contract passed (32 tests), including the four settlement cases. Neon settlement cases passed on disposable Postgres (`postgresql://nochaserz@127.0.0.1:55431/postgres`): independent lines, duplicates, postponement, and correction. The same job still fails 21 older tests, and that save failure (`completed analyses rows are immutable`) also fails on integrate/pocketcheck-mvp at ef8880d. Production-browser acceptance was not run: port 42627 was already in use.
+- [x] Verify duplicates, postponements, corrections, market rules, and durable readback through the application journal boundary and production-browser acceptance. The shared store contract covers these cases in memory and on disposable Neon. The production browser records a settlement, corrects it with a reason, and reads the history back after export and restore. `npm run verify` and `npm run verify:database` both passed on 2026-10-26.
 - [x] Document reachable settlement capabilities and retain earlier implementation history when updating completion records.
 
 ## Answer

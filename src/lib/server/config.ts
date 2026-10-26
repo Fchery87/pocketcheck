@@ -8,6 +8,7 @@ import {
   POCKETCHECK_MODEL_ARTIFACT,
   POCKETCHECK_NOW,
   POCKETCHECK_SCHEDULE_CSV,
+  POCKETCHECK_TEST_MODE,
   POCKETCHECK_WEATHER,
   THECLAWBAY_API_KEY,
 } from "$app/env/private";
@@ -115,6 +116,14 @@ export function researchStore(): ResearchStore {
   store ??=
     POCKETCHECK_JOURNAL === "memory" ? createMemoryStore() : createNeonStore(databaseForJournal());
   return store;
+}
+
+/** Replaces the in-memory journal. Browser verification uses this to restore into empty storage. */
+export function replaceMemoryJournal(next: ResearchStore): void {
+  if (POCKETCHECK_JOURNAL !== "memory" || !POCKETCHECK_TEST_MODE) {
+    throw new ConfigError("An empty journal is available only during memory verification.");
+  }
+  store = next;
 }
 
 let settings: SettingsStore | undefined;

@@ -17,7 +17,7 @@
 - [x] Display primary, refresh, and ineligible roles with understandable reasons in the journal. Keep all completed analyses, including passes, accessible.
 - [x] Refreshing an analysis or later recording an outcome cannot change the frozen primary choice.
 - [x] Historical data without trustworthy classification timing retains that limitation visibly rather than acquiring a fabricated pre-outcome claim.
-- [ ] Verify completion-order ties, failed and interrupted attempts, after-cutoff ineligibility, and later refreshes through the application journal boundary and both stores. Memory passed. Neon was not run because TEST_DATABASE_URL was unset.
+- [x] Verify completion-order ties, failed and interrupted attempts, after-cutoff ineligibility, and later refreshes through the application journal boundary and both stores. The shared store contract covers these cases in memory and on disposable Neon. `npm run verify:database` passed 50 tests, including the primary cases, on 2026-10-26.
 - [x] Document the primary-selection rule and the distinction between all-runs history and the independent primary cohort.
 
 ## Answer

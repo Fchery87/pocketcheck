@@ -443,6 +443,13 @@ test("a correction, export, and restore keep the journal and leave a bad file un
   await expect(page.getByTestId("form-error").first()).toContainText("Version 1");
   await expect(page.getByTestId("assessments")).toContainText("Recovery Book");
 
+  const emptied = await page.request.post("/__verification", {
+    headers: { origin: "http://127.0.0.1:42627" },
+  });
+  expect(emptied.ok()).toBe(true);
+  expect((await emptied.json()).analyses).toBe(0);
+  await page.goto("/journal");
+  await expect(page.getByTestId("assessments")).not.toContainText("Recovery Book");
   await page.getByTestId("restore-file").setInputFiles(backupPath!);
   await page.getByRole("button", { name: "Restore journal" }).click();
   await expect(page.getByTestId("restore-recorded")).toBeVisible();

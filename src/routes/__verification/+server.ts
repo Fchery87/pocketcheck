@@ -1,6 +1,7 @@
 import { error, json } from "@sveltejs/kit";
 import * as env from "$app/env/private";
-import { now, researchStore, settingsStore } from "#lib/server/config.ts";
+import { createMemoryStore } from "#lib/server/analysis/store.ts";
+import { now, replaceMemoryJournal, researchStore, settingsStore } from "#lib/server/config.ts";
 import { assertBrowserFixture } from "#lib/server/verification.ts";
 
 export async function GET() {
@@ -19,4 +20,12 @@ export async function GET() {
     drafter: drafter.provider,
     analyses: (await researchStore().listCompleted()).length,
   });
+}
+
+/** Test-only empty journal. The route does not exist outside browser verification. */
+export async function POST() {
+  if (!env.POCKETCHECK_TEST_MODE) error(404);
+  assertBrowserFixture(env);
+  replaceMemoryJournal(createMemoryStore());
+  return json({ analyses: (await researchStore().listCompleted()).length });
 }
