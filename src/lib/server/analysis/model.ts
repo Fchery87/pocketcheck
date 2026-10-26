@@ -88,7 +88,7 @@ export function createArtifactModel(input: {
       home: game.home,
       away: game.away,
     };
-    const row = featureRowForGame(history, upcoming, artifact.featureParameters);
+    const row = featureRowForGame(history, upcoming, artifact.featureParameters, cutoffIso);
     const probabilities = offerProbabilities(predictGame(artifact, row), offer);
     const uncertainty = conservativeProbabilities(
       artifact.uncertainty,

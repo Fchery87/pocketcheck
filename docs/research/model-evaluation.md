@@ -1,20 +1,21 @@
 # Baseline model evaluation
 
-This note records how the baseline is fit and how it scores on real NFL games. It is not a claim that the model is profitable. On every market it still scores worse than the no-vig closing price.
+The historical scores in this note are superseded development evidence. They were produced before the concurrent-game feature and fold leakage corrections. The 2022+ holdout has also been inspected repeatedly during model selection, so it is not independent validation. None of these results establishes a betting advantage. Refit and reevaluate artifacts before using corrected chronological results; no new performance claim accompanies this correction.
 
 ## What is fit
 
 - **Data.** `data/sources/games.csv` is the nflverse schedule (`npm run data:schedule`). `pricedGamesFromNflverseCsv` keeps finished games and their recorded closing moneyline, spread, and total. `location == "Neutral"` sets the home indicator to 0. Prices that are not recorded stay missing.
-- **Features** use only games whose kickoff is strictly earlier. Team form is recency-weighted:
+- **Chronology.** A result is eligible only when its availability is strictly earlier than the decision cutoff. An explicit `resultAvailableAt` retains source-established availability. When absent, the pipeline uses kickoff plus 24 hours as a conservative policy estimate, not a source publication timestamp or proof that a delayed game finished. Sources that establish a later result must supply that later timestamp. All rows in one kickoff group are generated before its outcomes can enter history. Earlier-started games that overlap the cutoff stay excluded. New artifacts record this rule in `chronology` with version `result-availability-v1`.
+- **Features** use only eligible results. Team form is recency-weighted:
   - Each later game multiplies earlier weights by `gameDecay` (0.94).
   - A new season multiplies them by `seasonCarry` (0.5).
-  - Every team starts with `priorWeight` (2) games of league-average form: a margin of 0, and the mean points of strictly earlier games.
+  - Every team starts with `priorWeight` (2) games of league-average form: a margin of 0, and the mean points of eligible games.
   - Rest days count only within a season, so a season opener has 7 days of rest, not the whole offseason.
   - `home_qb_share` and `away_qb_share` are the share of the team's last 8 games started by this game's starting quarterback (nflverse `home_qb_id` and `away_qb_id`). When the starter is not known yet, as for most upcoming games, the feature assumes the team's most frequent recent starter. Before a team's first game it is 1.
   - `home_qb_rating` and `away_qb_rating` are the recency-weighted team margin in every strictly earlier game the starter started, for any team. The rating decays by `qbDecay` (0.97) per start and starts with `qbPriorWeight` (4) starts at `qbReplacement` (-3 points), so a quarterback with no starts is rated slightly below average. Unknown starters follow the same rule as the share.
   - The artifact records these parameters as `featureParameters`.
 - **Means.** Separate ridge regressions predict home margin and total points. Ridge is 1. Features are centered and scaled on the training window only.
-- **Residuals** are walk-forward (`residualSource: "walk-forward"`). The training window is split into 5 chronological blocks, and each block after the first is scored by a model fit only on the blocks before it. Training windows under 40 games fall back to in-sample residuals and say so.
+- **Fitting and residuals.** Final fitting includes only outcomes available strictly before the training cutoff. Walk-forward evaluation divides distinct kickoff groups into at most 5 chronological blocks. Each block fits only earlier outcomes available before its first kickoff. Residual distributions, key weights, and calibration also exclude outcomes unavailable at that block cutoff. Blocks without eligible fitting history produce no predictions. Blocks without eligible earlier residuals produce no calibration. Training windows under 40 games, or without any walk-forward predictions, fall back to in-sample residuals and explicitly record `residualSource: "in-sample"`.
 - **Distribution.** Probabilities come from a Gaussian-smoothed residual distribution over integer point bins (bandwidth 1.5). Moneyline and spread share the margin bins. Totals use their own bins. A predicted mean is not a cover probability.
 - **Key numbers and ties.** Each integer margin is multiplied by `keyNumberWeights`: how often the training games ended on that margin, divided by a smooth curve through the margin histogram (bandwidth 3). Margins are pooled by absolute value and shrunk toward 1 with a pseudo-count of 5. Totals are not reweighted. Weights learned from 1999–2021 include 3 → 2.58, 7 → 1.77, 10 → 1.45, 14 → 1.70, and a tie → 0.10.
 - **Outcome range.** Integer bins run from the predicted mean plus the lowest residual, less 14 points, to the mean plus the highest residual, plus 14. Before this fix the range ignored the mean, so totals were cut off at 81 points and 9 holdout games ended on totals given zero probability. The residual density is sampled once on a 0.05-point grid, which takes scoring the full history from about a minute to about 7 seconds.
@@ -28,7 +29,7 @@ npm run model:evaluate -- data/artifacts/baseline.json data/sources/games.csv da
 npm run model:release -- data/artifacts/baseline.json data/artifacts/baseline-evaluation.json data/artifacts/baseline-released.json
 ```
 
-The fit command also accepts the synthetic JSON fixture in `tests/model/fixtures/`. Without a cutoff, the earliest 70% of games train. The artifact (version 4) stores the dataset hash, feature definitions and parameters, training cutoff, fit parameters, base rates, residual source, residual support, key weights, a walk-forward calibration table, and a checksum of those fields. Artifacts stay under `data/artifacts/`, which is gitignored. Evaluating on the full history takes about 10 seconds.
+The fit command also accepts the synthetic JSON fixture in `tests/model/fixtures/`. Without a cutoff, the kickoff at the 70% boundary supplies the decision cutoff, and only outcomes available before it train. The artifact (version 4) stores the dataset hash, feature definitions and parameters, training cutoff, fit parameters, base rates, residual source, residual support, key weights, a walk-forward calibration table, and a checksum of those fields. Artifacts stay under `data/artifacts/`, which is gitignored. Evaluating on the full history takes about 10 seconds.
 
 ## Baselines
 
@@ -149,7 +150,7 @@ Each baseline comparison also carries a slate-clustered 90% interval for the mod
 
 Each run asks the configured artifact (`POCKETCHECK_MODEL_ARTIFACT`, default `data/artifacts/baseline.json`, or `off`) for the recorded offer's win, loss, and push:
 
-- **Features.** The game's row is built only from finished games that kicked off before the run's decision cutoff, using any starting quarterbacks the schedule already lists.
+- **Features.** The game's row uses only results available strictly before the run's decision cutoff under the chronology rule above, using any starting quarterbacks the schedule already lists. Archived starters still lack decision-time provenance and do not establish equivalent live inputs.
 - **Pricing.** Moneyline ties follow the offer's tie rule: push, void, loss, or win. A spread line belongs to the selected side.
 - **Refusals.** The run records "unavailable" and the reason when the artifact is missing, fails its checksum, is an older version, or was trained on games through this one.
 - **Freezing.** The run saves the artifact's checksum, version, training cutoff, release state, the probabilities, and whether the offer's market is eligible. This is the `probability_model` column on `analyses`, added in migration 006, and it is kept through export and restore.

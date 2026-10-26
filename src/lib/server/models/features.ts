@@ -1,4 +1,4 @@
-import { kickoffMs, type CompletedGame } from "./games.ts";
+import { kickoffMs, resultAvailableMs, type CompletedGame } from "./games.ts";
 
 export const FEATURE_DEFINITIONS = [
   {
@@ -67,6 +67,7 @@ export type FeatureName = (typeof FEATURE_DEFINITIONS)[number]["name"];
 export type FeatureRow = {
   gameId: string;
   kickoff: string;
+  resultAvailableAt?: string;
   features: Record<FeatureName, number>;
 };
 
@@ -201,7 +202,7 @@ function byKickoff(a: UpcomingGame, b: UpcomingGame): number {
   return delta !== 0 ? delta : a.id.localeCompare(b.id);
 }
 
-/** Team and league state, advanced one finished game at a time in kickoff order. */
+/** Team and league state, advanced only when a result is available. */
 function featureBuilder(params: FeatureParameters) {
   const teams = new Map<string, TeamState>();
   const quarterbacks = new Map<string, QbState>();
@@ -244,6 +245,7 @@ function featureBuilder(params: FeatureParameters) {
       return {
         gameId: game.id,
         kickoff: game.kickoff,
+        ...(game.resultAvailableAt ? { resultAvailableAt: game.resultAvailableAt } : {}),
         features: {
           home_prior_margin: shrunk(home, home.marginSum, 0),
           away_prior_margin: shrunk(away, away.marginSum, 0),
@@ -261,11 +263,12 @@ function featureBuilder(params: FeatureParameters) {
         },
       };
     },
-    /** Call after row() for the same game, so the season has already been entered. */
     apply(game: CompletedGame): void {
       const home = stateOf(game.home);
       const away = stateOf(game.away);
       const at = kickoffMs(game);
+      enterSeason(home, seasonOf(game), params);
+      enterSeason(away, seasonOf(game), params);
       applyGame(home, game.homeScore, game.awayScore, at, params);
       applyGame(away, game.awayScore, game.homeScore, at, params);
       recordStarter(home, game.homeQb);
@@ -283,23 +286,38 @@ export function buildFeatureRows(
   params: FeatureParameters = DEFAULT_FEATURES,
 ): FeatureRow[] {
   const builder = featureBuilder(params);
-  return [...games].sort(byKickoff).map((game) => {
-    const row = builder.row(game);
-    builder.apply(game);
-    return row;
-  });
+  const ordered = [...games].sort(byKickoff);
+  const pending = [...ordered].sort(
+    (a, b) => resultAvailableMs(a) - resultAvailableMs(b) || byKickoff(a, b),
+  );
+  let applied = 0;
+  const rows: FeatureRow[] = [];
+  for (let from = 0; from < ordered.length;) {
+    const cutoff = kickoffMs(ordered[from]!);
+    let to = from + 1;
+    while (to < ordered.length && kickoffMs(ordered[to]!) === cutoff) to += 1;
+    while (applied < pending.length && resultAvailableMs(pending[applied]!) < cutoff) {
+      builder.apply(pending[applied]!);
+      applied += 1;
+    }
+    rows.push(...ordered.slice(from, to).map((game) => builder.row(game)));
+    from = to;
+  }
+  return rows;
 }
 
-/** The feature row for a game not yet played, from finished games that kicked off before it. */
+/** Uses only results available strictly before the decision cutoff, defaulting to kickoff. */
 export function featureRowForGame(
   history: readonly CompletedGame[],
   game: UpcomingGame,
   params: FeatureParameters = DEFAULT_FEATURES,
+  cutoff: string = game.kickoff,
 ): FeatureRow {
   const builder = featureBuilder(params);
-  const before = history.filter((past) => kickoffMs(past) < kickoffMs(game));
-  for (const past of [...before].sort(byKickoff)) {
-    builder.row(past);
+  const before = history.filter((past) => resultAvailableMs(past) < kickoffMs({ kickoff: cutoff }));
+  for (const past of [...before].sort(
+    (a, b) => resultAvailableMs(a) - resultAvailableMs(b) || byKickoff(a, b),
+  )) {
     builder.apply(past);
   }
   return builder.row(game);

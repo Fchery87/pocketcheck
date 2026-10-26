@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { ResidualDistribution, SideProbability } from "./distribution.ts";
 import { FEATURE_DEFINITIONS, type FeatureParameters } from "./features.ts";
 import type { FitParameters, LinearModel } from "./fit.ts";
-import type { Market } from "./games.ts";
+import type { CHRONOLOGY, Market } from "./games.ts";
 import type { ArtifactUncertainty } from "./uncertainty.ts";
 
 export type ReleaseStatus = "unreleased" | "released-experimental";
@@ -15,6 +15,7 @@ export type ModelArtifact = {
   releasedMarkets: Market[];
   datasetHash: string;
   trainingCutoff: string;
+  chronology?: typeof CHRONOLOGY;
   featureDefinitions: typeof FEATURE_DEFINITIONS;
   featureParameters: FeatureParameters;
   /** walk-forward when the training window is large enough, otherwise in-sample. */

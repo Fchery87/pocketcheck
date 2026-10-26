@@ -19,13 +19,11 @@ describe("baselines that are not constant", () => {
   const forecasts = scoreHoldout(artifact, holdout, games);
 
   it("records home win, loss, and tie rates from the training window only", () => {
-    const training = games.filter((game) => game.kickoff <= CUTOFF);
-    const wins = training.filter((game) => game.homeScore > game.awayScore).length;
-    const ties = training.filter((game) => game.homeScore === game.awayScore).length;
+    // Only g1 and g2 have cleared the conservative availability delay at this cutoff.
     expect(artifact.baseRates.moneyline).toEqual({
-      win: wins / training.length,
-      loss: (training.length - wins - ties) / training.length,
-      push: ties / training.length,
+      win: 0.5,
+      loss: 0,
+      push: 0.5,
     });
   });
 
