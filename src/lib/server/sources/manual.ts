@@ -10,6 +10,7 @@ export function createManualEvidence(input: {
   factKey?: string;
   facts?: EvidenceFacts;
   covers?: MaterialGapKind;
+  team?: string;
 }): EvidenceItem {
   const text = input.text?.trim() ?? "";
   const url = input.url?.trim() ?? "";
@@ -30,6 +31,10 @@ export function createManualEvidence(input: {
     origin: "manual",
     excerpt: text || null,
     factKey: input.factKey ?? null,
-    facts: input.facts ?? { note: text, ...(input.covers ? { covers: input.covers } : {}) },
+    facts: input.facts ?? {
+      note: text,
+      ...(input.covers ? { covers: input.covers } : {}),
+      ...(input.team ? { team: input.team } : {}),
+    },
   });
 }

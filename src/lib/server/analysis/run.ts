@@ -159,6 +159,7 @@ export async function runAnalysis(
         sourceTime: entry.sourceTime,
         enteredAt: request.nowIso,
         ...(entry.covers ? { covers: entry.covers } : {}),
+        ...(entry.team ? { team: entry.team } : {}),
       }),
     );
   } catch (error) {
@@ -190,6 +191,7 @@ export async function runAnalysis(
           url: entry.url,
           sourceTime: entry.sourceTime,
           covers: entry.covers ?? null,
+          team: entry.team ?? null,
         })),
         carriedEvidence: request.carriedEvidence ?? [],
         drafter: { provider: drafter.id, modelId: drafter.modelId },

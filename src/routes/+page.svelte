@@ -6,7 +6,7 @@
   const selected = $derived(data.games.find((game) => game.id === selectedId) ?? data.games[0]);
   const value = (name: string, fallback = "") =>
     (form?.values as Record<string, string> | undefined)?.[name] ?? fallback;
-  const blankRow = () => ({ text: "", url: "", time: "", covers: "" });
+  const blankRow = () => ({ text: "", url: "", time: "", covers: "", team: "" });
   let manualRows = $derived(form?.manual?.length ? form.manual : [blankRow()]);
 </script>
 
@@ -131,6 +131,15 @@
           <label>
             Published
             <input name="manualTime" type="datetime-local" value={row.time} data-testid="manual-time" />
+          </label>
+          <label>
+            Team, if this stands in for that team's injury report
+            <input
+              name="manualTeam"
+              value={row.team ?? ""}
+              maxlength="3"
+              data-testid="manual-team"
+            />
           </label>
           <label>
             Stands in for

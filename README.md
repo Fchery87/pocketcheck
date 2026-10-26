@@ -51,7 +51,11 @@ npm run model:fit -- data/sources/games.csv data/artifacts/baseline.json 2022-03
 npm run dev
 ```
 
-The app needs `DATABASE_URL`. It shows an error rather than silently keeping the journal in memory. Re-run `npm run data:schedule` to pick up schedule changes; each download records its retrieval time in a `.json` file beside it. Injury reports change Wednesday through game day; a report flags an injury file more than a day old. Weather is fetched from api.weather.gov at analysis time; set `NWS_USER_AGENT` to identify yourself with an email, as NWS asks. International venues have no NWS forecast and show that as a gap.
+The app needs `DATABASE_URL`. It shows an error rather than silently keeping the journal in memory. Re-run `npm run data:schedule` to pick up schedule changes; each download records its retrieval time in a `.json` file beside it.
+
+Injury coverage is tracked per team and game week. Rows for one team do not cover its opponent. An absent player row is unknown coverage, not a clean report. A clean empty report is accepted only when the source marks that team and week as explicitly empty. Injury coverage older than 24 hours stays a material gap. The download time is the retrieval time. It is shown separately from publication time, and it does not establish when the source published the report. nflverse rows keep publication time unknown. Manual evidence clears an injury gap only when it names that team, has a source time, and that source time is within 24 hours of the decision cutoff and not after it. Weather keeps a 12-hour manual window and does not need a team. Stale, late, unrelated, and unknown-time evidence stays visible and does not clear the gap. A malformed or empty weather payload is recorded as a gap. The rest of the analysis remains readable.
+
+Weather is fetched from api.weather.gov at analysis time; set `NWS_USER_AGENT` to identify yourself with an email, as NWS asks. International venues have no NWS forecast and show that as a gap.
 
 Verification uses the same entry points locally and in CI. See [Verify a change](docs/testing.md) for isolation checks and database setup.
 
