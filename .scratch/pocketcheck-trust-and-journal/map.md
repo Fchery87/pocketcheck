@@ -25,6 +25,7 @@ Type: task
 - [Ticket 02](issues/02-immutable-analysis-snapshots.md) adds versioned immutable per-analysis game and exact-offer snapshots, labels backfilled legacy provenance as uncertain, and verifies memory, Neon, export/restore, and browser report behavior.
 - [Ticket 05](issues/05-durable-analysis-submissions.md) persists stable, idempotent attempts and their progress before external work, preserves collected evidence, and requires a deliberate new attempt after an ambiguous interruption. Provider-response persistence and reuse remain ticket 06 scope.
 - [Ticket 14](issues/14-frozen-prospective-forecasts.md) freezes decision-time feature values, starter assumptions, artifact identity, and probabilities on the analysis snapshot. A null forecast marks missing provenance and is not regenerated. The ticket 17 release gate is not part of this record.
+- [Ticket 09](issues/09-actual-bet-contracts.md) stores the placed contract apart from the researched offer. Legacy bets without that contract keep a visible limit and are not backfilled from the research line.
 
 ## Fog
 
