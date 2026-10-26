@@ -30,7 +30,32 @@
     </section>
   {/if}
 
-  <form method="POST" action="?/analyze">
+  <form
+    method="POST"
+    action="?/analyze"
+    onsubmit={(event) => {
+      const form = event.currentTarget as HTMLFormElement;
+      if (form.dataset.submitting === "true") {
+        event.preventDefault();
+        return;
+      }
+      form.dataset.submitting = "true";
+      const button = form.querySelector<HTMLButtonElement>('[data-testid="analyze"]');
+      if (button) {
+        button.disabled = true;
+        button.textContent = "Saving…";
+      }
+      form.querySelector<HTMLElement>('[data-testid="submission-pending"]')?.removeAttribute("hidden");
+    }}
+  >
+    <input type="hidden" name="requestId" value={value("requestId", data.requestId)} />
+    <input type="hidden" name="cutoffAt" value={value("cutoffAt", data.cutoffAt)} />
+    <input
+      type="hidden"
+      name="scheduleRetrievedAt"
+      value={value("scheduleRetrievedAt", data.scheduleRetrievedAt ?? "")}
+    />
+    <p role="status" data-testid="submission-pending" hidden>Saving your request…</p>
     <label>
       Game
       <select name="gameId" data-testid="game-id" bind:value={selectedId}>

@@ -1,4 +1,5 @@
 import { fail, redirect } from "@sveltejs/kit";
+import { randomUUID } from "node:crypto";
 import { easternTime } from "#lib/format.ts";
 import {
   localInputValue,
@@ -29,6 +30,9 @@ const FIELDS = [
   "tieRule",
   "lean",
   "rationale",
+  "requestId",
+  "cutoffAt",
+  "scheduleRetrievedAt",
 ] as const;
 
 type Values = Partial<Record<(typeof FIELDS)[number], string>>;
@@ -57,6 +61,8 @@ export const load: PageServerLoad = () => {
     scheduleError: schedule.ok ? null : schedule.reason,
     scheduleRetrievedAt: schedule.ok ? schedule.retrievedAt : null,
     observedDefault: localInputValue(nowIso),
+    requestId: randomUUID(),
+    cutoffAt: nowIso,
   };
 };
 
@@ -69,7 +75,8 @@ export const actions = {
     const refuse = (status: number, error: string) =>
       fail(status, { error, values, manual: manual.rows });
     if (!manual.ok) return refuse(400, manual.error);
-    const nowIso = now();
+    const cutoffAt = values.cutoffAt ?? "";
+    const nowIso = Number.isFinite(Date.parse(cutoffAt)) ? new Date(cutoffAt).toISOString() : now();
     const schedule = readSchedule(schedulePath());
     if (!schedule.ok) return refuse(503, schedule.reason);
     const game = schedule.games.find((item) => item.id === values.gameId);
@@ -92,8 +99,9 @@ export const actions = {
     const result = await runAnalysis(
       {
         game,
+        requestId: values.requestId || randomUUID(),
         nowIso,
-        scheduleRetrievedAt: schedule.retrievedAt,
+        scheduleRetrievedAt: values.scheduleRetrievedAt || schedule.retrievedAt,
         sportsbook: values.sportsbook ?? "",
         market: values.market as "moneyline" | "spread" | "total",
         selection: values.selection as "home" | "away" | "over" | "under",

@@ -23,6 +23,7 @@ Type: task
 - [Ticket 04](issues/04-validated-model-inputs.md) validates artifact and evaluation JSON at model loading and release boundaries, including required chronology metadata tied to the shared policy.
 - [Ticket 02](issues/02-immutable-analysis-snapshots.md) stores a versioned game and offer snapshot per analysis; legacy schedule values retain nulls and visible uncertain provenance.
 - [Ticket 02](issues/02-immutable-analysis-snapshots.md) adds versioned immutable per-analysis game and exact-offer snapshots, labels backfilled legacy provenance as uncertain, and verifies memory, Neon, export/restore, and browser report behavior.
+- [Ticket 05](issues/05-durable-analysis-submissions.md) persists stable, idempotent attempts and their progress before external work, preserves collected evidence, and requires a deliberate new attempt after an ambiguous interruption. Provider-response persistence and reuse remain ticket 06 scope.
 
 ## Fog
 

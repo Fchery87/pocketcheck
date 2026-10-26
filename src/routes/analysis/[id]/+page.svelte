@@ -6,11 +6,36 @@
   const run = $derived(data.run);
   const report = $derived(data.run.report);
   const fixture = $derived(run.provider === "fixture");
+  const refreshValue = (name: string, fallback: string | number) =>
+    (form?.values as Record<string, string> | undefined)?.[name] ?? String(fallback);
   // The drafter's own notes, minus the gaps already listed from evidence collection.
   const drafterNotes = $derived(
     (report?.missingInputs ?? []).filter((note) => !run.gaps.includes(note)),
   );
   const published = (at: string) => (at === "unknown" ? "unknown" : easternTime(at));
+  const submitRefresh = (event: Event) => {
+    event.preventDefault();
+    const target = event.currentTarget;
+    const form =
+      target instanceof HTMLFormElement
+        ? target
+        : target instanceof HTMLButtonElement
+          ? target.form
+          : null;
+    if (!form || form.dataset.submitting === "true" || !form.reportValidity()) return;
+    form.dataset.submitting = "true";
+    const odds = form.querySelector<HTMLInputElement>('[data-testid="refresh-odds"]');
+    const observed = form.querySelector<HTMLInputElement>('[data-testid="refresh-observed-at"]');
+    const submittedOdds = form.elements.namedItem("americanOdds");
+    const submittedObserved = form.elements.namedItem("observedAt");
+    if (odds && submittedOdds instanceof HTMLInputElement) submittedOdds.value = odds.value;
+    if (observed && submittedObserved instanceof HTMLInputElement)
+      submittedObserved.value = observed.value;
+    const button = form.querySelector<HTMLButtonElement>('[data-testid="refresh"]');
+    if (button) button.disabled = true;
+    form.querySelector<HTMLElement>('[data-testid="submission-pending"]')?.removeAttribute("hidden");
+    window.setTimeout(() => HTMLFormElement.prototype.submit.call(form), 50);
+  };
 </script>
 
 <main>
@@ -25,6 +50,16 @@
     <p data-testid="snapshot-provenance">Game and research offer captured with this report.</p>
   {/if}
   <p data-testid="status">{run.status}</p>
+  {#if run.status !== "completed"}
+    <section data-testid="recovery">
+      <h2>Attempt recovery</h2>
+      <p>
+        This attempt and its completed stages are retained. External work will not be replayed
+        automatically because a request may have completed before its response was saved. Start a
+        new attempt below to research again.
+      </p>
+    </section>
+  {/if}
   {#if run.parentId}
     <p>Refresh of <a href="/analysis/{run.parentId}">an earlier report</a>. That report is unchanged.</p>
   {/if}
@@ -193,12 +228,14 @@
         {/each}
       </ul>
     </section>
-  {:else}
+  {:else if run.status === "failed"}
     <section>
       <h2>Drafting failed</h2>
       <p data-testid="failure">{run.failureReason}</p>
       <p>The evidence and price mathematics are kept.</p>
     </section>
+  {:else if run.status !== "completed"}
+    <section><h2>Report not completed</h2><p>This attempt has no finished report.</p></section>
   {/if}
 
   <section>
@@ -249,23 +286,48 @@
     {/each}
   </ol>
 
-  <form method="POST" action="?/refresh">
-    <h2>Refresh at a new price</h2>
-    <input type="hidden" name="sportsbook" value={run.offer.sportsbook} />
+  <form
+    method="POST"
+    action="?/refresh"
+    onsubmit={submitRefresh}
+  >
+    <input
+      type="hidden"
+      name="requestId"
+      value={refreshValue("requestId", data.refreshRequestId)}
+    />
+    <input type="hidden" name="cutoffAt" value={refreshValue("cutoffAt", data.refreshCutoffAt)} />
+    <input
+      type="hidden"
+      name="scheduleRetrievedAt"
+      value={refreshValue("scheduleRetrievedAt", data.refreshScheduleRetrievedAt)}
+    />
+    <input type="hidden" name="americanOdds" value={run.offer.americanOdds} />
+    <input type="hidden" name="observedAt" value={data.refreshObservedDefault} />
+    <p role="status" data-testid="submission-pending" hidden>Saving your new attempt…</p>
+    <h2>{run.status === "completed" ? "Refresh at a new price" : "Start a new attempt"}</h2>
+    <input type="hidden" name="sportsbook" value={refreshValue("sportsbook", run.offer.sportsbook)} />
     <label>
       American odds
-      <input name="americanOdds" value={run.offer.americanOdds} required data-testid="refresh-odds" />
+      <input
+        name="displayAmericanOdds"
+        value={refreshValue("americanOdds", run.offer.americanOdds)}
+        required
+        data-testid="refresh-odds"
+      />
     </label>
     <label>
       When you saw the new price
       <input
         type="datetime-local"
-        name="observedAt"
-        value={data.refreshObservedDefault}
+        name="displayObservedAt"
+        value={refreshValue("observedAt", data.refreshObservedDefault)}
         required
         data-testid="refresh-observed-at"
       />
     </label>
-    <button type="submit" data-testid="refresh">Refresh</button>
+    <button type="submit" data-testid="refresh">
+      {run.status === "completed" ? "Refresh" : "Start new attempt"}
+    </button>
   </form>
 </main>

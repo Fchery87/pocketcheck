@@ -50,6 +50,15 @@ test("offer, report, refresh, and unchanged prior report", async ({ page, reques
   await forecast.getByTestId("manual-text").fill("Kickoff 52F, wind 8 mph");
   await forecast.getByTestId("manual-time").fill("2026-10-25T11:30");
   await forecast.getByTestId("manual-covers").selectOption("weather");
+  const firstRequestId = await page.locator('input[name="requestId"]').inputValue();
+  expect(firstRequestId).toMatch(/^[0-9a-f-]{36}$/i);
+  await page.getByTestId("american-odds").fill("not a price");
+  await page.getByTestId("analyze").click();
+  await expect(page.getByTestId("form-error")).toContainText("Invalid American price");
+  await expect(page.getByTestId("american-odds")).toHaveValue("not a price");
+  await expect(page.locator('input[name="requestId"]')).toHaveValue(firstRequestId);
+  await expect(page.getByTestId("lean")).toHaveValue("PHI");
+  await page.getByTestId("american-odds").fill("-110");
   const beforeSubmission = await request.get("/__verification");
   expect((await beforeSubmission.json()).analyses).toBe(0);
   await page.getByTestId("analyze").click();
@@ -100,12 +109,45 @@ test("offer, report, refresh, and unchanged prior report", async ({ page, reques
   await expect(page.getByTestId("user-lean")).toContainText("private rationale sentinel");
   const firstUrl = page.url();
   const firstSummary = await page.getByTestId("summary").innerText();
+  const refreshRequestId = await page.locator('input[name="requestId"]').inputValue();
+  expect(refreshRequestId).not.toBe(firstRequestId);
 
   // A refresh records when the new price was observed.
-  await page.getByTestId("refresh-odds").fill("-105");
+  await page.getByTestId("refresh-odds").fill("not a price");
   await page.getByTestId("refresh-observed-at").fill("2026-10-25T11:50");
   await page.getByTestId("refresh").click();
+  await expect(page.getByTestId("form-error")).toContainText("valid American price");
+  await expect(page.getByTestId("refresh-odds")).toHaveValue("not a price");
+  await expect(page.locator('input[name="requestId"]')).toHaveValue(refreshRequestId);
+  await page.getByTestId("refresh-odds").fill("-105");
+  await page.getByTestId("refresh-observed-at").fill("2026-10-25T11:50");
+  let releaseRefresh: (() => void) | undefined;
+  let refreshRequests = 0;
+  await page.route("**/*", async (route) => {
+    if (!new URL(route.request().url()).search.includes("/refresh")) return route.continue();
+    refreshRequests += 1;
+    await new Promise<void>((resolve) => (releaseRefresh = resolve));
+    await route.continue();
+  });
+  const submissionGuard = await page.evaluate(() => {
+    const button = document.querySelector<HTMLButtonElement>('[data-testid="refresh"]');
+    button?.click();
+    const guard = {
+      disabled: button?.disabled,
+      submitting: button?.form?.dataset.submitting,
+      pending: !document
+        .querySelector('[data-testid="submission-pending"]')
+        ?.hasAttribute("hidden"),
+    };
+    button?.click();
+    return guard;
+  });
+  expect(submissionGuard).toEqual({ disabled: true, submitting: "true", pending: true });
+  await expect.poll(() => Boolean(releaseRefresh)).toBe(true);
+  expect(refreshRequests).toBe(1);
+  releaseRefresh?.();
   await expect(page).not.toHaveURL(firstUrl);
+  await page.unroute("**/*");
   await expect(page.getByTestId("price")).toContainText("-105");
   await expect(page.getByTestId("observed-at-display")).toContainText("11:50");
   // The refresh keeps the evidence the user entered.

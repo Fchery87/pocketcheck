@@ -80,6 +80,154 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
       expect(await store.getRun(outcome.run!.id)).toEqual(outcome.run);
     });
 
+    it("returns the same attempt for a repeated request and rejects changed inputs", async () => {
+      const store = makeStore();
+      const inner = createFixtureDrafter();
+      let drafts = 0;
+      const drafter: ThesisDrafter = {
+        ...inner,
+        async draftThesis(input) {
+          drafts += 1;
+          return inner.draftThesis(input);
+        },
+      };
+      const input = { ...request(), requestId: "ticket05-idempotent-request" };
+      const first = await runAnalysis(input, { store, drafter });
+      const repeated = await runAnalysis(input, { store, drafter });
+      expect(first.ok).toBe(true);
+      expect(repeated.ok).toBe(true);
+      if (!first.ok || !repeated.ok) return;
+      expect(repeated.run.id).toBe(first.run.id);
+      expect(drafts).toBe(1);
+
+      const conflict = await runAnalysis({ ...input, americanOdds: -105 }, { store, drafter });
+      expect(conflict.ok).toBe(false);
+      expect(conflict.ok ? "" : conflict.error).toMatch(/request.*different inputs/i);
+      expect(drafts).toBe(1);
+    });
+
+    it("treats a changed parent relationship as conflicting request input", async () => {
+      const store = makeStore();
+      const input = { ...request(), requestId: "ticket05-parent-conflict" };
+      const first = await runAnalysis(input, { store });
+      expect(first.ok).toBe(true);
+      const conflict = await runAnalysis({ ...input, parentId: "different-parent" }, { store });
+      expect(conflict.ok).toBe(false);
+      expect(conflict.ok ? "" : conflict.error).toMatch(/request.*different inputs/i);
+    });
+
+    it("serializes concurrent submissions with one request identifier", async () => {
+      const store = makeStore();
+      const inner = createFixtureDrafter();
+      let drafts = 0;
+      const drafter: ThesisDrafter = {
+        ...inner,
+        async draftThesis(input) {
+          drafts += 1;
+          return inner.draftThesis(input);
+        },
+      };
+      const input = { ...request(), requestId: "ticket05-concurrent-request" };
+      const [left, right] = await Promise.all([
+        runAnalysis(input, { store, drafter }),
+        runAnalysis(input, { store, drafter }),
+      ]);
+      expect(left.run?.id).toBeTruthy();
+      expect(right.run?.id).toBe(left.run?.id);
+      expect(drafts).toBe(1);
+    });
+
+    it("keeps an ambiguous collection attempt and never replays it automatically", async () => {
+      const store = makeStore();
+      const input = { ...request(), requestId: "ticket05-ambiguous-collection" };
+      let collections = 0;
+      const uncertain = async () => {
+        collections += 1;
+        throw new Error("connection closed while waiting for source response");
+      };
+      const first = await runAnalysis(input, { store, collect: uncertain });
+      expect(first.ok).toBe(false);
+      expect(first.run?.status).toBe("failed");
+      expect(first.run?.stages).toContain("collecting evidence");
+      expect(first.run?.request?.id).toBe(input.requestId);
+      const repeated = await runAnalysis(input, { store, collect: uncertain });
+      expect(repeated.run?.id).toBe(first.run?.id);
+      expect(repeated.run?.status).toBe("failed");
+      expect(collections).toBe(1);
+
+      const deliberate = await runAnalysis(
+        { ...input, requestId: "ticket05-deliberate-recovery" },
+        { store },
+      );
+      expect(deliberate.run?.id).not.toBe(first.run?.id);
+      expect(await store.getRun(first.run!.id)).toEqual(first.run);
+    });
+
+    it("persists pending before collection and exposes an interruption there", async () => {
+      const base = makeStore();
+      let collections = 0;
+      const store: ResearchStore = {
+        ...base,
+        async beginAttempt(input) {
+          const begun = await base.beginAttempt(input);
+          if (begun.kind !== "created") return begun;
+          const interrupted = await base.markInterrupted(begun.run.id);
+          return { kind: "existing", run: interrupted! };
+        },
+      };
+      const result = await runAnalysis(
+        { ...request(), requestId: "ticket05-before-collection" },
+        {
+          store,
+          collect: async () => {
+            collections += 1;
+            return { items: [], gaps: [], materialGaps: [] };
+          },
+        },
+      );
+      expect(result.ok).toBe(false);
+      expect(result.run?.status).toBe("interrupted");
+      expect(result.run?.stages).toEqual(["checking inputs"]);
+      expect(collections).toBe(0);
+    });
+
+    it("retains progress when interrupted after provider work before finalization", async () => {
+      const base = makeStore();
+      const input = { ...request(), requestId: "ticket05-before-finalization" };
+      const inner = createFixtureDrafter();
+      let drafts = 0;
+      const drafter: ThesisDrafter = {
+        ...inner,
+        async draftThesis(packet) {
+          drafts += 1;
+          return inner.draftThesis(packet);
+        },
+      };
+      let attemptId = "";
+      const crashing: ResearchStore = {
+        ...base,
+        async beginAttempt(newRun) {
+          const begun = await base.beginAttempt(newRun);
+          if (begun.kind === "created") attemptId = begun.run.id;
+          return begun;
+        },
+        async saveRun() {
+          throw new Error("simulated process stop before finalization");
+        },
+      };
+      await expect(runAnalysis(input, { store: crashing, drafter })).rejects.toThrow(
+        /simulated process stop/,
+      );
+      const interrupted = await base.markInterrupted(attemptId);
+      expect(interrupted?.status).toBe("interrupted");
+      expect(interrupted?.stages).toContain("checking report");
+      expect(interrupted?.evidence.length).toBeGreaterThan(0);
+      const retry = await runAnalysis(input, { store: base, drafter });
+      expect(retry.run?.id).toBe(attemptId);
+      expect(retry.run?.status).toBe("interrupted");
+      expect(drafts).toBe(1);
+    });
+
     it("keeps the probability model the run froze", async () => {
       const store = makeStore();
       const outcome = await runAnalysis(request(), { store, model: unreleasedModel });

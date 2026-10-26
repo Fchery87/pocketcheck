@@ -1,4 +1,5 @@
 import { error, fail, redirect } from "@sveltejs/kit";
+import { randomUUID } from "node:crypto";
 import { americanToDecimal, breakEven } from "#lib/domain/odds.ts";
 import { localInputValue, parseObservedAt } from "#lib/server/analysis/form.ts";
 import { forDisplay } from "#lib/server/analysis/model.ts";
@@ -41,6 +42,12 @@ export const load: PageServerLoad = async ({ params }) => {
       (id) => evidenceById[id] ?? { id, missing: true as const },
     ),
     refreshObservedDefault: localInputValue(now()),
+    refreshRequestId: randomUUID(),
+    refreshCutoffAt: now(),
+    refreshScheduleRetrievedAt: (() => {
+      const schedule = readSchedule(schedulePath());
+      return schedule.ok ? schedule.retrievedAt : "";
+    })(),
   };
 };
 
@@ -49,32 +56,40 @@ export const actions = {
     const parent = await store().getRun(params.id);
     if (!parent) error(404, "Analysis not found");
     const data = await request.formData();
+    const values = {
+      requestId: String(data.get("requestId") ?? "") || randomUUID(),
+      cutoffAt: String(data.get("cutoffAt") ?? ""),
+      scheduleRetrievedAt: String(data.get("scheduleRetrievedAt") ?? ""),
+      sportsbook: String(data.get("sportsbook") ?? "").trim() || parent.offer.sportsbook,
+      americanOdds: String(data.get("americanOdds") ?? ""),
+      observedAt: String(data.get("observedAt") ?? ""),
+    };
+    const refuse = (status: number, message: string) => fail(status, { error: message, values });
 
-    const americanOdds = Number(data.get("americanOdds"));
+    const americanOdds = Number(values.americanOdds);
     try {
       americanToDecimal(americanOdds);
     } catch {
-      return fail(400, { error: "Enter a valid American price for the refresh" });
+      return refuse(400, "Enter a valid American price for the refresh");
     }
-    const observedAt = parseObservedAt(String(data.get("observedAt") ?? ""));
-    if (!observedAt) return fail(400, { error: "Enter when you observed the new price" });
+    const observedAt = parseObservedAt(values.observedAt);
+    if (!observedAt) return refuse(400, "Enter when you observed the new price");
 
     const schedule = readSchedule(schedulePath());
-    if (!schedule.ok) return fail(503, { error: schedule.reason });
+    if (!schedule.ok) return refuse(503, schedule.reason);
     const game = schedule.games.find((item) => item.id === parent.game.id);
-    if (!game)
-      return fail(400, { error: `Game ${parent.game.id} is no longer in the schedule file` });
+    if (!game) return refuse(400, `Game ${parent.game.id} is no longer in the schedule file`);
 
     const drafting = await thesisDrafter();
-    if (!drafting.ok) return fail(503, { error: drafting.error });
+    if (!drafting.ok) return refuse(503, drafting.error);
 
-    const sportsbook = String(data.get("sportsbook") ?? "").trim() || parent.offer.sportsbook;
     const result = await runAnalysis(
       {
         game,
-        nowIso: now(),
-        scheduleRetrievedAt: schedule.retrievedAt,
-        sportsbook,
+        requestId: values.requestId,
+        nowIso: validCutoff(values.cutoffAt) ?? now(),
+        scheduleRetrievedAt: values.scheduleRetrievedAt || schedule.retrievedAt,
+        sportsbook: values.sportsbook,
         market: parent.offer.market,
         selection: parent.offer.selection,
         pointLine: parent.offer.pointLine ?? undefined,
@@ -94,6 +109,11 @@ export const actions = {
       },
     );
     if (result.run) redirect(303, `/analysis/${result.run.id}`);
-    return fail(400, { error: result.ok ? "Refresh failed" : result.error });
+    return refuse(400, result.ok ? "Refresh failed" : result.error);
   },
 } satisfies Actions;
+
+function validCutoff(value: string): string | null {
+  const time = Date.parse(value);
+  return Number.isFinite(time) ? new Date(time).toISOString() : null;
+}

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Sql } from "postgres";
+import type { AttemptRequest } from "../analysis/attempt.ts";
 import { americanToDecimal } from "#lib/domain/odds.ts";
 import type { Offer } from "#lib/domain/offer.ts";
 import type { Settlement as SettlementResult } from "#lib/domain/settlement.ts";
@@ -71,6 +72,7 @@ export type AnalysisSnapshot = {
   provenance: "captured" | "legacy-unknown";
   game: GameRecord;
   offer: OfferRecord;
+  request?: AttemptRequest;
 };
 
 export type ReportRecord = {
@@ -158,6 +160,7 @@ export type SaveAnalysisInput = {
     gaps?: unknown;
     usage?: unknown;
     probabilityModel?: unknown;
+    request?: AttemptRequest;
   };
   report?: {
     claims: unknown;
@@ -258,6 +261,7 @@ export class JournalRepository {
             opposing: input.offer.opposing,
             completedAt: completed ? completedAt : null,
           },
+          ...(input.analysis.request ? { request: input.analysis.request } : {}),
         };
 
         await tx`
@@ -346,6 +350,152 @@ export class JournalRepository {
     }
 
     return { ...(await this.readRun(analysisId)), created: true };
+  }
+
+  async updateAnalysisProgress(input: SaveAnalysisInput) {
+    const analysisId = input.analysis.id;
+    const requestId = input.analysis.idempotencyKey;
+    const requestHash = input.analysis.request?.hash;
+    if (!analysisId || !requestId || !requestHash) throw new Error("Attempt identity is required");
+    const existing = await this.findAnalysisByIdempotencyKey(requestId);
+    if (!existing || existing.id !== analysisId)
+      throw new Error(`Analysis not found: ${analysisId}`);
+    if (existing.snapshot.request?.hash !== requestHash) {
+      throw new Error("An attempt update cannot change its request identity or inputs.");
+    }
+    if (existing.completedAt) return this.readRun(analysisId);
+
+    await this.sql.begin(async (tx) => {
+      await tx`
+        UPDATE analyses SET
+          status = ${input.analysis.status},
+          conclusion = ${input.analysis.conclusion ?? null},
+          policy_version = ${input.analysis.policyVersion ?? null},
+          evidence_packet_hash = ${input.analysis.evidencePacketHash ?? null},
+          provider = ${input.analysis.provider ?? null},
+          model = ${input.analysis.model ?? null},
+          failure_reason = ${input.analysis.failureReason ?? null},
+          policy = ${jsonOrNull(tx, input.analysis.policy)},
+          stages = ${jsonOrNull(tx, input.analysis.stages)},
+          gaps = ${jsonOrNull(tx, input.analysis.gaps)},
+          usage = ${jsonOrNull(tx, input.analysis.usage)},
+          probability_model = ${jsonOrNull(tx, input.analysis.probabilityModel)}
+        WHERE id = ${analysisId} AND completed_at IS NULL
+      `;
+      if (input.evidence.length) {
+        const linked = await tx<{ id: string }[]>`
+          SELECT evidence_id AS id FROM analysis_evidence WHERE analysis_id = ${analysisId} LIMIT 1
+        `;
+        if (!linked[0]) {
+          for (let index = 0; index < input.evidence.length; index += 1) {
+            const item = input.evidence[index]!;
+            const evidenceId = item.id ?? randomUUID();
+            await tx`
+              INSERT INTO evidence (
+                id, source_id, source_url, retrieved_at, published_at, effective_at,
+                checksum, body, origin, completeness, completed_at, packet_item_id
+              ) VALUES (
+                ${evidenceId}, ${item.sourceId}, ${item.sourceUrl}, ${item.retrievedAt},
+                ${item.publishedAt}, ${item.effectiveAt}, ${item.checksum},
+                ${tx.json(item.body as never)}, ${item.origin}, ${item.completeness}, NULL,
+                ${item.packetItemId ?? null}
+              )
+            `;
+            await tx`
+              INSERT INTO analysis_evidence (analysis_id, evidence_id, completeness, position)
+              VALUES (${analysisId}, ${evidenceId}, ${item.completeness}, ${index})
+            `;
+          }
+        }
+      }
+    });
+    return this.readRun(analysisId);
+  }
+
+  async completeAnalysisAttempt(input: SaveAnalysisInput) {
+    const analysisId = input.analysis.id;
+    const requestId = input.analysis.idempotencyKey;
+    const requestHash = input.analysis.request?.hash;
+    if (!analysisId || !requestId || !requestHash) throw new Error("Attempt identity is required");
+    const existing = await this.findAnalysisByIdempotencyKey(requestId);
+    if (!existing || existing.id !== analysisId)
+      throw new Error(`Analysis not found: ${analysisId}`);
+    if (existing.snapshot.request?.hash !== requestHash) {
+      throw new Error("An attempt update cannot change its request identity or inputs.");
+    }
+    if (existing.completedAt) return this.readRun(analysisId);
+
+    const completedAt = input.analysis.status === "completed" ? new Date().toISOString() : null;
+    const evidenceIds = input.evidence.map((item) => item.id ?? randomUUID());
+    await this.sql.begin(async (tx) => {
+      const updated = await tx<{ id: string }[]>`
+        UPDATE analyses SET
+          status = ${input.analysis.status},
+          conclusion = ${input.analysis.conclusion ?? null},
+          policy_version = ${input.analysis.policyVersion ?? null},
+          evidence_packet_hash = ${input.analysis.evidencePacketHash ?? null},
+          provider = ${input.analysis.provider ?? null},
+          model = ${input.analysis.model ?? null},
+          failure_reason = ${input.analysis.failureReason ?? null},
+          completed_at = ${completedAt},
+          policy = ${jsonOrNull(tx, input.analysis.policy)},
+          stages = ${jsonOrNull(tx, input.analysis.stages)},
+          gaps = ${jsonOrNull(tx, input.analysis.gaps)},
+          usage = ${jsonOrNull(tx, input.analysis.usage)},
+          probability_model = ${jsonOrNull(tx, input.analysis.probabilityModel)}
+        WHERE id = ${analysisId} AND completed_at IS NULL
+        RETURNING id
+      `;
+      if (!updated[0]) throw new Error(`Attempt is no longer writable: ${analysisId}`);
+      if (completedAt) {
+        await tx`UPDATE offers SET completed_at = ${completedAt} WHERE id = ${existing.offerId} AND completed_at IS NULL`;
+      }
+
+      const linked = await tx<{ id: string }[]>`
+        SELECT evidence_id AS id FROM analysis_evidence WHERE analysis_id = ${analysisId} LIMIT 1
+      `;
+      if (!linked[0]) {
+        for (let index = 0; index < input.evidence.length; index += 1) {
+          const item = input.evidence[index]!;
+          await tx`
+            INSERT INTO evidence (
+              id, source_id, source_url, retrieved_at, published_at, effective_at,
+              checksum, body, origin, completeness, completed_at, packet_item_id
+            ) VALUES (
+              ${evidenceIds[index]}, ${item.sourceId}, ${item.sourceUrl}, ${item.retrievedAt},
+              ${item.publishedAt}, ${item.effectiveAt}, ${item.checksum},
+              ${tx.json(item.body as never)}, ${item.origin}, ${item.completeness},
+              ${completedAt}, ${item.packetItemId ?? null}
+            )
+          `;
+          await tx`
+            INSERT INTO analysis_evidence (analysis_id, evidence_id, completeness, position)
+            VALUES (${analysisId}, ${evidenceIds[index]}, ${item.completeness}, ${index})
+          `;
+        }
+      }
+      if (completedAt) {
+        await tx`
+          UPDATE evidence SET completed_at = ${completedAt}
+          WHERE id IN (
+            SELECT evidence_id FROM analysis_evidence WHERE analysis_id = ${analysisId}
+          ) AND completed_at IS NULL
+        `;
+      }
+      if (input.report) {
+        await tx`
+          INSERT INTO reports (id, analysis_id, claims, thesis, usage, rendered_bytes, completed_at, body)
+          VALUES (
+            ${randomUUID()}, ${analysisId}, ${tx.json(input.report.claims as never)},
+            ${input.report.thesis},
+            ${input.report.usage ? tx.json(input.report.usage as never) : null},
+            ${Buffer.from(input.report.renderedText, "utf8")}, ${completedAt},
+            ${jsonOrNull(tx, input.report.body)}
+          )
+        `;
+      }
+    });
+    return this.readRun(analysisId);
   }
 
   async readRun(analysisId: string) {
