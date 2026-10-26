@@ -14,6 +14,149 @@ function sortedById<T extends Record<string, unknown>>(snapshot: T): T {
   ) as T;
 }
 
+describe("journal backup download", () => {
+  it("downloads a versioned backup of recovery records and omits secrets", async () => {
+    const isolated = await isolatedDb();
+    const journal = new JournalRepository(isolated.db);
+    const stamp = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const secret = `sk-sentinel-${stamp}`;
+    try {
+      const saved = await journal.saveCompletedAnalysis({
+        game: {
+          sourceGameId: `nfl-backup-${stamp}`,
+          season: 2026,
+          week: 9,
+          awayTeam: "BUF",
+          homeTeam: "KC",
+          kickoffAt: "2026-11-08T21:20:00.000Z",
+          venue: "Arrowhead",
+          status: "scheduled",
+        },
+        offer: {
+          gameId: "pending",
+          sportsbook: "ExampleBook",
+          market: "spread",
+          selection: "home",
+          pointLine: -2.5,
+          americanOdds: -105,
+          observedAt: "2026-11-07T18:00:00.000Z",
+          enteredAt: "2026-11-07T18:05:00.000Z",
+          kickoffAt: "2026-11-08T21:20:00.000Z",
+          rules: { period: "full-game", overtime: "included", tie: null },
+          opposing: null,
+        },
+        evidence: [
+          {
+            sourceId: "manual:injury",
+            sourceUrl: null,
+            retrievedAt: "2026-11-07T17:00:00.000Z",
+            publishedAt: "2026-11-07T16:00:00.000Z",
+            effectiveAt: "2026-11-07T16:00:00.000Z",
+            checksum: `ev-${stamp}`,
+            body: { team: "KC", note: "fresh manual coverage" },
+            origin: "manual",
+            completeness: "complete",
+          },
+        ],
+        analysis: {
+          cutoffAt: "2026-11-07T18:05:00.000Z",
+          status: "failed",
+          conclusion: null,
+          failureReason: "provider interrupted",
+          idempotencyKey: `backup-${stamp}`,
+          policy: { version: "policy-1", conclusion: "pass" },
+          gaps: ["away injury coverage unavailable"],
+          usage: { promptTokens: 11, completionTokens: null, totalTokens: null, partial: true },
+          providerRequests: [
+            {
+              requestId: `req-${stamp}`,
+              role: "draft",
+              outcome: "ambiguous",
+              response: { text: "durable partial draft", authorization: `Bearer ${secret}` },
+              promptTokens: 11,
+              completionTokens: null,
+              totalTokens: null,
+              costUsd: null,
+              costKnown: false,
+            },
+          ],
+          providerOutcomeAmbiguous: true,
+          forecast: {
+            version: 1,
+            provenance: "captured",
+            decisionCutoff: "2026-11-07T18:05:00.000Z",
+            inputAvailability: { version: "1", results: "pre-cutoff", starters: "assumed" },
+            artifact: { checksum: `art-${stamp}`, version: 1 },
+            features: { restDays: 7 },
+            starters: {
+              home: { state: "assumed", identity: "starter-home", evidenceAt: "2026-11-07T12:00:00.000Z" },
+              away: { state: "unknown", identity: null, evidenceAt: null },
+            },
+            marketEligibility: { market: "spread", eligible: false },
+            probabilities: { win: 0.52, loss: 0.44, push: 0.04 },
+            uncertainty: { available: false, reason: "not released" },
+            policyVersion: "policy-1",
+          },
+        },
+      });
+      const bet = await journal.recordBet({
+        offerId: saved.offer.id,
+        analysisId: saved.analysis.id,
+        submissionId: `sub-${stamp}`,
+        contract: {
+          market: "spread",
+          selection: "home",
+          pointLine: -3,
+          rules: { period: "full-game", overtime: "included", tie: "push" },
+        },
+        americanOdds: -110,
+        placedAt: "2026-11-07T19:00:00.000Z",
+        stakeUnits: 2,
+        sportsbook: "PlacedBook",
+      });
+      const closing = await journal.recordClosing({
+        betId: bet.id,
+        sportsbook: "PlacedBook",
+        market: "spread",
+        selection: "home",
+        pointLine: -3,
+        rules: { period: "full-game", overtime: "included", tie: "push" },
+        americanOdds: -108,
+        observedAt: "2026-11-08T21:00:00.000Z",
+        source: "closing board",
+      });
+      await isolated.db`
+        INSERT INTO settings (key, value)
+        VALUES ('provider_key', ${JSON.stringify({ apiKey: secret })})
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+      `;
+
+      const backup = await journal.exportJournal();
+      const text = JSON.stringify(backup);
+      expect(backup.version).toBe(1);
+      expect(backup.analyses.map((row) => row.id)).toContain(saved.analysis.id);
+      expect(backup.analyses[0]?.parentId ?? null).toBeNull();
+      expect(backup.analyses[0]?.createdAt).toBe(saved.analysis.createdAt);
+      expect(backup.analyses[0]?.snapshot.provenance).toBeDefined();
+      expect(backup.analyses[0]?.gaps).toEqual(["away injury coverage unavailable"]);
+      expect(backup.analyses[0]?.snapshot.providerRequests?.[0]?.outcome).toBe("ambiguous");
+      expect(backup.analyses[0]?.snapshot.providerRequests?.[0]?.response).toEqual({
+        text: "durable partial draft",
+      });
+      expect(backup.analyses[0]?.snapshot.forecast?.artifact.checksum).toBe(`art-${stamp}`);
+      expect(backup.bets[0]?.stakeUnits).toBe(2);
+      expect(backup.bets[0]?.contract?.pointLine).toBe(-3);
+      expect(backup.closings.map((row) => row.id)).toContain(closing.id);
+      expect(backup.closings[0]?.observedAt).toBe("2026-11-08T21:00:00.000Z");
+      expect(text).not.toContain(secret);
+      expect(text).not.toContain("authorization");
+      expect(text).not.toContain("apiKey");
+    } finally {
+      await isolated.drop();
+    }
+  }, 120_000);
+});
+
 describe("immutable journal", () => {
   it("keeps versions, bets, settlements, and a secret-free export", async () => {
     const isolated = await isolatedDb();

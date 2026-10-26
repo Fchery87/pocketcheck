@@ -9,6 +9,12 @@
 
 <main>
   <h1>Journal</h1>
+  <p>
+    <a href="/journal/export" data-testid="journal-export" download="pocketcheck-journal-v1.json">
+      Download journal backup
+    </a>
+    Version 1 includes research, bets, attempts, and outcomes. It omits credentials and bulk source caches.
+  </p>
   <h2>Assessments</h2>
   <p>Every completed assessment is listed, including passes. Refreshes are listed separately from their originals.</p>
   <ul data-testid="assessments">

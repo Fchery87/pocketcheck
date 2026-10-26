@@ -97,7 +97,7 @@ export function forecastSource(): ForecastSource | undefined {
 
 let db: Db | undefined;
 
-function database(): Db {
+export function databaseForJournal(): Db {
   if (db) return db;
   if (!DATABASE_URL) {
     throw new ConfigError(
