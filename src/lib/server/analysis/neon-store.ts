@@ -1,9 +1,12 @@
 import { createHash } from "node:crypto";
 import type { Sql } from "postgres";
+import { parseOffer } from "#lib/domain/offer.ts";
 import type { ThesisReport } from "../providers/contracts.ts";
 import type { EvidenceFacts, EvidenceItem } from "../sources/contracts.ts";
 import {
+  BetSubmissionConflict,
   JournalRepository,
+  type BetContract,
   type EvidenceRecord,
   type GameRecord,
   type SaveAnalysisInput,
@@ -15,6 +18,7 @@ import type {
   ActualBet,
   NewRun,
   ProgressStage,
+  RecordBetResult,
   ResearchRun,
   ResearchStore,
   RunGame,
@@ -158,15 +162,48 @@ export function createNeonStore(sql: Sql): ResearchStore {
     async recordBet(bet) {
       const saved = await journal.findRun(bet.analysisId);
       if (!saved) throw new Error(`Analysis not found: ${bet.analysisId}`);
-      const record = await journal.recordBet({
-        offerId: saved.offer.id,
-        analysisId: bet.analysisId,
-        americanOdds: bet.americanOdds,
-        placedAt: bet.placedAt,
-        stakeUnits: bet.stakeUnits,
+      if (!bet.submissionId) throw new Error("An actual bet requires a submission identifier.");
+      if (!Number.isFinite(bet.stakeUnits) || bet.stakeUnits <= 0) {
+        throw new Error("Stake must be a positive number of units");
+      }
+      const contract = parseOffer({
+        gameId: saved.game.sourceGameId,
         sportsbook: bet.sportsbook,
+        market: bet.market,
+        selection: bet.selection,
+        pointLine: bet.pointLine,
+        americanOdds: bet.americanOdds,
+        observedAt: bet.placedAt,
+        kickoffAt: saved.game.kickoffAt,
+        rules: bet.rules,
       });
-      return toBet(record);
+      const stored: BetContract = {
+        market: contract.market,
+        selection: contract.selection,
+        pointLine: contract.pointLine,
+        rules: contract.rules,
+      };
+      const fingerprint = betFingerprint(bet.analysisId, contract, bet.stakeUnits, bet.placedAt);
+      const prior = await journal.findBetBySubmissionId(bet.submissionId);
+      try {
+        const record = await journal.recordBet({
+          offerId: saved.offer.id,
+          analysisId: bet.analysisId,
+          submissionId: bet.submissionId,
+          contract: stored,
+          contractFingerprint: fingerprint,
+          americanOdds: contract.americanOdds,
+          placedAt: bet.placedAt,
+          stakeUnits: bet.stakeUnits,
+          sportsbook: contract.sportsbook,
+        });
+        return { kind: prior ? "existing" : "created", bet: toBet(record) };
+      } catch (error) {
+        if (error instanceof BetSubmissionConflict) {
+          return { kind: "conflict", error: error.message };
+        }
+        throw error;
+      }
     },
     async listBets() {
       const records = await journal.listBets();
@@ -258,9 +295,38 @@ function toBet(record: Awaited<ReturnType<JournalRepository["listBets"]>>[number
   return {
     id: record.id,
     analysisId: record.analysisId!,
+    submissionId: record.submissionId,
+    contractProvenance: record.contract ? "captured" : "legacy-unknown",
     sportsbook: record.sportsbook ?? "",
+    market: record.contract?.market ?? null,
+    selection: record.contract?.selection ?? null,
+    pointLine: record.contract?.pointLine ?? null,
+    rules: record.contract?.rules ?? null,
     americanOdds: record.americanOdds,
     stakeUnits: record.stakeUnits,
     placedAt: record.placedAt,
   };
+}
+
+function betFingerprint(
+  analysisId: string,
+  contract: { sportsbook: string; market: string; selection: string; pointLine: number | null; americanOdds: number; rules: BetContract["rules"] },
+  stakeUnits: number,
+  placedAt: string,
+): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        analysisId,
+        sportsbook: contract.sportsbook,
+        market: contract.market,
+        selection: contract.selection,
+        pointLine: contract.pointLine,
+        americanOdds: contract.americanOdds,
+        rules: contract.rules,
+        stakeUnits,
+        placedAt,
+      }),
+    )
+    .digest("hex");
 }

@@ -98,10 +98,25 @@ export type UserResearchRecord = {
   rationale: string | null;
 };
 
+export type BetContract = {
+  market: "moneyline" | "spread" | "total";
+  selection: "home" | "away" | "over" | "under";
+  pointLine: number | null;
+  rules: {
+    period: "full-game";
+    overtime: "included";
+    tie: "push" | "loss" | "win" | "void" | null;
+  };
+};
+
+/** A bet without `contract` predates independent execution terms. Do not infer them. */
 export type BetRecord = {
   id: string;
   offerId: string;
   analysisId: string | null;
+  submissionId: string | null;
+  contract: BetContract | null;
+  contractFingerprint: string | null;
   americanOdds: number;
   decimalOdds: number;
   placedAt: string;
@@ -623,23 +638,59 @@ export class JournalRepository {
   async recordBet(input: {
     offerId: string;
     analysisId?: string | null;
+    submissionId?: string | null;
+    contract?: BetContract | null;
+    contractFingerprint?: string | null;
     americanOdds: number;
     placedAt: string;
     stakeUnits: number;
     sportsbook?: string | null;
   }): Promise<BetRecord> {
+    if (input.submissionId) {
+      const existing = await this.findBetBySubmissionId(input.submissionId);
+      if (existing) {
+        if (existing.contractFingerprint !== input.contractFingerprint) {
+          throw new BetSubmissionConflict(
+            "This submission identifier was already used with different inputs.",
+          );
+        }
+        return existing;
+      }
+    }
     const id = randomUUID();
-    await this.sql`
-      INSERT INTO bets (id, offer_id, analysis_id, american_odds, decimal_odds, placed_at, stake_units, sportsbook)
-      VALUES (
-        ${id}, ${input.offerId}, ${input.analysisId ?? null}, ${input.americanOdds},
-        ${americanToDecimal(input.americanOdds)}, ${input.placedAt}, ${input.stakeUnits},
-        ${input.sportsbook ?? null}
-      )
-    `;
+    try {
+      await this.sql`
+        INSERT INTO bets (
+          id, offer_id, analysis_id, submission_id, contract, contract_fingerprint,
+          american_odds, decimal_odds, placed_at, stake_units, sportsbook
+        ) VALUES (
+          ${id}, ${input.offerId}, ${input.analysisId ?? null}, ${input.submissionId ?? null},
+          ${input.contract ? this.sql.json(input.contract as never) : null},
+          ${input.contractFingerprint ?? null}, ${input.americanOdds},
+          ${americanToDecimal(input.americanOdds)}, ${input.placedAt}, ${input.stakeUnits},
+          ${input.sportsbook ?? null}
+        )
+      `;
+    } catch (error) {
+      if (input.submissionId && isUniqueViolation(error)) {
+        const existing = await this.findBetBySubmissionId(input.submissionId);
+        if (existing?.contractFingerprint === input.contractFingerprint) return existing;
+        throw new BetSubmissionConflict(
+          "This submission identifier was already used with different inputs.",
+        );
+      }
+      throw error;
+    }
     const bet = await this.readBet(id);
     if (!bet) throw new Error("Bet was not persisted");
     return bet;
+  }
+
+  async findBetBySubmissionId(submissionId: string): Promise<BetRecord | null> {
+    const rows = await this.sql<BetRow[]>`
+      SELECT * FROM bets WHERE submission_id = ${submissionId}
+    `;
+    return rows[0] ? mapBet(rows[0]) : null;
   }
 
   async recordSettlement(input: {
@@ -863,9 +914,13 @@ export class JournalRepository {
       }
       for (const bet of snapshot.bets) {
         await tx`
-          INSERT INTO bets (id, offer_id, analysis_id, american_odds, decimal_odds, placed_at, stake_units, sportsbook)
-          VALUES (
-            ${bet.id}, ${bet.offerId}, ${bet.analysisId}, ${bet.americanOdds}, ${bet.decimalOdds},
+          INSERT INTO bets (
+            id, offer_id, analysis_id, submission_id, contract, contract_fingerprint,
+            american_odds, decimal_odds, placed_at, stake_units, sportsbook
+          ) VALUES (
+            ${bet.id}, ${bet.offerId}, ${bet.analysisId}, ${bet.submissionId ?? null},
+            ${bet.contract ? tx.json(bet.contract as never) : null},
+            ${bet.contractFingerprint ?? null}, ${bet.americanOdds}, ${bet.decimalOdds},
             ${bet.placedAt}, ${bet.stakeUnits}, ${bet.sportsbook ?? null}
           )
           ON CONFLICT DO NOTHING
@@ -947,6 +1002,13 @@ function jsonOrNull(tx: Pick<Sql, "json">, value: unknown) {
 
 function isUniqueViolation(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "23505";
+}
+
+export class BetSubmissionConflict extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BetSubmissionConflict";
+  }
 }
 
 type GameRow = {
@@ -1041,6 +1103,9 @@ type BetRow = {
   id: string;
   offer_id: string;
   analysis_id: string | null;
+  submission_id: string | null;
+  contract: BetContract | null;
+  contract_fingerprint: string | null;
   american_odds: number;
   decimal_odds: string;
   placed_at: Date;
@@ -1169,6 +1234,9 @@ function mapBet(row: BetRow): BetRecord {
     id: row.id,
     offerId: row.offer_id,
     analysisId: row.analysis_id,
+    submissionId: row.submission_id,
+    contract: row.contract,
+    contractFingerprint: row.contract_fingerprint,
     americanOdds: row.american_odds,
     decimalOdds: num(row.decimal_odds)!,
     placedAt: iso(row.placed_at)!,

@@ -666,16 +666,124 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     it("records an actual bet against an analysis, separate from the assessment", async () => {
       const store = makeStore();
       const run = (await runAnalysis(request(), { store })).run!;
-      const bet = await store.recordBet({
+      const recorded = await store.recordBet({
         analysisId: run.id,
+        submissionId: "placement-other-book",
         sportsbook: "Other Book",
+        market: "moneyline",
+        selection: "home",
         americanOdds: -108,
         stakeUnits: 1.5,
         placedAt: "2026-10-25T15:55:00.000Z",
+        rules: { period: "full-game", overtime: "included", tie: "push" },
       });
+      expect(recorded.kind).toBe("created");
+      if (recorded.kind !== "created") throw new Error("expected a created bet");
+      const bet = recorded.bet;
       expect(await store.listBets()).toContainEqual(bet);
       expect(bet).toMatchObject({ sportsbook: "Other Book", americanOdds: -108, stakeUnits: 1.5 });
       expect((await store.getRun(run.id))?.status).toBe("completed");
+    });
+
+    it("stores the placed contract independently of the researched offer", async () => {
+      const store = makeStore();
+      const run = (
+        await runAnalysis(
+          request({ market: "spread", selection: "home", pointLine: -3, americanOdds: -110 }),
+          { store },
+        )
+      ).run!;
+      const recorded = await store.recordBet({
+        analysisId: run.id,
+        submissionId: "placement-dal-phi-1",
+        sportsbook: "Other Book",
+        market: "spread",
+        selection: "home",
+        pointLine: -3.5,
+        americanOdds: -105,
+        stakeUnits: 1.5,
+        placedAt: "2026-10-25T15:55:00.000Z",
+        rules: { period: "full-game", overtime: "included" },
+      });
+      expect(recorded.kind).toBe("created");
+      if (recorded.kind !== "created") throw new Error("expected a created bet");
+      const bet = recorded.bet;
+      const saved = (await store.listBets()).find((item) => item.id === bet.id);
+      expect(saved).toMatchObject({
+        analysisId: run.id,
+        submissionId: "placement-dal-phi-1",
+        contractProvenance: "captured",
+        sportsbook: "Other Book",
+        market: "spread",
+        selection: "home",
+        pointLine: -3.5,
+        americanOdds: -105,
+        stakeUnits: 1.5,
+        placedAt: "2026-10-25T15:55:00.000Z",
+        rules: { period: "full-game", overtime: "included", tie: null },
+      });
+      expect((await store.getRun(run.id))?.offer).toMatchObject({
+        pointLine: -3,
+        americanOdds: -110,
+        sportsbook: "Example Book",
+      });
+    });
+
+    it("keeps one actual bet when the same submission is repeated", async () => {
+      const store = makeStore();
+      const run = (await runAnalysis(request(), { store })).run!;
+      const input = {
+        analysisId: run.id,
+        submissionId: "placement-repeat",
+        sportsbook: "Other Book",
+        market: "moneyline" as const,
+        selection: "home" as const,
+        americanOdds: -108,
+        stakeUnits: 1,
+        placedAt: "2026-10-25T15:55:00.000Z",
+        rules: { period: "full-game" as const, overtime: "included" as const, tie: "push" as const },
+      };
+      const [first, second] = await Promise.all([store.recordBet(input), store.recordBet(input)]);
+      const bets = await store.listBets();
+      expect(bets).toHaveLength(1);
+      expect(first.kind === "conflict" ? null : first.bet.id).toBe(bets[0]?.id);
+      expect(second.kind === "conflict" ? null : second.bet.id).toBe(bets[0]?.id);
+    });
+
+    it("conflicts when a submission identifier is reused with different terms", async () => {
+      const store = makeStore();
+      const run = (await runAnalysis(request(), { store })).run!;
+      const first = await store.recordBet({
+        analysisId: run.id,
+        submissionId: "placement-conflict",
+        sportsbook: "Other Book",
+        market: "spread",
+        selection: "home",
+        pointLine: -3.5,
+        americanOdds: -105,
+        stakeUnits: 1,
+        placedAt: "2026-10-25T15:55:00.000Z",
+        rules: { period: "full-game", overtime: "included" },
+      });
+      const second = await store.recordBet({
+        analysisId: run.id,
+        submissionId: "placement-conflict",
+        sportsbook: "Other Book",
+        market: "spread",
+        selection: "home",
+        pointLine: -3,
+        americanOdds: -110,
+        stakeUnits: 1,
+        placedAt: "2026-10-25T15:55:00.000Z",
+        rules: { period: "full-game", overtime: "included" },
+      });
+      expect(first.kind).toBe("created");
+      expect(second).toMatchObject({
+        kind: "conflict",
+        error: expect.stringMatching(/different inputs/i),
+      });
+      expect(await store.listBets()).toHaveLength(1);
+      expect((await store.listBets())[0]).toMatchObject({ pointLine: -3.5, americanOdds: -105 });
     });
 
     it("rejects a bet for an analysis that does not exist", async () => {
@@ -683,10 +791,14 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
       await expect(
         store.recordBet({
           analysisId: "00000000-0000-4000-8000-000000000000",
+          submissionId: "missing-analysis",
           sportsbook: "Book",
+          market: "moneyline",
+          selection: "home",
           americanOdds: -110,
           stakeUnits: 1,
           placedAt: NOW,
+          rules: { period: "full-game", overtime: "included", tie: "push" },
         }),
       ).rejects.toThrow(/not found/i);
     });

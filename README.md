@@ -12,6 +12,8 @@ Each provider request is saved with its identifier, outcome, response, and whate
 
 If a request was sent and the process cannot tell whether the provider finished, the analysis says the outcome is ambiguous and requires a deliberate new attempt before another potentially charged request. That is not exactly-once execution. A provider that cannot confirm the earlier request may still charge a later attempt.
 
+An actual bet stores its own contract: market, selection, point line, settlement rules, sportsbook, American odds, placement time, positive stake units, and a submission identifier. That contract is validated on its own and can differ from the researched offer. Saving it does not change the research. Repeating one submission identifier returns the same bet. Reusing it with different terms is a conflict and does not overwrite the first record. Bets saved before this contract have no market, line, or rules of their own. The journal says those terms were not recorded. It does not copy the researched line in as if it were the line that was placed.
+
 Not yet wired into the app: the baseline model; settlement, closing-line comparison, and summaries.
 
 ## Start here
