@@ -29,22 +29,22 @@ Type: task
 
 ## Tickets
 
-| Ticket | Blocked by |
-| --- | --- |
-| [01: Isolate browser tests and establish CI verification](issues/01-isolated-verification.md) | None |
-| [02: Preserve immutable analysis snapshots](issues/02-immutable-analysis-snapshots.md) | 01 |
-| [03: Remove chronological leakage from model evaluation](issues/03-chronological-model-evaluation.md) | None |
-| [04: Reject invalid model artifacts and evaluation reports](issues/04-validated-model-inputs.md) | None |
-| [05: Make analysis submissions durable and idempotent](issues/05-durable-analysis-submissions.md) | 02 |
-| [06: Recover provider responses and report complete usage](issues/06-provider-response-recovery.md) | 05 |
-| [07: Enforce evidence coverage and graceful source failure](issues/07-evidence-coverage.md) | 05 |
-| [08: Support accurate offer entry and line-changing refreshes](issues/08-line-changing-refreshes.md) | 05 |
-| [09: Record complete actual-bet contracts](issues/09-actual-bet-contracts.md) | 02 |
-| [10: Freeze primary assessments before outcomes](issues/10-primary-assessments.md) | 05 |
-| [11: Settle assessments and bets with correction history](issues/11-settlements-and-corrections.md) | 09, 10 |
-| [12: Record and compare closing offers](issues/12-closing-offers.md) | 09 |
-| [13: Show separate assessment and actual-bet performance](issues/13-separate-performance-summaries.md) | 10, 11, 12 |
-| [14: Freeze prospective model inputs and forecasts](issues/14-frozen-prospective-forecasts.md) | 02, 03, 04 |
-| [15: Export the complete journal](issues/15-journal-export.md) | 06, 07, 08, 11, 12, 14 |
-| [16: Restore the journal atomically and repeatably](issues/16-journal-restore.md) | 15 |
-| [17: Evaluate prospective forecasts under frozen release rules](issues/17-prospective-evaluation-release.md) | 13, 14, 16 |
+| Ticket                                                                                                       | Blocked by             |
+| ------------------------------------------------------------------------------------------------------------ | ---------------------- |
+| [01: Isolate browser tests and establish CI verification](issues/01-isolated-verification.md)                | None                   |
+| [02: Preserve immutable analysis snapshots](issues/02-immutable-analysis-snapshots.md)                       | 01                     |
+| [03: Remove chronological leakage from model evaluation](issues/03-chronological-model-evaluation.md)        | None                   |
+| [04: Reject invalid model artifacts and evaluation reports](issues/04-validated-model-inputs.md)             | None                   |
+| [05: Make analysis submissions durable and idempotent](issues/05-durable-analysis-submissions.md)            | 02                     |
+| [06: Recover provider responses and report complete usage](issues/06-provider-response-recovery.md)          | 05                     |
+| [07: Enforce evidence coverage and graceful source failure](issues/07-evidence-coverage.md)                  | 05                     |
+| [08: Support accurate offer entry and line-changing refreshes](issues/08-line-changing-refreshes.md)         | 05                     |
+| [09: Record complete actual-bet contracts](issues/09-actual-bet-contracts.md)                                | 02                     |
+| [10: Freeze primary assessments before outcomes](issues/10-primary-assessments.md)                           | 05                     |
+| [11: Settle assessments and bets with correction history](issues/11-settlements-and-corrections.md)          | 09, 10                 |
+| [12: Record and compare closing offers](issues/12-closing-offers.md)                                         | 09                     |
+| [13: Show separate assessment and actual-bet performance](issues/13-separate-performance-summaries.md)       | 10, 11, 12             |
+| [14: Freeze prospective model inputs and forecasts](issues/14-frozen-prospective-forecasts.md)               | 02, 03, 04             |
+| [15: Export the complete journal](issues/15-journal-export.md)                                               | 06, 07, 08, 11, 12, 14 |
+| [16: Restore the journal atomically and repeatably](issues/16-journal-restore.md)                            | 15                     |
+| [17: Evaluate prospective forecasts under frozen release rules](issues/17-prospective-evaluation-release.md) | 13, 14, 16             |

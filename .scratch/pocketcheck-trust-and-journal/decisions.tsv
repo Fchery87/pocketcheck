@@ -1,1 +1,4 @@
 ts	phase	decision	why	evidence	result
+2026-10-25T22:56:59-04:00	setup	Committed approved spec and 17-ticket graph on integration branch.	The local tracker is the execution source of truth.	678e5d7	Verified dependency graph and ticket acceptance criteria.
+2026-10-25T23:09:08-04:00	model	Merged chronological feature and evaluation fixes for ticket 03.	Keep simultaneous kickoff outcomes from leaking into their own predictions and exclude unavailable results.	b147dbd; 78 model tests; Svelte check clean	Completed and independently integrated.
+2026-10-25T23:21:30-04:00	verification	Merged isolated browser/database verification for ticket 01.	Prove fixture mode before use, scrub credentials, and run shared storage tests on disposable PostgreSQL.	c55f46f; 262 unit tests; 4 browser tests; 14 database tests	Completed; exact historical root-workspace cause remains uncertain, synthetic missing-override class is reproduced and blocked.
