@@ -35,6 +35,7 @@ Type: task
 - [Ticket 13](issues/13-separate-performance-summaries.md) shows frozen primary assessments and actual bets as separate journal views. Refreshes stay out of the primary sample. Counts and denominators are shown. Missing closes and unresolved results are not zero. Corrections update the effective summary and keep prior notices.
 - [Ticket 15](issues/15-journal-export.md) downloads journal format version 1 from the journal page. The file keeps recovery records and strips credential fields. It does not include settings, bulk caches, or training data. Browser download acceptance was not run.
 - [Ticket 16](issues/16-journal-restore.md) restores version 1 only after the whole file validates. Identical records stay once. Conflicts and damaged files change nothing. Settlement notices travel with the backup. Browser restore was not run. The journey was checked through the application journal on memory and Neon.
+- [Ticket 17](issues/17-prospective-evaluation-release.md) freezes protocol `prospective-2026-10-26` before prospective outcomes exist. The inspected holdout is development evidence and cannot release a market. Release reads saved forecasts, not rebuilt predictions. A controlled record can pass the gate. No market has earned release.
 
 ## Fog
 

@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, describe, expect, it } from "vite-plus/test";
@@ -80,16 +86,22 @@ function release(value: unknown, model: unknown = artifact, previous?: string) {
   return { ...result, output };
 }
 function signed(body: object) {
-  return { ...body, checksum: createHash("sha256").update(JSON.stringify(body)).digest("hex") };
+  return {
+    ...body,
+    checksum: createHash("sha256").update(JSON.stringify(body)).digest("hex"),
+  };
 }
 
 describe("public release input boundary", () => {
-  it.each([null, [], {}, "invalid"])("rejects malformed report root %j", (value) => {
-    const result = release(value);
-    expect(result.status, result.stderr).toBe(1);
-    expect(result.stderr).toMatch(/Invalid evaluation/);
-    expect(existsSync(result.output)).toBe(false);
-  });
+  it.each([null, [], {}, "invalid"])(
+    "rejects malformed report root %j",
+    (value) => {
+      const result = release(value);
+      expect(result.status, result.stderr).toBe(1);
+      expect(result.stderr).toMatch(/Invalid evaluation/);
+      expect(existsSync(result.output)).toBe(false);
+    },
+  );
 
   it("rejects null evaluation scores without creating or replacing output", () => {
     const invalid = report();
@@ -115,7 +127,10 @@ describe("public release input boundary", () => {
     "rejects required metric %s",
     (metric) => {
       const value = report();
-      const invalid = { ...value, summary: { ...value.summary, brier: metric } };
+      const invalid = {
+        ...value,
+        summary: { ...value.summary, brier: metric },
+      };
       const result = release(invalid);
       expect(result.status, result.stderr).toBe(1);
       expect(existsSync(result.output)).toBe(false);
@@ -140,18 +155,27 @@ describe("public release input boundary", () => {
     const value = report();
     for (const summary of [
       { ...value.summary, byMarket: { moneyline: { count: 600, brier: 0.4 } } },
-      { ...value.summary, baselines: [...value.summary.baselines, value.summary.baselines[0]] },
+      {
+        ...value.summary,
+        baselines: [...value.summary.baselines, value.summary.baselines[0]],
+      },
       { ...value.summary, count: 1799 },
       { ...value.summary, coverage: { priced: 1801, missingPrices: 0 } },
       {
         ...value.summary,
-        baselines: value.summary.baselines.map((entry) => ({ ...entry, count: 600.5 })),
+        baselines: value.summary.baselines.map((entry) => ({
+          ...entry,
+          count: 600.5,
+        })),
       },
       {
         ...value.summary,
         threshold: {
           ...value.summary.threshold,
-          markets: { ...value.summary.threshold.markets, spread: { ...empty, wins: 1 } },
+          markets: {
+            ...value.summary.threshold.markets,
+            spread: { ...empty, wins: 1 },
+          },
         },
       },
     ]) {
@@ -165,28 +189,34 @@ describe("public release input boundary", () => {
     const value = report();
     const result = release({
       ...value,
-      summary: { ...value.summary, byMarket: { ...value.summary.byMarket, unknown: null } },
+      summary: {
+        ...value.summary,
+        byMarket: { ...value.summary.byMarket, unknown: null },
+      },
     });
     expect(result.status, result.stderr).toBe(1);
     expect(existsSync(result.output)).toBe(false);
   });
 
-  it.each(["overall", "baseline"])("rejects inconsistent %s Brier scores", (kind) => {
-    const value = report();
-    const summary =
-      kind === "overall"
-        ? { ...value.summary, brier: 0.1 }
-        : {
-            ...value.summary,
-            baselines: value.summary.baselines.map((entry) => ({
-              ...entry,
-              model: { ...entry.model, brier: 0.1 },
-            })),
-          };
-    const result = release({ ...value, summary });
-    expect(result.status, result.stderr).toBe(1);
-    expect(existsSync(result.output)).toBe(false);
-  });
+  it.each(["overall", "baseline"])(
+    "rejects inconsistent %s Brier scores",
+    (kind) => {
+      const value = report();
+      const summary =
+        kind === "overall"
+          ? { ...value.summary, brier: 0.1 }
+          : {
+              ...value.summary,
+              baselines: value.summary.baselines.map((entry) => ({
+                ...entry,
+                model: { ...entry.model, brier: 0.1 },
+              })),
+            };
+      const result = release({ ...value, summary });
+      expect(result.status, result.stderr).toBe(1);
+      expect(existsSync(result.output)).toBe(false);
+    },
+  );
 
   it("rejects checksum-valid artifacts with missing chronology at parsing", () => {
     const { chronology: _chronology, checksum: _checksum, ...body } = artifact;
@@ -209,12 +239,15 @@ describe("public release input boundary", () => {
   it("checks shape even when the artifact checksum matches", () => {
     const { checksum: _checksum, ...body } = artifact;
     const malformed = signed({ ...body, trainingCutoff: "invalid" });
-    const result = release({ ...report(), artifactChecksum: malformed.checksum }, malformed);
+    const result = release(
+      { ...report(), artifactChecksum: malformed.checksum },
+      malformed,
+    );
     expect(result.status, result.stderr).toBe(1);
     expect(existsSync(result.output)).toBe(false);
   });
 
-  it("releases a valid report including zero scores, but refuses valid losing evidence", () => {
+  it("refuses a valid historical report, including zero scores and losing evidence, without writing a release", () => {
     const value = report();
     const zero = {
       ...value,
@@ -234,11 +267,11 @@ describe("public release input boundary", () => {
       },
     };
     const passing = release(zero);
-    expect(passing.status, passing.stderr).toBe(0);
-    expect(JSON.parse(readFileSync(passing.output, "utf8"))).toMatchObject({
-      releaseStatus: "released-experimental",
-      releasedMarkets: ["moneyline", "spread", "total"],
-    });
+    expect(passing.status, passing.stderr).toBe(1);
+    expect(passing.stderr).toMatch(
+      /Independent prospective evidence is missing or failed/,
+    );
+    expect(existsSync(passing.output)).toBe(false);
     const losing = release({
       ...value,
       summary: {

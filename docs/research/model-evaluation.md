@@ -103,17 +103,33 @@ The gap is in games the market lined at 3. The market knows those games are clos
 
 ## Release gate
 
-`releaseDecision` (`src/lib/server/models/release.ts`) checks each market against the `market-no-vig` comparison on the artifact's holdout. A market passes only when all of these hold:
+`releaseDecision` (`src/lib/server/models/release.ts`) compares each market with the `market-no-vig` baseline on the artifact's historical holdout. A clean comparison still needs:
 
 - At least 500 priced holdout games.
 - Log loss no worse than the market's.
 - Brier no worse than the market's.
 
-Beating the training base rate does not count, because the model does that while still losing to the price it would bet against.
+Beating the training base rate does not count. A clean comparison is **development evidence**. The 2022+ holdout was inspected during model selection, so it is not an independent protocol and `releaseDecision` never sets `released: true`.
 
-`npm run model:evaluate` prints each market's decision and reason. `npm run model:release` accepts only an evaluation of that exact artifact (matching checksum). It writes a new artifact with `releaseStatus: "released-experimental"`, the passing `releasedMarkets`, and a fresh checksum, and leaves the input unchanged. When no market passes, it exits with the reasons and writes nothing. `valueEligibility(artifact, market)` is true only for a released artifact and a released market.
+`npm run model:evaluate` prints each market's development decision and reason. `npm run model:release` reads that report only as development context. It does not write a released artifact from the holdout. Missing independent prospective results exit with code 1 and leave the output unwritten.
 
-On the numbers above, no market passes. The refit that added the calibration table did not change the scores.
+## Prospective protocol
+
+The independent protocol is `prospective-2026-10-26`. It was frozen on 2026-10-26, before its outcomes exist to inspect. Its identity covers:
+
+- The artifact checksum being evaluated.
+- Input availability `decision-time-starters-v1`.
+- Markets moneyline, spread, and total.
+- An open evaluation period starting 2026-10-26.
+- At least 500 priced games per market.
+- The existing slate-clustered 90% interval for log loss minus the closing comparison.
+- Release only when Brier and log loss are no worse than that close and the interval's upper endpoint is at most zero.
+
+Changing any of those rules requires a new protocol id. The protocol scores forecasts saved at decision time. It does not rebuild them from the current artifact, schedule, starter identities, or final score. A timestamped executable offer stays distinct from the closing comparison. A missing close is a missing observation, not a zero. Release eligibility is not a profitability claim.
+
+No market in this repository has completed that sample. An unreleased artifact stays unreleased. Application model status names `prospective-2026-10-26` and the blocking reason. The deterministic policy is unchanged: only a released market can be eligible, and the label remains experimental.
+
+A controlled record can show the gate opening and closing. That demonstration is not a claim that a PocketCheck market has earned release.
 
 ## Uncertainty
 

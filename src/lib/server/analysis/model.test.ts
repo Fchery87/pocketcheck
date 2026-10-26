@@ -4,16 +4,35 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 import { parseOffer, type Offer } from "#lib/domain/offer.ts";
-import { withChecksum, type ModelArtifact } from "#lib/server/models/artifact.ts";
+import {
+  withChecksum,
+  type ModelArtifact,
+} from "#lib/server/models/artifact.ts";
 import { releaseArtifact } from "#lib/server/models/release.ts";
+import {
+  evaluateProspectiveForecasts,
+  protocolForArtifact,
+  type FrozenForecastRecord,
+} from "#lib/server/models/prospective.ts";
 import { fitArtifact } from "#lib/server/models/train.ts";
 import type { ScheduledGame } from "#lib/server/sources/contracts.ts";
-import { createArtifactForecast, createArtifactModel, forDisplay, noModel } from "./model.ts";
+import {
+  createArtifactForecast,
+  createArtifactModel,
+  forDisplay,
+  noModel,
+} from "./model.ts";
 
 const HEADER =
   "game_id,season,game_type,week,gameday,weekday,gametime,away_team,away_score,home_team,home_score,location,result,total,overtime,old_game_id,gsis,nfl_detail_id,pfr,pff,espn,ftn,away_rest,home_rest,away_moneyline,home_moneyline,spread_line,away_spread_odds,home_spread_odds,total_line,under_odds,over_odds,div_game,roof,surface,temp,wind,away_qb_id,home_qb_id,away_qb_name,home_qb_name,away_coach,home_coach,referee,stadium_id,stadium";
 
-type Row = { id: string; day: string; home: string; away: string; scores?: [number, number] };
+type Row = {
+  id: string;
+  day: string;
+  home: string;
+  away: string;
+  scores?: [number, number];
+};
 
 function csv(rows: Row[]): string {
   const columns = HEADER.split(",");
@@ -38,12 +57,25 @@ function csv(rows: Row[]): string {
 
 // Ten teams, 60 finished games through November, then one upcoming game in December.
 const finished: Row[] = Array.from({ length: 60 }, (_, index) => {
-  const day = new Date(Date.UTC(2024, 8, 5) + index * 86_400_000).toISOString().slice(0, 10);
+  const day = new Date(Date.UTC(2024, 8, 5) + index * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
   const home = `T${index % 10}`;
   const away = `T${(index * 3 + 1) % 10 === index % 10 ? (index + 1) % 10 : (index * 3 + 1) % 10}`;
-  return { id: `g${index}`, day, home, away, scores: [17 + (index % 10), 14 + ((index * 7) % 13)] };
+  return {
+    id: `g${index}`,
+    day,
+    home,
+    away,
+    scores: [17 + (index % 10), 14 + ((index * 7) % 13)],
+  };
 });
-const upcomingRow: Row = { id: "next", day: "2024-12-08", home: "T1", away: "T2" };
+const upcomingRow: Row = {
+  id: "next",
+  day: "2024-12-08",
+  home: "T1",
+  away: "T2",
+};
 
 const game: ScheduledGame = {
   id: "next",
@@ -100,10 +132,15 @@ describe("the model a run uses", () => {
   });
 
   it("explains a missing artifact file", async () => {
-    const model = createArtifactModel({ artifactPath: join(directory, "none.json"), schedulePath });
+    const model = createArtifactModel({
+      artifactPath: join(directory, "none.json"),
+      schedulePath,
+    });
     const result = await model(game, CUTOFF, spreadOffer("home", -3));
     expect(result).toMatchObject({ status: "unavailable" });
-    expect(result.status === "unavailable" && result.reason).toMatch(/npm run model:fit/);
+    expect(result.status === "unavailable" && result.reason).toMatch(
+      /npm run model:fit/,
+    );
   });
 
   it("returns an unavailable model for malformed artifacts even with matching checksums", async () => {
@@ -111,11 +148,23 @@ describe("the model a run uses", () => {
     const malformed = [
       null,
       [],
-      { ...body, margin: { ...body.margin, model: { ...body.margin.model, intercept: null } } },
+      {
+        ...body,
+        margin: {
+          ...body.margin,
+          model: { ...body.margin.model, intercept: null },
+        },
+      },
       { ...body, baseRates: { moneyline: { win: 1, loss: 1, push: 0 } } },
-      { ...body, uncertainty: { ...body.uncertainty, markets: { moneyline: [] } } },
+      {
+        ...body,
+        uncertainty: { ...body.uncertainty, markets: { moneyline: [] } },
+      },
       { ...body, trainingCutoff: "invalid" },
-      { ...body, featureParameters: { ...body.featureParameters, priorWeight: 0 } },
+      {
+        ...body,
+        featureParameters: { ...body.featureParameters, priorWeight: 0 },
+      },
       { ...body, fitParameters: { ...body.fitParameters, residualFolds: -1 } },
       {
         ...body,
@@ -135,15 +184,16 @@ describe("the model a run uses", () => {
             ? value
             : {
                 ...value,
-                checksum: createHash("sha256").update(JSON.stringify(value)).digest("hex"),
+                checksum: createHash("sha256")
+                  .update(JSON.stringify(value))
+                  .digest("hex"),
               },
         ),
       );
-      const result = await createArtifactModel({ artifactPath: path, schedulePath })(
-        game,
-        CUTOFF,
-        spreadOffer("home", -3),
-      );
+      const result = await createArtifactModel({
+        artifactPath: path,
+        schedulePath,
+      })(game, CUTOFF, spreadOffer("home", -3));
       expect(result).toMatchObject({
         status: "unavailable",
         reason: expect.stringMatching(/artifact/i),
@@ -185,14 +235,15 @@ describe("the model a run uses", () => {
         path,
         JSON.stringify({
           ...value,
-          checksum: createHash("sha256").update(JSON.stringify(value)).digest("hex"),
+          checksum: createHash("sha256")
+            .update(JSON.stringify(value))
+            .digest("hex"),
         }),
       );
-      const result = await createArtifactModel({ artifactPath: path, schedulePath })(
-        game,
-        CUTOFF,
-        spreadOffer("home", -3),
-      );
+      const result = await createArtifactModel({
+        artifactPath: path,
+        schedulePath,
+      })(game, CUTOFF, spreadOffer("home", -3));
       expect(result).toMatchObject({
         status: "unavailable",
         reason: expect.stringMatching(/chronology/),
@@ -205,22 +256,28 @@ describe("the model a run uses", () => {
       ...artifact,
       trainingCutoff: "2024-11-30T00:00:00Z",
     });
-    const result = await createArtifactModel({ artifactPath: tampered, schedulePath })(
-      game,
-      CUTOFF,
-      spreadOffer("home", -3),
+    const result = await createArtifactModel({
+      artifactPath: tampered,
+      schedulePath,
+    })(game, CUTOFF, spreadOffer("home", -3));
+    expect(result.status === "unavailable" && result.reason).toMatch(
+      /checksum/,
     );
-    expect(result.status === "unavailable" && result.reason).toMatch(/checksum/);
   });
 
   it("refuses an artifact from an older version, whose features no longer match", async () => {
     const { checksum: _checksum, ...body } = artifact;
-    const old = withChecksum({ ...body, version: 2 } as unknown as Omit<ModelArtifact, "checksum">);
+    const old = withChecksum({ ...body, version: 2 } as unknown as Omit<
+      ModelArtifact,
+      "checksum"
+    >);
     const result = await createArtifactModel({
       artifactPath: saved("old.json", old),
       schedulePath,
     })(game, CUTOFF, spreadOffer("home", -3));
-    expect(result.status === "unavailable" && result.reason).toMatch(/version 2 is not supported/);
+    expect(result.status === "unavailable" && result.reason).toMatch(
+      /version 2 is not supported/,
+    );
   });
 
   it("refuses an artifact trained on games through this one", async () => {
@@ -229,7 +286,9 @@ describe("the model a run uses", () => {
       artifactPath: saved("plain.json", artifact),
       schedulePath,
     })(early, "2024-09-30T12:00:00.000Z", spreadOffer("home", -3));
-    expect(result.status === "unavailable" && result.reason).toMatch(/trained on games through/);
+    expect(result.status === "unavailable" && result.reason).toMatch(
+      /trained on games through/,
+    );
   });
 
   it("refuses an artifact trained after the research decision cutoff", async () => {
@@ -261,30 +320,44 @@ describe("the model a run uses", () => {
     });
     expect(result.eligible).toBe(false);
     expect(result.reason).toMatch(/Unreleased/);
-    expect(result.uncertainty).toMatchObject({ available: false });
-    expect(!result.uncertainty.available && result.uncertainty.reason).toMatch(/fewer than 60/);
-    const path = saved("plain.json", artifact);
-    const forecast = await createArtifactForecast({ artifactPath: path, schedulePath })(
-      game,
-      CUTOFF,
-      spreadOffer("home", -3),
-      result,
+    expect(result.protocol).toMatchObject({
+      id: "prospective-2026-10-26",
+      role: "independent",
+    });
+    expect(result.protocol.blockingReason).toMatch(
+      /independent prospective evidence is missing/,
     );
+    expect(result.uncertainty).toMatchObject({ available: false });
+    expect(!result.uncertainty.available && result.uncertainty.reason).toMatch(
+      /fewer than 60/,
+    );
+    const path = saved("plain.json", artifact);
+    const forecast = await createArtifactForecast({
+      artifactPath: path,
+      schedulePath,
+    })(game, CUTOFF, spreadOffer("home", -3), result);
     expect(forecast?.starters.home.state).toBe("unknown");
     expect(forecast?.starters.away.state).toBe("unknown");
     expect(forecast?.marketEligibility.eligible).toBe(false);
     expect(forecast?.artifact.checksum).toBe(artifact.checksum);
   });
 
-  it("is eligible only for a released market", async () => {
-    const comparison = (market: "moneyline" | "spread") => ({
-      market,
-      name: "market-no-vig" as const,
-      count: 600,
-      model: { brier: 0.4, logLoss: 0.6 },
-      baseline: { brier: 0.5, logLoss: 0.7 },
-      logLossDifferenceInterval: null,
-    });
+  it("is eligible only for a market released by the prospective protocol", async () => {
+    const savedProbability = { win: 0.7, loss: 0.3, push: 0 };
+    const closing = { win: 0.4, loss: 0.6, push: 0 };
+    const frozen = (market: "moneyline" | "spread"): FrozenForecastRecord[] =>
+      Array.from({ length: 500 }, (_, index) => ({
+        id: `${market}-${index}`,
+        decisionCutoff: "2026-11-01T17:00:00Z",
+        artifactChecksum: artifact.checksum,
+        market,
+        probabilities: savedProbability,
+        closingBaseline: closing,
+        executableOfferAt: "2026-11-01T16:00:00Z",
+        slate: `slate-${index % 20}`,
+        outcome: "win" as const,
+      }));
+    const protocol = protocolForArtifact(artifact.checksum);
     const emptyMarket = {
       assessed: 0,
       candidates: 0,
@@ -294,39 +367,59 @@ describe("the model a run uses", () => {
       meanBreakEven: null,
       interval: null,
     };
-    const releasedFor = (market: "moneyline" | "spread") =>
-      releaseArtifact(artifact, {
-        version: 1,
-        datasetHash: artifact.datasetHash,
-        trainingCutoff: artifact.trainingCutoff,
-        holdoutGames: 900,
-        artifactChecksum: artifact.checksum,
-        summary: {
-          count: 0,
-          brier: 0,
-          logLoss: 0,
-          calibration: [],
-          baselines: [comparison(market)],
-          coverage: { priced: 0, missingPrices: 0 },
-          byMarket: {},
-          threshold: {
-            version: "threshold-2026-10-25",
-            conservativeExpectedValue: 0,
-            note: "",
-            markets: { moneyline: emptyMarket, spread: emptyMarket, total: emptyMarket },
+    const report = {
+      version: 1 as const,
+      datasetHash: artifact.datasetHash,
+      trainingCutoff: artifact.trainingCutoff,
+      holdoutGames: 0,
+      artifactChecksum: artifact.checksum,
+      summary: {
+        count: 0,
+        brier: 0,
+        logLoss: 0,
+        calibration: [],
+        baselines: [],
+        coverage: { priced: 0, missingPrices: 0 },
+        byMarket: {},
+        threshold: {
+          version: "threshold-2026-10-25",
+          conservativeExpectedValue: 0,
+          note: "",
+          markets: {
+            moneyline: emptyMarket,
+            spread: emptyMarket,
+            total: emptyMarket,
           },
         },
-      });
+      },
+    };
+    const releasedFor = (market: "moneyline" | "spread") => {
+      const evaluation = evaluateProspectiveForecasts(protocol, frozen(market));
+      return releaseArtifact(artifact, report, { protocol, evaluation });
+    };
     const spread = await createArtifactModel({
       artifactPath: saved("spread.json", releasedFor("spread")),
       schedulePath,
     })(game, CUTOFF, spreadOffer("home", -3));
-    expect(spread).toMatchObject({ status: "computed", eligible: true });
+    expect(spread).toMatchObject({
+      status: "computed",
+      eligible: true,
+      protocol: { id: "prospective-2026-10-26" },
+    });
     const moneylineOnly = await createArtifactModel({
       artifactPath: saved("moneyline.json", releasedFor("moneyline")),
       schedulePath,
     })(game, CUTOFF, spreadOffer("home", -3));
-    expect(moneylineOnly).toMatchObject({ status: "computed", eligible: false });
+    expect(moneylineOnly).toMatchObject({
+      status: "computed",
+      eligible: false,
+      protocol: { id: "prospective-2026-10-26" },
+    });
+    if (moneylineOnly.status === "computed") {
+      expect(moneylineOnly.protocol.blockingReason).toMatch(
+        /has not released the spread/,
+      );
+    }
   });
 
   it("prices the same bet the same way from either side", async () => {
@@ -336,7 +429,8 @@ describe("the model a run uses", () => {
     });
     const home = await model(game, CUTOFF, spreadOffer("home", -3));
     const away = await model(game, CUTOFF, spreadOffer("away", 3));
-    if (home.status !== "computed" || away.status !== "computed") throw new Error("not computed");
+    if (home.status !== "computed" || away.status !== "computed")
+      throw new Error("not computed");
     expect(away.probabilities.win).toBeCloseTo(home.probabilities.loss, 10);
     expect(away.probabilities.push).toBeCloseTo(home.probabilities.push, 10);
   });
@@ -347,7 +441,13 @@ describe("the model a run uses", () => {
       leakyPath,
       csv([
         ...finished,
-        { id: "late", day: "2024-12-07", home: "T1", away: "T9", scores: [70, 0] },
+        {
+          id: "late",
+          day: "2024-12-07",
+          home: "T1",
+          away: "T9",
+          scores: [70, 0],
+        },
         upcomingRow,
       ]),
     );
@@ -357,11 +457,10 @@ describe("the model a run uses", () => {
       "2024-12-07T12:00:00.000Z",
       spreadOffer("home", -3),
     );
-    const leaky = await createArtifactModel({ artifactPath, schedulePath: leakyPath })(
-      game,
-      "2024-12-07T12:00:00.000Z",
-      spreadOffer("home", -3),
-    );
+    const leaky = await createArtifactModel({
+      artifactPath,
+      schedulePath: leakyPath,
+    })(game, "2024-12-07T12:00:00.000Z", spreadOffer("home", -3));
     expect(leaky).toEqual(clean);
   });
 });
@@ -384,6 +483,12 @@ describe("what the report page receives", () => {
     },
     eligible: false,
     reason: "Unreleased artifacts are not eligible for a value recommendation.",
+    protocol: {
+      id: "prospective-2026-10-26",
+      role: "independent" as const,
+      blockingReason:
+        "prospective-2026-10-26 blocks release: independent prospective evidence is missing.",
+    },
   };
 
   it("leaves out an ineligible model's probabilities", () => {
@@ -391,7 +496,10 @@ describe("what the report page receives", () => {
     expect(shown).toEqual({
       ...recorded,
       probabilities: null,
-      uncertainty: { available: false, reason: "Not shown: the market is not eligible." },
+      uncertainty: {
+        available: false,
+        reason: "Not shown: the market is not eligible.",
+      },
     });
     const serialized = JSON.stringify(shown);
     expect(serialized).not.toContain("0.406");
@@ -399,8 +507,14 @@ describe("what the report page receives", () => {
   });
 
   it("keeps an eligible model's probabilities and passes other states through", () => {
-    expect(forDisplay({ ...recorded, eligible: true })).toEqual({ ...recorded, eligible: true });
-    const missing = { status: "unavailable" as const, reason: "No model artifact is configured." };
+    expect(forDisplay({ ...recorded, eligible: true })).toEqual({
+      ...recorded,
+      eligible: true,
+    });
+    const missing = {
+      status: "unavailable" as const,
+      reason: "No model artifact is configured.",
+    };
     expect(forDisplay(missing)).toEqual(missing);
     expect(forDisplay(null)).toBeNull();
   });
