@@ -273,7 +273,257 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
         completionTokens: 167,
         totalTokens: 3011,
         costUsd: 0.00168708,
+        partial: false,
       });
+    });
+
+    it("persists both metered responses and totals them before publishing the report", async () => {
+      const store = makeStore();
+      const inner = createFixtureDrafter();
+      const drafter: ThesisDrafter = {
+        ...inner,
+        async draftThesis(input) {
+          const drafted = await inner.draftThesis(input);
+          return {
+            ...drafted,
+            repairAttempted: true,
+            providerRequests: [
+              {
+                requestId: "draft-1",
+                role: "draft",
+                outcome: "completed",
+                response: { conclusion: "malformed" },
+                promptTokens: 100,
+                completionTokens: 20,
+                totalTokens: 120,
+                costUsd: 0.01,
+                costKnown: true,
+              },
+              {
+                requestId: "repair-1",
+                role: "repair",
+                outcome: "completed",
+                response: drafted.report,
+                promptTokens: 40,
+                completionTokens: 10,
+                totalTokens: null,
+                costUsd: null,
+                costKnown: false,
+              },
+            ],
+          };
+        },
+      };
+      const outcome = await runAnalysis(
+        { ...request(), requestId: "ticket06-two-metered" },
+        { store, drafter },
+      );
+      expect(outcome.ok).toBe(true);
+      const saved = await store.getRun(outcome.run!.id);
+      expect(saved?.providerRequests?.map((item) => item.requestId)).toEqual([
+        "draft-1",
+        "repair-1",
+      ]);
+      expect(saved?.usage).toEqual({
+        promptTokens: 140,
+        completionTokens: 30,
+        totalTokens: null,
+        costUsd: null,
+        partial: true,
+      });
+    });
+
+    it("keeps first-request accounting when the repair request fails in transit", async () => {
+      const store = makeStore();
+      const drafter: ThesisDrafter = {
+        id: "fixture",
+        modelId: "fixture-drafter",
+        async draftThesis() {
+          return {
+            draftingFailed: true,
+            repairAttempted: true,
+            refusal: null,
+            error: { kind: "transport", status: null, message: "repair connection reset" },
+            report: null,
+            packet: {
+              items: [],
+              gaps: [],
+              decimalOdds: 1.9,
+              decisiveBreakEven: 1 / 1.9,
+              policy: { version: "policy-test", conclusion: "pass", blockingReason: null },
+            },
+            usage: null,
+            usageCost: null,
+            modelId: "fixture-drafter",
+            providerRequests: [
+              {
+                requestId: "draft-kept",
+                role: "draft",
+                outcome: "completed",
+                response: { conclusion: "malformed" },
+                promptTokens: 80,
+                completionTokens: 20,
+                totalTokens: 100,
+                costUsd: 0.02,
+                costKnown: true,
+              },
+              {
+                requestId: "repair-lost",
+                role: "repair",
+                outcome: "failed",
+                response: null,
+                promptTokens: null,
+                completionTokens: null,
+                totalTokens: null,
+                costUsd: null,
+                costKnown: false,
+              },
+            ],
+          };
+        },
+      };
+      const outcome = await runAnalysis(
+        { ...request(), requestId: "ticket06-repair-transport" },
+        { store, drafter },
+      );
+      expect(outcome.ok).toBe(false);
+      const saved = await store.getRun(outcome.run!.id);
+      expect(saved?.providerRequests?.map((item) => item.requestId)).toEqual([
+        "draft-kept",
+        "repair-lost",
+      ]);
+      expect(saved?.usage).toEqual({
+        promptTokens: null,
+        completionTokens: null,
+        totalTokens: null,
+        costUsd: null,
+        partial: true,
+      });
+      expect(saved?.usage?.costUsd).not.toBe(0);
+    });
+
+    it("finalizes from the durable response after a write failure without another provider request", async () => {
+      const base = makeStore();
+      const input = { ...request(), requestId: "ticket06-finalize-retry" };
+      const inner = createFixtureDrafter();
+      let drafts = 0;
+      const drafter: ThesisDrafter = {
+        ...inner,
+        async draftThesis(packet) {
+          drafts += 1;
+          const drafted = await inner.draftThesis(packet);
+          return {
+            ...drafted,
+            providerRequests: [
+              {
+                requestId: "durable-draft",
+                role: "draft" as const,
+                outcome: "completed" as const,
+                response: drafted.report,
+                promptTokens: 10,
+                completionTokens: 5,
+                totalTokens: 15,
+                costUsd: 0.004,
+                costKnown: true,
+              },
+            ],
+          };
+        },
+      };
+      let writes = 0;
+      let attemptId = "";
+      const flaky: ResearchStore = {
+        ...base,
+        async beginAttempt(run) {
+          const begun = await base.beginAttempt(run);
+          if (begun.kind === "created") attemptId = begun.run.id;
+          return begun;
+        },
+        async saveRun(run) {
+          writes += 1;
+          if (writes === 1) throw new Error("final database write failed");
+          return base.saveRun(run);
+        },
+      };
+      await expect(runAnalysis(input, { store: flaky, drafter })).rejects.toThrow(
+        /final database write failed/,
+      );
+      const persisted = await base.getRun(attemptId);
+      expect(persisted?.status).toBe("running");
+      expect(persisted?.report).toBeNull();
+      expect(persisted?.providerRequests?.[0]?.requestId).toBe("durable-draft");
+      const readable = await runAnalysis(input, { store: base, drafter });
+      expect(readable.ok).toBe(true);
+      expect(drafts).toBe(1);
+      expect(readable.run?.id).toBe(attemptId);
+      expect(readable.run?.providerRequests?.[0]?.requestId).toBe("durable-draft");
+      expect(readable.run?.usage).toEqual({
+        promptTokens: 10,
+        completionTokens: 5,
+        totalTokens: 15,
+        costUsd: 0.004,
+        partial: false,
+      });
+    });
+
+    it("names an ambiguous provider outcome and refuses another automatic request", async () => {
+      const base = makeStore();
+      const input = { ...request(), requestId: "ticket06-ambiguous-provider" };
+      let drafts = 0;
+      const drafter: ThesisDrafter = {
+        id: "fixture",
+        modelId: "fixture-drafter",
+        async draftThesis() {
+          drafts += 1;
+          if (drafts > 1) throw new Error("a second provider request was sent");
+          return {
+            draftingFailed: true,
+            repairAttempted: false,
+            refusal: null,
+            error: { kind: "timeout", status: null, message: "draft timed out after the request was sent" },
+            report: null,
+            packet: {
+              items: [],
+              gaps: [],
+              decimalOdds: 1.9,
+              decisiveBreakEven: 1 / 1.9,
+              policy: { version: "policy-test", conclusion: "pass", blockingReason: null },
+            },
+            usage: null,
+            usageCost: null,
+            modelId: "fixture-drafter",
+            providerRequests: [
+              {
+                requestId: "maybe-charged",
+                role: "draft",
+                outcome: "ambiguous",
+                response: null,
+                promptTokens: null,
+                completionTokens: null,
+                totalTokens: null,
+                costUsd: null,
+                costKnown: false,
+              },
+            ],
+          };
+        },
+      };
+      const first = await runAnalysis(input, { store: base, drafter });
+      expect(first.ok).toBe(false);
+      expect(first.run?.providerOutcomeAmbiguous).toBe(true);
+      expect(first.run?.failureReason).toMatch(/ambiguous/i);
+      expect(first.run?.failureReason).toMatch(/new attempt/i);
+      const repeated = await runAnalysis(input, { store: base, drafter });
+      expect(repeated.run?.id).toBe(first.run?.id);
+      expect(repeated.ok).toBe(false);
+      expect(repeated.ok ? "" : repeated.error).toMatch(/ambiguous/i);
+      expect(drafts).toBe(1);
+      const deliberate = await runAnalysis(
+        { ...input, requestId: "ticket06-deliberate-after-ambiguous" },
+        { store: base, drafter: createFixtureDrafter() },
+      );
+      expect(deliberate.ok).toBe(true);
+      expect(deliberate.run?.id).not.toBe(first.run?.id);
     });
 
     it("keeps a refreshed run linked to an unchanged parent", async () => {
@@ -416,16 +666,124 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     it("records an actual bet against an analysis, separate from the assessment", async () => {
       const store = makeStore();
       const run = (await runAnalysis(request(), { store })).run!;
-      const bet = await store.recordBet({
+      const recorded = await store.recordBet({
         analysisId: run.id,
+        submissionId: "placement-other-book",
         sportsbook: "Other Book",
+        market: "moneyline",
+        selection: "home",
         americanOdds: -108,
         stakeUnits: 1.5,
         placedAt: "2026-10-25T15:55:00.000Z",
+        rules: { period: "full-game", overtime: "included", tie: "push" },
       });
+      expect(recorded.kind).toBe("created");
+      if (recorded.kind !== "created") throw new Error("expected a created bet");
+      const bet = recorded.bet;
       expect(await store.listBets()).toContainEqual(bet);
       expect(bet).toMatchObject({ sportsbook: "Other Book", americanOdds: -108, stakeUnits: 1.5 });
       expect((await store.getRun(run.id))?.status).toBe("completed");
+    });
+
+    it("stores the placed contract independently of the researched offer", async () => {
+      const store = makeStore();
+      const run = (
+        await runAnalysis(
+          request({ market: "spread", selection: "home", pointLine: -3, americanOdds: -110 }),
+          { store },
+        )
+      ).run!;
+      const recorded = await store.recordBet({
+        analysisId: run.id,
+        submissionId: "placement-dal-phi-1",
+        sportsbook: "Other Book",
+        market: "spread",
+        selection: "home",
+        pointLine: -3.5,
+        americanOdds: -105,
+        stakeUnits: 1.5,
+        placedAt: "2026-10-25T15:55:00.000Z",
+        rules: { period: "full-game", overtime: "included" },
+      });
+      expect(recorded.kind).toBe("created");
+      if (recorded.kind !== "created") throw new Error("expected a created bet");
+      const bet = recorded.bet;
+      const saved = (await store.listBets()).find((item) => item.id === bet.id);
+      expect(saved).toMatchObject({
+        analysisId: run.id,
+        submissionId: "placement-dal-phi-1",
+        contractProvenance: "captured",
+        sportsbook: "Other Book",
+        market: "spread",
+        selection: "home",
+        pointLine: -3.5,
+        americanOdds: -105,
+        stakeUnits: 1.5,
+        placedAt: "2026-10-25T15:55:00.000Z",
+        rules: { period: "full-game", overtime: "included", tie: null },
+      });
+      expect((await store.getRun(run.id))?.offer).toMatchObject({
+        pointLine: -3,
+        americanOdds: -110,
+        sportsbook: "Example Book",
+      });
+    });
+
+    it("keeps one actual bet when the same submission is repeated", async () => {
+      const store = makeStore();
+      const run = (await runAnalysis(request(), { store })).run!;
+      const input = {
+        analysisId: run.id,
+        submissionId: "placement-repeat",
+        sportsbook: "Other Book",
+        market: "moneyline" as const,
+        selection: "home" as const,
+        americanOdds: -108,
+        stakeUnits: 1,
+        placedAt: "2026-10-25T15:55:00.000Z",
+        rules: { period: "full-game" as const, overtime: "included" as const, tie: "push" as const },
+      };
+      const [first, second] = await Promise.all([store.recordBet(input), store.recordBet(input)]);
+      const bets = await store.listBets();
+      expect(bets).toHaveLength(1);
+      expect(first.kind === "conflict" ? null : first.bet.id).toBe(bets[0]?.id);
+      expect(second.kind === "conflict" ? null : second.bet.id).toBe(bets[0]?.id);
+    });
+
+    it("conflicts when a submission identifier is reused with different terms", async () => {
+      const store = makeStore();
+      const run = (await runAnalysis(request(), { store })).run!;
+      const first = await store.recordBet({
+        analysisId: run.id,
+        submissionId: "placement-conflict",
+        sportsbook: "Other Book",
+        market: "spread",
+        selection: "home",
+        pointLine: -3.5,
+        americanOdds: -105,
+        stakeUnits: 1,
+        placedAt: "2026-10-25T15:55:00.000Z",
+        rules: { period: "full-game", overtime: "included" },
+      });
+      const second = await store.recordBet({
+        analysisId: run.id,
+        submissionId: "placement-conflict",
+        sportsbook: "Other Book",
+        market: "spread",
+        selection: "home",
+        pointLine: -3,
+        americanOdds: -110,
+        stakeUnits: 1,
+        placedAt: "2026-10-25T15:55:00.000Z",
+        rules: { period: "full-game", overtime: "included" },
+      });
+      expect(first.kind).toBe("created");
+      expect(second).toMatchObject({
+        kind: "conflict",
+        error: expect.stringMatching(/different inputs/i),
+      });
+      expect(await store.listBets()).toHaveLength(1);
+      expect((await store.listBets())[0]).toMatchObject({ pointLine: -3.5, americanOdds: -105 });
     });
 
     it("rejects a bet for an analysis that does not exist", async () => {
@@ -433,10 +791,14 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
       await expect(
         store.recordBet({
           analysisId: "00000000-0000-4000-8000-000000000000",
+          submissionId: "missing-analysis",
           sportsbook: "Book",
+          market: "moneyline",
+          selection: "home",
           americanOdds: -110,
           stakeUnits: 1,
           placedAt: NOW,
+          rules: { period: "full-game", overtime: "included", tie: "push" },
         }),
       ).rejects.toThrow(/not found/i);
     });

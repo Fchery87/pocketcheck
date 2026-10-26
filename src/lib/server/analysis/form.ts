@@ -127,7 +127,13 @@ export function localInputValue(iso: string): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-export type ManualEvidenceRow = { text: string; url: string; time: string; covers: string };
+export type ManualEvidenceRow = {
+  text: string;
+  url: string;
+  time: string;
+  covers: string;
+  team: string;
+};
 
 export type ManualEvidenceForm =
   | {
@@ -138,21 +144,24 @@ export type ManualEvidenceForm =
         url: string;
         sourceTime: string;
         covers?: "injury-report" | "weather";
+        team?: string;
       }>;
     }
   | { ok: false; rows: ManualEvidenceRow[]; error: string };
 
 /**
- * Reads the repeated manualText, manualUrl, manualTime, and manualCovers fields. Blank rows are
+ * Reads the repeated manualText, manualUrl, manualTime, manualCovers, and manualTeam fields. Blank rows are
  * skipped. A blank source time means the source did not say when it was published.
+ * A team is required only when the entry stands in for that team's injury report.
  */
 export function parseManualEvidence(data: FormData): ManualEvidenceForm {
   const all = (name: string) => data.getAll(name).map((value) => String(value).trim());
-  const [texts, urls, times, covers] = [
+  const [texts, urls, times, covers, teams] = [
     all("manualText"),
     all("manualUrl"),
     all("manualTime"),
     all("manualCovers"),
+    all("manualTeam"),
   ];
   const rows = texts
     .map((text, index) => ({
@@ -160,13 +169,15 @@ export function parseManualEvidence(data: FormData): ManualEvidenceForm {
       url: urls[index] ?? "",
       time: times[index] ?? "",
       covers: covers[index] ?? "",
+      team: (teams[index] ?? "").toUpperCase(),
     }))
-    .filter((row) => row.text || row.url || row.time || row.covers);
+    .filter((row) => row.text || row.url || row.time || row.covers || row.team);
   const entries: Array<{
     text: string;
     url: string;
     sourceTime: string;
     covers?: "injury-report" | "weather";
+    team?: string;
   }> = [];
   for (const [index, row] of rows.entries()) {
     if (row.covers && row.covers !== "injury-report" && row.covers !== "weather") {
@@ -174,6 +185,14 @@ export function parseManualEvidence(data: FormData): ManualEvidenceForm {
     }
     const covers =
       row.covers === "injury-report" || row.covers === "weather" ? row.covers : undefined;
+    const team = /^[A-Z]{2,3}$/.test(row.team) ? row.team : undefined;
+    if (covers === "injury-report" && !team) {
+      return {
+        ok: false,
+        rows,
+        error: `Manual evidence ${index + 1}: an injury report needs the team it covers`,
+      };
+    }
     const sourceTime = row.time ? parseObservedAt(row.time) : "unknown";
     if (!sourceTime) {
       return {
@@ -187,6 +206,7 @@ export function parseManualEvidence(data: FormData): ManualEvidenceForm {
       url: row.url,
       sourceTime,
       ...(covers ? { covers } : {}),
+      ...(team ? { team } : {}),
     });
   }
   return { ok: true, rows, entries };

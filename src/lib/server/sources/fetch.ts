@@ -46,7 +46,10 @@ export async function fetchBounded(
     }
     if (input.schema === "json") {
       try {
-        JSON.parse(body);
+        const parsed = JSON.parse(body);
+        if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+          return { ok: false, url, failure: "schema mismatch: JSON payload was empty" };
+        }
       } catch {
         return { ok: false, url, failure: "schema mismatch: response is not JSON" };
       }

@@ -34,6 +34,21 @@ const forecast = (result: WeatherEvidence) => async () => result;
 const noForecast = forecast({ state: "missing", item: null, reason: "No forecast coverage." });
 
 describe("source evidence collector", () => {
+  it("does not treat one team's injury rows as coverage for the opponent", async () => {
+    const collect = createSourceCollector({
+      injuryPath: injuryCache("2026-10-25T18:00:00.000Z"),
+      weather: noForecast,
+    });
+    const collected = await collect(phi, nowIso);
+    const covered = collected.items
+      .filter((item) => item.sourceId === "nflverse-injuries")
+      .map((item) => item.facts.team);
+    expect(covered).toContain("PHI");
+    expect(covered).not.toContain("DAL");
+    expect(collected.materialGaps.map((gap) => gap.text).join(" ")).toMatch(/DAL/);
+    expect(collected.materialGaps.map((gap) => gap.text).join(" ")).not.toMatch(/PHI/);
+  });
+
   it("reads both teams' rows for the game week from the cached injury file", async () => {
     const collect = createSourceCollector({
       injuryPath: injuryCache("2026-10-25T18:00:00.000Z"),
@@ -50,9 +65,10 @@ describe("source evidence collector", () => {
     expect(injuries[0]?.url).toContain("injuries_2026.csv");
     // Unknown publication time is a caveat, not missing evidence.
     expect(collected.gaps.join(" ")).toMatch(/publication time/);
-    expect(collected.materialGaps.map((gap) => gap.text).join(" ")).not.toMatch(
-      /publication time|injur/i,
+    expect(collected.materialGaps.map((gap) => `${gap.team}: ${gap.text}`).join(" ")).toMatch(
+      /DAL week 7 injury coverage is not established/,
     );
+    expect(collected.materialGaps.map((gap) => gap.team)).not.toContain("PHI");
   });
 
   it("treats a missing injury file as missing material evidence", async () => {
@@ -73,17 +89,30 @@ describe("source evidence collector", () => {
     });
     const collected = await collect(buf, nowIso);
     expect(collected.items.some((item) => item.sourceId === "nflverse-injuries")).toBe(false);
-    expect(collected.materialGaps.map((gap) => gap.text).join(" ")).toMatch(/week 8 injury rows/);
+    expect(
+      collected.materialGaps
+        .filter((gap) => gap.kind === "injury-report")
+        .map((gap) => gap.team)
+        .sort(),
+    ).toEqual(["BAL", "BUF"]);
+    expect(collected.materialGaps.map((gap) => gap.text).join(" ")).toMatch(/not a clean report/);
   });
 
-  it("flags an injury file older than a day without blocking on it", async () => {
+  it("treats an injury file older than 24 hours as uncovered for each established team", async () => {
     const collect = createSourceCollector({
       injuryPath: injuryCache("2026-10-23T12:00:00.000Z"),
       weather: noForecast,
     });
     const collected = await collect(phi, nowIso);
     expect(collected.gaps.join(" ")).toMatch(/retrieved .* re-run npm run data:injuries/i);
-    expect(collected.materialGaps.map((gap) => gap.text).join(" ")).not.toMatch(/re-run/);
+    expect(collected.gaps.join(" ")).toMatch(/does not establish publication time/i);
+    expect(collected.materialGaps.map((gap) => gap.text).join(" ")).toMatch(/older than 24 hours/);
+    expect(
+      collected.materialGaps
+        .filter((gap) => gap.kind === "injury-report")
+        .map((gap) => gap.team)
+        .sort(),
+    ).toEqual(["DAL", "PHI"]);
   });
 
   it("adds an applicable forecast and treats a missing outdoor forecast as material", async () => {

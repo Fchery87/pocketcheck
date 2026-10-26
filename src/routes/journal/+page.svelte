@@ -29,7 +29,10 @@
   </ul>
 
   <h2>Record an actual bet</h2>
-  <p>A bet is your decision. It is stored apart from the system's assessment.</p>
+  <p>
+    Record the contract you placed. It can differ from the researched offer, and saving it does not
+    change that research.
+  </p>
   <form method="POST">
     <label>
       Analysis
@@ -41,8 +44,43 @@
       </select>
     </label>
     <label>
-      Sportsbook
+      Submission identifier
+      <input name="submissionId" required data-testid="bet-submission" />
+    </label>
+    <label>
+      Sportsbook you used
       <input name="sportsbook" required />
+    </label>
+    <label>
+      Market you placed
+      <select name="market" data-testid="bet-market">
+        <option value="moneyline">moneyline</option>
+        <option value="spread">spread</option>
+        <option value="total">total</option>
+      </select>
+    </label>
+    <label>
+      Selection you placed
+      <select name="selection" data-testid="bet-selection">
+        <option value="home">home</option>
+        <option value="away">away</option>
+        <option value="over">over</option>
+        <option value="under">under</option>
+      </select>
+    </label>
+    <label>
+      Line you placed (selected side, spread or total)
+      <input name="pointLine" inputmode="decimal" data-testid="bet-line" />
+    </label>
+    <label>
+      Tie rule (moneyline)
+      <select name="tie" data-testid="bet-tie">
+        <option value="">not a moneyline</option>
+        <option value="push">push</option>
+        <option value="loss">loss</option>
+        <option value="win">win</option>
+        <option value="void">void</option>
+      </select>
     </label>
     <label>
       American odds you got
@@ -62,8 +100,20 @@
   <ul data-testid="bets">
     {#each data.bets as bet (bet.id)}
       <li>
-        <a href="/analysis/{bet.analysisId}">{bet.sportsbook} {bet.americanOdds} for {bet.stakeUnits} units</a>,
-        placed {easternTime(bet.placedAt)}
+        {#if bet.contractProvenance === "captured"}
+          <a href="/analysis/{bet.analysisId}" data-testid="bet-contract">
+            {bet.sportsbook} {bet.market} {bet.selection} {signedLine(bet.pointLine)} {bet.americanOdds}
+            for {bet.stakeUnits} units, placed {easternTime(bet.placedAt)}, full game, overtime included
+            {#if bet.rules?.tie}, tie {bet.rules.tie}{/if}
+          </a>
+        {:else}
+          <a href="/analysis/{bet.analysisId}">
+            {bet.sportsbook} {bet.americanOdds} for {bet.stakeUnits} units
+          </a>
+          <span data-testid="legacy-bet-provenance">
+            placed {easternTime(bet.placedAt)}. The market, line, and rules of this placement were not recorded.
+          </span>
+        {/if}
       </li>
     {/each}
   </ul>

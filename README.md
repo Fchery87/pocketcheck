@@ -8,7 +8,13 @@ Each analysis stores a versioned snapshot of its game and exact research offer, 
 
 Offer entry follows the market. A moneyline offers home or away and asks for a tie rule (push, loss, win, or void). A spread offers home or away and a line for the selected side: home −3.5 is not the same contract as away +3.5. A total offers over or under and one shared total. A refresh can change the point line, sportsbook, odds, and observation time. It keeps the parent market and selection, gets a new submission identifier, and leaves the earlier report unchanged. A different market or selection is a new analysis, not a refresh. Invalid entry keeps the values you already typed.
 
-Theses are drafted by the model you choose in Settings (TheClawBay or DeepSeek), or by a deterministic fixture drafter that makes no AI call. Settings lists each provider's catalog with its retrieval time. A model can draft only when its catalog declares text output (DeepSeek) or it passes a one-request JSON test (TheClawBay declares nothing). There is no automatic fallback: a missing key or a removed model stops the analysis with the reason. Each report shows its token usage and provider-reported cost, or says none was reported.
+Theses are drafted by the model you choose in Settings (TheClawBay or DeepSeek), or by a deterministic fixture drafter that makes no AI call. Settings lists each provider's catalog with its retrieval time. A model can draft only when its catalog declares text output (DeepSeek) or it passes a one-request JSON test (TheClawBay declares nothing). There is no automatic fallback: a missing key or a removed model stops the analysis with the reason.
+
+Each provider request is saved with its identifier, outcome, response, and whatever accounting the provider returned, before the final report is published. Those records stay in the journal and contain no credentials. A later finalization failure reuses that saved response and does not send another provider request. Original and repair requests are both included in the token and cost totals. A field the provider did not report stays unknown, and the total is marked partial. Unknown cost is not shown as zero.
+
+If a request was sent and the process cannot tell whether the provider finished, the analysis says the outcome is ambiguous and requires a deliberate new attempt before another potentially charged request. That is not exactly-once execution. A provider that cannot confirm the earlier request may still charge a later attempt.
+
+An actual bet stores its own contract: market, selection, point line, settlement rules, sportsbook, American odds, placement time, positive stake units, and a submission identifier. That contract is validated on its own and can differ from the researched offer. Saving it does not change the research. Repeating one submission identifier returns the same bet. Reusing it with different terms is a conflict and does not overwrite the first record. Bets saved before this contract have no market, line, or rules of their own. The journal says those terms were not recorded. It does not copy the researched line in as if it were the line that was placed.
 
 Not yet wired into the app: the baseline model; settlement, closing-line comparison, and summaries.
 
@@ -53,7 +59,11 @@ npm run model:fit -- data/sources/games.csv data/artifacts/baseline.json 2022-03
 npm run dev
 ```
 
-The app needs `DATABASE_URL`. It shows an error rather than silently keeping the journal in memory. Re-run `npm run data:schedule` to pick up schedule changes; each download records its retrieval time in a `.json` file beside it. Injury reports change Wednesday through game day; a report flags an injury file more than a day old. Weather is fetched from api.weather.gov at analysis time; set `NWS_USER_AGENT` to identify yourself with an email, as NWS asks. International venues have no NWS forecast and show that as a gap.
+The app needs `DATABASE_URL`. It shows an error rather than silently keeping the journal in memory. Re-run `npm run data:schedule` to pick up schedule changes; each download records its retrieval time in a `.json` file beside it.
+
+Injury coverage is tracked per team and game week. Rows for one team do not cover its opponent. An absent player row is unknown coverage, not a clean report. A clean empty report is accepted only when the source marks that team and week as explicitly empty. Injury coverage older than 24 hours stays a material gap. The download time is the retrieval time. It is shown separately from publication time, and it does not establish when the source published the report. nflverse rows keep publication time unknown. Manual evidence clears an injury gap only when it names that team, has a source time, and that source time is within 24 hours of the decision cutoff and not after it. Weather keeps a 12-hour manual window and does not need a team. Stale, late, unrelated, and unknown-time evidence stays visible and does not clear the gap. A malformed or empty weather payload is recorded as a gap. The rest of the analysis remains readable.
+
+Weather is fetched from api.weather.gov at analysis time; set `NWS_USER_AGENT` to identify yourself with an email, as NWS asks. International venues have no NWS forecast and show that as a gap.
 
 Verification uses the same entry points locally and in CI. See [Verify a change](docs/testing.md) for isolation checks and database setup.
 

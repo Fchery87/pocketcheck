@@ -181,7 +181,9 @@ test("offer, report, refresh, and unchanged prior report", async ({ page, reques
   await expect(page.getByTestId("assessments").locator("li")).toHaveCount(2);
   await expect(page.getByTestId("assessments")).toContainText("insufficient evidence");
   await page.getByTestId("bet-analysis").selectOption({ index: 1 });
+  await page.getByTestId("bet-submission").fill("browser-placement-1");
   await page.locator('input[name="sportsbook"]').fill("Example Book");
+  await page.getByTestId("bet-tie").selectOption("push");
   await page.locator('input[name="americanOdds"]').fill("-110");
   await page.locator('input[name="stakeUnits"]').fill("1");
   await page.getByRole("button", { name: "Record bet" }).click();
@@ -227,6 +229,57 @@ test("a spread refresh changes the line and leaves the parent contract", async (
   await expect(page.getByTestId("offer-contract")).toContainText("-3.5");
   await expect(page.getByTestId("offer-contract")).not.toContainText("-2.5");
   await expect(page.getByTestId("price")).toContainText("-110");
+});
+
+test("a researched spread of -3 keeps its terms when the placed bet is -3.5", async ({ page }) => {
+  await page.goto("/");
+  await page.waitForLoadState("networkidle");
+  await page.getByTestId("game-id").selectOption("2026_07_DAL_PHI");
+  await page.getByLabel("Sportsbook").fill("Research Book");
+  await page.locator('select[name="market"]').selectOption("spread");
+  await page.locator('select[name="selection"]').selectOption("home");
+  await page.locator('input[name="pointLine"]').fill("-3");
+  await page.getByTestId("american-odds").fill("-110");
+  await page.getByTestId("observed-at").fill("2026-10-25T11:30");
+  await page.getByTestId("manual-text").fill("Beat reporter: Barkley practiced fully Friday.");
+  await page.getByTestId("manual-url").fill("https://example.test/barkley-friday");
+  await page.getByRole("button", { name: "Add another" }).click();
+  const forecast = page.getByTestId("manual-evidence").locator("div").nth(1);
+  await forecast.getByTestId("manual-text").fill("Kickoff 52F, wind 8 mph");
+  await forecast.getByTestId("manual-time").fill("2026-10-25T11:30");
+  await forecast.getByTestId("manual-covers").selectOption("weather");
+  await page.getByTestId("analyze").click();
+  await expect(page.getByTestId("conclusion")).toHaveText("insufficient evidence");
+  await expect(page.getByTestId("price")).toContainText("-110");
+
+  await page.goto("/journal");
+  await expect(page.getByTestId("assessments")).toContainText("-3");
+  await expect(page.getByTestId("assessments")).toContainText("-110");
+  await page.getByTestId("bet-analysis").selectOption({ index: 1 });
+  await page.getByTestId("bet-submission").fill("spread-execution-1");
+  await page.locator('input[name="sportsbook"]').fill("Execution Book");
+  await page.getByTestId("bet-market").selectOption("spread");
+  await page.getByTestId("bet-selection").selectOption("home");
+  await page.getByTestId("bet-line").fill("-3.5");
+  await page.locator('input[name="americanOdds"]').fill("-105");
+  await page.locator('input[name="stakeUnits"]').fill("2");
+  await page.getByRole("button", { name: "Record bet" }).click();
+  await expect(page.getByTestId("bet-recorded")).toBeVisible();
+  const placed = page.getByTestId("bet-contract");
+  await expect(placed).toContainText("Execution Book");
+  await expect(placed).toContainText("spread");
+  await expect(placed).toContainText("home");
+  await expect(placed).toContainText("-3.5");
+  await expect(placed).toContainText("-105");
+  await expect(placed).toContainText("2");
+  await expect(page.getByTestId("assessments")).toContainText("Research Book");
+  await expect(page.getByTestId("assessments")).toContainText("-110");
+  await expect(page.getByTestId("assessments")).not.toContainText("-3.5");
+  await page.reload();
+  await expect(page.getByTestId("bet-contract")).toContainText("-3.5");
+  await expect(page.getByTestId("bet-contract")).toContainText("-105");
+  await expect(page.getByTestId("assessments")).toContainText("-3");
+  await expect(page.getByTestId("assessments")).not.toContainText("-3.5");
 });
 
 test("a started game cannot be selected", async ({ page }) => {
