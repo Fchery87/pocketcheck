@@ -37,7 +37,8 @@ describe("walk-forward residuals", () => {
     const residuals = walkForwardResiduals(rows, targets, 1, 4);
     // Four blocks of 15: the first block only trains, so 45 residuals remain.
     expect(residuals).toHaveLength(45);
-    const earlier = fitRidge(rows.slice(0, 45), targets.slice(0, 45), 1);
+    // The 45th result becomes eligible exactly at the block cutoff, so it stays excluded.
+    const earlier = fitRidge(rows.slice(0, 44), targets.slice(0, 44), 1);
     const last = rows[59]!;
     expect(residuals[44]).toBeCloseTo((targets[59] ?? 0) - predictMean(earlier, last), 10);
   });
