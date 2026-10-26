@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
-import type { Offer } from "#lib/domain/offer.ts";
+import { createHash, randomUUID } from "node:crypto";
+import { parseOffer, type Offer, type OfferRules, type SideSelection, type Market } from "#lib/domain/offer.ts";
 import type { ThesisReport } from "../providers/contracts.ts";
 import type { RunModel } from "./model.ts";
 import type { PolicyDecision } from "./policy.ts";
@@ -131,14 +131,45 @@ export function summarize(run: ResearchRun): RunSummary {
   };
 }
 
+export type ContractProvenance = "captured" | "legacy-unknown";
+
+/**
+ * The contract the bettor placed. `captured` stores that contract itself.
+ * `legacy-unknown` means the journal only kept price, book, stake, and time,
+ * so market, line, and rules must not be filled from the research offer.
+ */
 export type ActualBet = {
   id: string;
   analysisId: string;
+  submissionId: string | null;
+  contractProvenance: ContractProvenance;
   sportsbook: string;
+  market: Market | null;
+  selection: SideSelection | null;
+  pointLine: number | null;
+  rules: Offer["rules"] | null;
   americanOdds: number;
   stakeUnits: number;
   placedAt: string;
 };
+
+export type NewActualBet = {
+  analysisId: string;
+  submissionId: string;
+  sportsbook: string;
+  market: Market;
+  selection: SideSelection;
+  pointLine?: number;
+  rules: OfferRules;
+  americanOdds: number;
+  stakeUnits: number;
+  placedAt: string;
+};
+
+export type RecordBetResult =
+  | { kind: "created"; bet: ActualBet }
+  | { kind: "existing"; bet: ActualBet }
+  | { kind: "conflict"; error: string };
 
 export type ResearchStore = {
   beginAttempt: (run: NewRun) => Promise<BeginAttemptResult>;
@@ -148,7 +179,7 @@ export type ResearchStore = {
   /** Newest first. */
   listCompleted: () => Promise<RunSummary[]>;
   markInterrupted: (id: string) => Promise<ResearchRun | null>;
-  recordBet: (bet: Omit<ActualBet, "id">) => Promise<ActualBet>;
+  recordBet: (bet: NewActualBet) => Promise<RecordBetResult>;
   listBets: () => Promise<ActualBet[]>;
 };
 
@@ -156,6 +187,9 @@ export function createMemoryStore(): ResearchStore {
   const runs = new Map<string, ResearchRun>();
   const requests = new Map<string, string>();
   const bets: ActualBet[] = [];
+  const submissions = new Map<string, string>();
+  const fingerprints = new Map<string, string>();
+  let betWrites: Promise<unknown> = Promise.resolve();
 
   return {
     async beginAttempt(input) {
@@ -232,13 +266,90 @@ export function createMemoryStore(): ResearchStore {
       return interrupted;
     },
     async recordBet(bet) {
-      if (!runs.has(bet.analysisId)) throw new Error(`Analysis not found: ${bet.analysisId}`);
-      const saved = { ...bet, id: randomUUID() };
-      bets.push(saved);
-      return saved;
+      const write = betWrites.then(() =>
+        recordMemoryBet({ runs, bets, submissions, fingerprints }, bet),
+      );
+      betWrites = write.then(
+        () => undefined,
+        () => undefined,
+      );
+      return write;
     },
     async listBets() {
       return [...bets];
     },
   };
+}
+
+function recordMemoryBet(
+  state: {
+    runs: Map<string, ResearchRun>;
+    bets: ActualBet[];
+    submissions: Map<string, string>;
+    fingerprints: Map<string, string>;
+  },
+  input: NewActualBet,
+): RecordBetResult {
+  const run = state.runs.get(input.analysisId);
+  if (!run) throw new Error(`Analysis not found: ${input.analysisId}`);
+  if (!input.submissionId) throw new Error("An actual bet requires a submission identifier.");
+  if (!Number.isFinite(input.stakeUnits) || input.stakeUnits <= 0) {
+    throw new Error("Stake must be a positive number of units");
+  }
+  const contract = parseOffer({
+    gameId: run.game.id,
+    sportsbook: input.sportsbook,
+    market: input.market,
+    selection: input.selection,
+    pointLine: input.pointLine,
+    americanOdds: input.americanOdds,
+    observedAt: input.placedAt,
+    kickoffAt: run.game.kickoff,
+    rules: input.rules,
+  });
+  const fingerprint = createHash("sha256")
+    .update(
+      JSON.stringify({
+        analysisId: input.analysisId,
+        sportsbook: contract.sportsbook,
+        market: contract.market,
+        selection: contract.selection,
+        pointLine: contract.pointLine,
+        americanOdds: contract.americanOdds,
+        rules: contract.rules,
+        stakeUnits: input.stakeUnits,
+        placedAt: input.placedAt,
+      }),
+    )
+    .digest("hex");
+  const existingId = state.submissions.get(input.submissionId);
+  if (existingId) {
+    const existing = state.bets.find((item) => item.id === existingId);
+    if (!existing) throw new Error(`Bet submission index is inconsistent: ${input.submissionId}`);
+    if (state.fingerprints.get(existing.id) !== fingerprint) {
+      return {
+        kind: "conflict",
+        error: "This submission identifier was already used with different inputs.",
+      };
+    }
+    return { kind: "existing", bet: structuredClone(existing) };
+  }
+  const saved: ActualBet = {
+    id: randomUUID(),
+    analysisId: input.analysisId,
+    submissionId: input.submissionId,
+    contractProvenance: "captured",
+    sportsbook: contract.sportsbook,
+    market: contract.market,
+    selection: contract.selection,
+    pointLine: contract.pointLine,
+    rules: contract.rules,
+    americanOdds: contract.americanOdds,
+    stakeUnits: input.stakeUnits,
+    placedAt: input.placedAt,
+  };
+  state.bets.push(saved);
+  state.submissions.set(input.submissionId, saved.id);
+  state.fingerprints.set(saved.id, fingerprint);
+  return { kind: "created", bet: structuredClone(saved) };
 }
