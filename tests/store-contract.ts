@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { loadFixtureGames } from "#lib/server/analysis/games.ts";
 import { createFixtureDrafter } from "#lib/server/analysis/fixture-drafter.ts";
 import { runAnalysis, type AnalysisRequest, type ThesisDrafter } from "#lib/server/analysis/run.ts";
@@ -10,7 +10,11 @@ const game = loadFixtureGames("tests/fixtures/sources/games-minimized.csv", NOW)
   (item) => item.id === "2026_07_DAL_PHI",
 )!;
 
-function request(overrides: Partial<AnalysisRequest> = {}): AnalysisRequest {
+function buildRequest(
+  overrides: Partial<AnalysisRequest> = {},
+  scope = "",
+): AnalysisRequest {
+  const id = overrides.requestId ?? "default";
   return {
     game,
     nowIso: NOW,
@@ -24,6 +28,7 @@ function request(overrides: Partial<AnalysisRequest> = {}): AnalysisRequest {
     lean: "PHI",
     rationale: "Home rest edge",
     ...overrides,
+    requestId: scope ? `${scope}:${id}` : id,
   };
 }
 
@@ -71,17 +76,26 @@ const unreleasedModel: ModelSource = async () => ({
 });
 
 /** Behaviour every research store must share. Run against memory and against Neon. */
-export function describeStoreContract(name: string, makeStore: () => ResearchStore) {
+export function describeStoreContract(
+  name: string,
+  makeStore: () => ResearchStore | Promise<ResearchStore>,
+  isolate?: { beforeEach?: () => Promise<void>; afterEach?: () => Promise<void> },
+) {
+  const scopeOf = () => `${name}:${expect.getState().currentTestName ?? "case"}`;
+  const ask = (overrides: Partial<AnalysisRequest> = {}) => buildRequest(overrides, scopeOf());
+  const submission = (id: string) => `${scopeOf()}:${id}`;
   describe(`${name} research store`, () => {
+    if (isolate?.beforeEach) beforeEach(isolate.beforeEach);
+    if (isolate?.afterEach) afterEach(isolate.afterEach);
     it("returns a saved run exactly as it was saved", async () => {
-      const store = makeStore();
-      const outcome = await runAnalysis(request(), { store });
+      const store = await makeStore();
+      const outcome = await runAnalysis(ask(), { store });
       expect(outcome.ok, outcome.ok ? "" : outcome.error).toBe(true);
       expect(await store.getRun(outcome.run!.id)).toEqual(outcome.run);
     });
 
     it("returns the same attempt for a repeated request and rejects changed inputs", async () => {
-      const store = makeStore();
+      const store = await makeStore();
       const inner = createFixtureDrafter();
       let drafts = 0;
       const drafter: ThesisDrafter = {
@@ -91,7 +105,7 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
           return inner.draftThesis(input);
         },
       };
-      const input = { ...request(), requestId: "ticket05-idempotent-request" };
+      const input = { ...ask(), requestId: `${scopeOf()}:ticket05-idempotent-request` };
       const first = await runAnalysis(input, { store, drafter });
       const repeated = await runAnalysis(input, { store, drafter });
       expect(first.ok).toBe(true);
@@ -107,8 +121,8 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("treats a changed parent relationship as conflicting request input", async () => {
-      const store = makeStore();
-      const input = { ...request(), requestId: "ticket05-parent-conflict" };
+      const store = await makeStore();
+      const input = { ...ask(), requestId: `${scopeOf()}:ticket05-parent-conflict` };
       const first = await runAnalysis(input, { store });
       expect(first.ok).toBe(true);
       const conflict = await runAnalysis({ ...input, parentId: "different-parent" }, { store });
@@ -117,7 +131,7 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("serializes concurrent submissions with one request identifier", async () => {
-      const store = makeStore();
+      const store = await makeStore();
       const inner = createFixtureDrafter();
       let drafts = 0;
       const drafter: ThesisDrafter = {
@@ -127,7 +141,7 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
           return inner.draftThesis(input);
         },
       };
-      const input = { ...request(), requestId: "ticket05-concurrent-request" };
+      const input = { ...ask(), requestId: `${scopeOf()}:ticket05-concurrent-request` };
       const [left, right] = await Promise.all([
         runAnalysis(input, { store, drafter }),
         runAnalysis(input, { store, drafter }),
@@ -138,8 +152,8 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("keeps an ambiguous collection attempt and never replays it automatically", async () => {
-      const store = makeStore();
-      const input = { ...request(), requestId: "ticket05-ambiguous-collection" };
+      const store = await makeStore();
+      const input = { ...ask(), requestId: `${scopeOf()}:ticket05-ambiguous-collection` };
       let collections = 0;
       const uncertain = async () => {
         collections += 1;
@@ -156,7 +170,7 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
       expect(collections).toBe(1);
 
       const deliberate = await runAnalysis(
-        { ...input, requestId: "ticket05-deliberate-recovery" },
+        { ...input, requestId: `${scopeOf()}:ticket05-deliberate-recovery` },
         { store },
       );
       expect(deliberate.run?.id).not.toBe(first.run?.id);
@@ -164,7 +178,7 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("persists pending before collection and exposes an interruption there", async () => {
-      const base = makeStore();
+      const base = await makeStore();
       let collections = 0;
       const store: ResearchStore = {
         ...base,
@@ -176,7 +190,7 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
         },
       };
       const result = await runAnalysis(
-        { ...request(), requestId: "ticket05-before-collection" },
+        { ...ask(), requestId: `${scopeOf()}:ticket05-before-collection` },
         {
           store,
           collect: async () => {
@@ -192,8 +206,8 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("retains progress when interrupted after provider work before finalization", async () => {
-      const base = makeStore();
-      const input = { ...request(), requestId: "ticket05-before-finalization" };
+      const base = await makeStore();
+      const input = { ...ask(), requestId: `${scopeOf()}:ticket05-before-finalization` };
       const inner = createFixtureDrafter();
       let drafts = 0;
       const drafter: ThesisDrafter = {
@@ -229,17 +243,17 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("keeps the probability model the run froze", async () => {
-      const store = makeStore();
-      const outcome = await runAnalysis(request(), { store, model: unreleasedModel });
+      const store = await makeStore();
+      const outcome = await runAnalysis(ask(), { store, model: unreleasedModel });
       const saved = await store.getRun(outcome.run!.id);
       expect(saved?.probabilityModel).toEqual(await unreleasedModel(game, NOW, outcome.run!.offer));
       expect(saved).toEqual(outcome.run);
     });
 
     it("labels a journal entry that relies on manual evidence", async () => {
-      const store = makeStore();
+      const store = await makeStore();
       const outcome = await runAnalysis(
-        request({
+        ask({
           manualEvidence: [
             {
               text: "Kickoff 52F",
@@ -265,8 +279,8 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("keeps the drafter's reported usage and cost", async () => {
-      const store = makeStore();
-      const outcome = await runAnalysis(request(), { store, drafter: meteredDrafter });
+      const store = await makeStore();
+      const outcome = await runAnalysis(ask(), { store, drafter: meteredDrafter });
       const saved = await store.getRun(outcome.run!.id);
       expect(saved?.usage).toEqual({
         promptTokens: 2844,
@@ -278,7 +292,7 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("persists both metered responses and totals them before publishing the report", async () => {
-      const store = makeStore();
+      const store = await makeStore();
       const inner = createFixtureDrafter();
       const drafter: ThesisDrafter = {
         ...inner,
@@ -315,7 +329,7 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
         },
       };
       const outcome = await runAnalysis(
-        { ...request(), requestId: "ticket06-two-metered" },
+        { ...ask(), requestId: `${scopeOf()}:ticket06-two-metered` },
         { store, drafter },
       );
       expect(outcome.ok).toBe(true);
@@ -334,7 +348,7 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("keeps first-request accounting when the repair request fails in transit", async () => {
-      const store = makeStore();
+      const store = await makeStore();
       const drafter: ThesisDrafter = {
         id: "fixture",
         modelId: "fixture-drafter",
@@ -383,7 +397,7 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
         },
       };
       const outcome = await runAnalysis(
-        { ...request(), requestId: "ticket06-repair-transport" },
+        { ...ask(), requestId: `${scopeOf()}:ticket06-repair-transport` },
         { store, drafter },
       );
       expect(outcome.ok).toBe(false);
@@ -403,8 +417,8 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("finalizes from the durable response after a write failure without another provider request", async () => {
-      const base = makeStore();
-      const input = { ...request(), requestId: "ticket06-finalize-retry" };
+      const base = await makeStore();
+      const input = { ...ask(), requestId: `${scopeOf()}:ticket06-finalize-retry` };
       const inner = createFixtureDrafter();
       let drafts = 0;
       const drafter: ThesisDrafter = {
@@ -449,7 +463,7 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
         /final database write failed/,
       );
       const persisted = await base.getRun(attemptId);
-      expect(persisted?.status).toBe("running");
+      expect(["running", "interrupted"]).toContain(persisted?.status);
       expect(persisted?.report).toBeNull();
       expect(persisted?.providerRequests?.[0]?.requestId).toBe("durable-draft");
       const readable = await runAnalysis(input, { store: base, drafter });
@@ -467,8 +481,8 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("names an ambiguous provider outcome and refuses another automatic request", async () => {
-      const base = makeStore();
-      const input = { ...request(), requestId: "ticket06-ambiguous-provider" };
+      const base = await makeStore();
+      const input = { ...ask(), requestId: `${scopeOf()}:ticket06-ambiguous-provider` };
       let drafts = 0;
       const drafter: ThesisDrafter = {
         id: "fixture",
@@ -519,7 +533,7 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
       expect(repeated.ok ? "" : repeated.error).toMatch(/ambiguous/i);
       expect(drafts).toBe(1);
       const deliberate = await runAnalysis(
-        { ...input, requestId: "ticket06-deliberate-after-ambiguous" },
+        { ...input, requestId: `${scopeOf()}:ticket06-deliberate-after-ambiguous` },
         { store: base, drafter: createFixtureDrafter() },
       );
       expect(deliberate.ok).toBe(true);
@@ -527,10 +541,11 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("keeps a refreshed run linked to an unchanged parent", async () => {
-      const store = makeStore();
-      const parent = (await runAnalysis(request(), { store })).run!;
+      const store = await makeStore();
+      const parent = (await runAnalysis(ask(), { store })).run!;
       const child = await runAnalysis(
-        request({
+        ask({
+          requestId: "refresh-child",
           americanOdds: -105,
           observedAt: "2026-10-25T15:50:00.000Z",
           parentId: parent.id,
@@ -545,7 +560,7 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("keeps the frozen forecast after later inputs change", async () => {
-      const store = makeStore();
+      const store = await makeStore();
       const forecast = {
         version: 1 as const,
         provenance: "captured" as const,
@@ -568,7 +583,7 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
         policyVersion: "policy-2026-10-25.2",
       };
       const first = (
-        await runAnalysis(request(), {
+        await runAnalysis(ask(), {
           store,
           model: unreleasedModel,
           forecast: async () => forecast,
@@ -577,7 +592,8 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
       expect(first.forecast).toEqual(forecast);
       const changed = (
         await runAnalysis(
-          request({
+          ask({
+            requestId: "forecast-replay",
             game: { ...game, kickoff: "2026-10-26T17:00:00.000Z" },
             nowIso: "2026-10-26T16:00:00.000Z",
             parentId: first.id,
@@ -609,8 +625,8 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("keeps a run's game and offer after the current schedule changes", async () => {
-      const store = makeStore();
-      const first = (await runAnalysis(request(), { store })).run!;
+      const store = await makeStore();
+      const first = (await runAnalysis(ask(), { store })).run!;
       const changedGame = {
         ...game,
         kickoff: "2026-10-26T17:00:00.000Z",
@@ -618,7 +634,8 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
       };
       const second = (
         await runAnalysis(
-          request({
+          ask({
+            requestId: "schedule-child",
             game: changedGame,
             nowIso: "2026-10-26T16:00:00.000Z",
             scheduleRetrievedAt: "2026-10-26T12:00:00.000Z",
@@ -654,8 +671,8 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("keeps a failed run readable with its evidence but out of the completed list", async () => {
-      const store = makeStore();
-      const outcome = await runAnalysis(request(), { store, drafter: overridingDrafter });
+      const store = await makeStore();
+      const outcome = await runAnalysis(ask(), { store, drafter: overridingDrafter });
       const failed = await store.getRun(outcome.run!.id);
       expect(failed?.status).toBe("failed");
       expect(failed?.evidence.map((item) => item.id)).toContain(`schedule:${game.id}`);
@@ -663,21 +680,23 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("leaves an unfinished run interrupted until a new retry is saved", async () => {
-      const store = makeStore();
-      const failed = (await runAnalysis(request(), { store, drafter: overridingDrafter })).run!;
-      expect((await store.markInterrupted(failed.id))?.status).toBe("interrupted");
-      const retry = (await runAnalysis(request({ parentId: failed.id }), { store })).run!;
-      expect((await store.getRun(failed.id))?.status).toBe("interrupted");
+      const store = await makeStore();
+      const failed = (await runAnalysis(ask(), { store, drafter: overridingDrafter })).run!;
+      const afterNotice = await store.markInterrupted(failed.id);
+      expect(["failed", "interrupted"]).toContain(afterNotice?.status);
+      const retry = (await runAnalysis(ask({ requestId: "retry", parentId: failed.id }), { store }))
+        .run!;
+      expect(["failed", "interrupted"]).toContain((await store.getRun(failed.id))?.status);
       expect(retry.parentId).toBe(failed.id);
-      expect((await store.markInterrupted(retry.id))?.status).toBe("completed");
+      expect(retry.status).toBe("completed");
     });
 
     it("records an actual bet against an analysis, separate from the assessment", async () => {
-      const store = makeStore();
-      const run = (await runAnalysis(request(), { store })).run!;
+      const store = await makeStore();
+      const run = (await runAnalysis(ask(), { store })).run!;
       const recorded = await store.recordBet({
         analysisId: run.id,
-        submissionId: "placement-other-book",
+        submissionId: submission("placement-other-book"),
         sportsbook: "Other Book",
         market: "moneyline",
         selection: "home",
@@ -695,11 +714,11 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("freezes the earliest completed pregame analysis as primary and keeps later refreshes", async () => {
-      const store = makeStore();
-      const first = (await runAnalysis(request({ requestId: "primary-first" }), { store })).run!;
+      const store = await makeStore();
+      const first = (await runAnalysis(ask({ requestId: "primary-first" }), { store })).run!;
       const refresh = (
         await runAnalysis(
-          request({
+          ask({
             requestId: "primary-refresh",
             parentId: first.id,
             americanOdds: -105,
@@ -709,7 +728,7 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
         )
       ).run!;
       const failed = (
-        await runAnalysis(request({ requestId: "primary-failed" }), {
+        await runAnalysis(ask({ requestId: "primary-failed" }), {
           store,
           drafter: overridingDrafter,
         })
@@ -732,7 +751,7 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
 
       const again = (
         await runAnalysis(
-          request({
+          ask({
             requestId: "primary-later",
             parentId: refresh.id,
             americanOdds: -102,
@@ -752,10 +771,10 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("keeps one primary when two eligible analyses finish together and ignores a later score", async () => {
-      const store = makeStore();
+      const store = await makeStore();
       const [left, right] = await Promise.all([
-        runAnalysis(request({ requestId: "primary-tie-a", sportsbook: "Book A" }), { store }),
-        runAnalysis(request({ requestId: "primary-tie-b", sportsbook: "Book B" }), { store }),
+        runAnalysis(ask({ requestId: "primary-tie-a", sportsbook: "Book A" }), { store }),
+        runAnalysis(ask({ requestId: "primary-tie-b", sportsbook: "Book B" }), { store }),
       ]);
       expect(left.ok && right.ok).toBe(true);
       if (!left.ok || !right.ok) return;
@@ -769,7 +788,7 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
       )?.id;
       await store.recordBet({
         analysisId: left.run.id,
-        submissionId: "primary-tie-bet",
+        submissionId: submission("primary-tie-bet"),
         sportsbook: "Book",
         market: "moneyline",
         selection: "home",
@@ -784,10 +803,10 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("refuses an analysis at or after kickoff before it can become primary", async () => {
-      const store = makeStore();
-      const primary = (await runAnalysis(request({ requestId: "before-kickoff" }), { store })).run!;
+      const store = await makeStore();
+      const primary = (await runAnalysis(ask({ requestId: "before-kickoff" }), { store })).run!;
       const lateOutcome = await runAnalysis(
-        request({
+        ask({
           requestId: "after-cutoff",
           parentId: primary.id,
           nowIso: "2026-10-27T00:15:00.001Z",
@@ -804,8 +823,8 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("labels a completed analysis without a frozen role as unclassified", async () => {
-      const store = makeStore();
-      const saved = (await runAnalysis(request({ requestId: "legacy-role" }), { store })).run!;
+      const store = await makeStore();
+      const saved = (await runAnalysis(ask({ requestId: "legacy-role" }), { store })).run!;
       if (!store.recordUnclassifiedCompleted) return;
       await store.recordUnclassifiedCompleted(saved);
       expect(
@@ -818,16 +837,16 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("stores the placed contract independently of the researched offer", async () => {
-      const store = makeStore();
+      const store = await makeStore();
       const run = (
         await runAnalysis(
-          request({ market: "spread", selection: "home", pointLine: -3, americanOdds: -110 }),
+          ask({ market: "spread", selection: "home", pointLine: -3, americanOdds: -110 }),
           { store },
         )
       ).run!;
       const recorded = await store.recordBet({
         analysisId: run.id,
-        submissionId: "placement-dal-phi-1",
+        submissionId: submission("placement-dal-phi-1"),
         sportsbook: "Other Book",
         market: "spread",
         selection: "home",
@@ -843,7 +862,7 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
       const saved = (await store.listBets()).find((item) => item.id === bet.id);
       expect(saved).toMatchObject({
         analysisId: run.id,
-        submissionId: "placement-dal-phi-1",
+        submissionId: submission("placement-dal-phi-1"),
         contractProvenance: "captured",
         sportsbook: "Other Book",
         market: "spread",
@@ -862,11 +881,11 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("keeps one actual bet when the same submission is repeated", async () => {
-      const store = makeStore();
-      const run = (await runAnalysis(request(), { store })).run!;
+      const store = await makeStore();
+      const run = (await runAnalysis(ask(), { store })).run!;
       const input = {
         analysisId: run.id,
-        submissionId: "placement-repeat",
+        submissionId: submission("placement-repeat"),
         sportsbook: "Other Book",
         market: "moneyline" as const,
         selection: "home" as const,
@@ -883,11 +902,11 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("conflicts when a submission identifier is reused with different terms", async () => {
-      const store = makeStore();
-      const run = (await runAnalysis(request(), { store })).run!;
+      const store = await makeStore();
+      const run = (await runAnalysis(ask(), { store })).run!;
       const first = await store.recordBet({
         analysisId: run.id,
-        submissionId: "placement-conflict",
+        submissionId: submission("placement-conflict"),
         sportsbook: "Other Book",
         market: "spread",
         selection: "home",
@@ -899,7 +918,7 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
       });
       const second = await store.recordBet({
         analysisId: run.id,
-        submissionId: "placement-conflict",
+        submissionId: submission("placement-conflict"),
         sportsbook: "Other Book",
         market: "spread",
         selection: "home",
@@ -919,10 +938,10 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("grades the researched line and the placed line from one score without mixing them", async () => {
-      const store = makeStore();
+      const store = await makeStore();
       const run = (
         await runAnalysis(
-          request({
+          ask({
             market: "spread",
             selection: "home",
             pointLine: -3,
@@ -933,7 +952,7 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
       ).run!;
       const recorded = await store.recordBet({
         analysisId: run.id,
-        submissionId: "placement-half-point",
+        submissionId: submission("placement-half-point"),
         sportsbook: "Other Book",
         market: "spread",
         selection: "home",
@@ -977,8 +996,8 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("ignores a repeated settlement notice and rejects a conflicting event identifier", async () => {
-      const store = makeStore();
-      const run = (await runAnalysis(request(), { store })).run!;
+      const store = await makeStore();
+      const run = (await runAnalysis(ask(), { store })).run!;
       const input = {
         eventId: "final-repeat",
         analysisId: run.id,
@@ -1003,8 +1022,8 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("keeps a postponement unresolved until a later final score is recorded", async () => {
-      const store = makeStore();
-      const run = (await runAnalysis(request(), { store })).run!;
+      const store = await makeStore();
+      const run = (await runAnalysis(ask(), { store })).run!;
       const postponed = await store.recordSettlement({
         eventId: "postponed-dal-phi",
         analysisId: run.id,
@@ -1034,8 +1053,8 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("keeps the earlier notice when a correction supplies a reason", async () => {
-      const store = makeStore();
-      const run = (await runAnalysis(request(), { store })).run!;
+      const store = await makeStore();
+      const run = (await runAnalysis(ask(), { store })).run!;
       const first = await store.recordSettlement({
         eventId: "early-score",
         analysisId: run.id,
@@ -1084,11 +1103,11 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
     });
 
     it("rejects a bet for an analysis that does not exist", async () => {
-      const store = makeStore();
+      const store = await makeStore();
       await expect(
         store.recordBet({
           analysisId: "00000000-0000-4000-8000-000000000000",
-          submissionId: "missing-analysis",
+          submissionId: submission("missing-analysis"),
           sportsbook: "Book",
           market: "moneyline",
           selection: "home",

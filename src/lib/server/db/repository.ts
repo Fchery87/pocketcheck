@@ -307,12 +307,26 @@ export class JournalRepository {
           )
         `;
 
+        const terminal =
+          input.analysis.status === "completed" ||
+          input.analysis.status === "failed" ||
+          input.analysis.status === "interrupted";
+        const role = terminal
+          ? await chooseAssessmentRole(tx, {
+              analysisId,
+              status: input.analysis.status,
+              cutoffAt: input.analysis.cutoffAt,
+              gameId: input.game.sourceGameId,
+              kickoffAt: input.game.kickoffAt,
+            })
+          : null;
         await tx`
           INSERT INTO analyses (
             id, offer_id, parent_id, cutoff_at, status, conclusion,
             method_version, policy_version, schema_version, prompt_version,
             evidence_packet_hash, provider, model, failure_reason, idempotency_key, completed_at,
-            policy, stages, gaps, usage, probability_model, snapshot
+            policy, stages, gaps, usage, probability_model, snapshot,
+            assessment_role, assessment_role_reason, primary_analysis_id
           ) VALUES (
             ${analysisId}, ${offerId}, ${input.analysis.parentId ?? null}, ${input.analysis.cutoffAt},
             ${input.analysis.status}, ${input.analysis.conclusion ?? null},
@@ -324,22 +338,10 @@ export class JournalRepository {
             ${completed ? completedAt : null},
             ${jsonOrNull(tx, input.analysis.policy)}, ${jsonOrNull(tx, input.analysis.stages)},
             ${jsonOrNull(tx, input.analysis.gaps)}, ${jsonOrNull(tx, input.analysis.usage)},
-            ${jsonOrNull(tx, input.analysis.probabilityModel)}, ${tx.json(snapshot as never)}
+            ${jsonOrNull(tx, input.analysis.probabilityModel)}, ${tx.json(snapshot as never)},
+            ${role?.role ?? null}, ${role?.reason ?? null}, ${role?.primaryId ?? null}
           )
         `;
-        if (
-          input.analysis.status === "completed" ||
-          input.analysis.status === "failed" ||
-          input.analysis.status === "interrupted"
-        ) {
-          await assignAssessmentRole(tx, {
-            analysisId,
-            status: input.analysis.status,
-            cutoffAt: input.analysis.cutoffAt,
-            gameId: input.game.sourceGameId,
-            kickoffAt: input.game.kickoffAt,
-          });
-        }
 
         for (let index = 0; index < input.evidence.length; index += 1) {
           const item = input.evidence[index]!;
@@ -484,6 +486,13 @@ export class JournalRepository {
       ...(input.analysis.forecast ? { forecast: input.analysis.forecast } : {}),
     };
     await this.sql.begin(async (tx) => {
+      const role = await chooseAssessmentRole(tx, {
+        analysisId,
+        status: input.analysis.status,
+        cutoffAt: existing.cutoffAt,
+        gameId: existing.snapshot.game.sourceGameId,
+        kickoffAt: existing.snapshot.game.kickoffAt,
+      });
       const updated = await tx<{ id: string }[]>`
         UPDATE analyses SET
           status = ${input.analysis.status},
@@ -499,7 +508,10 @@ export class JournalRepository {
           gaps = ${jsonOrNull(tx, input.analysis.gaps)},
           usage = ${jsonOrNull(tx, input.analysis.usage)},
           probability_model = ${jsonOrNull(tx, input.analysis.probabilityModel)},
-          snapshot = ${tx.json(snapshot as never)}
+          snapshot = ${tx.json(snapshot as never)},
+          assessment_role = ${role.role},
+          assessment_role_reason = ${role.reason},
+          primary_analysis_id = ${role.primaryId}
         WHERE id = ${analysisId} AND completed_at IS NULL
         RETURNING id
       `;
@@ -507,13 +519,6 @@ export class JournalRepository {
       if (completedAt) {
         await tx`UPDATE offers SET completed_at = ${completedAt} WHERE id = ${existing.offerId} AND completed_at IS NULL`;
       }
-      await assignAssessmentRole(tx, {
-        analysisId,
-        status: input.analysis.status,
-        cutoffAt: existing.cutoffAt,
-        gameId: existing.snapshot.game.sourceGameId,
-        kickoffAt: existing.snapshot.game.kickoffAt,
-      });
 
       const linked = await tx<{ id: string }[]>`
         SELECT evidence_id AS id FROM analysis_evidence WHERE analysis_id = ${analysisId} LIMIT 1
@@ -583,7 +588,18 @@ export class JournalRepository {
 
   /** One row per completed analysis with its game and offer, newest first. */
   async listCompletedSummaries() {
-    const rows = await this.sql<
+    const roleColumns = await this.sql<{ exists: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'analyses'
+          AND column_name = 'assessment_role'
+      ) AS exists
+    `;
+    const roleSelect = roleColumns[0]?.exists
+      ? "a.assessment_role, a.assessment_role_reason, a.primary_analysis_id, a.completed_at"
+      : "NULL::text AS assessment_role, NULL::text AS assessment_role_reason, NULL::uuid AS primary_analysis_id, a.completed_at";
+    const rows = await this.sql.unsafe<
       {
         id: string;
         parent_id: string | null;
@@ -605,21 +621,21 @@ export class JournalRepository {
         primary_analysis_id: string | null;
         completed_at: Date | null;
       }[]
-    >`
-      SELECT a.id, a.parent_id, a.created_at, a.conclusion,
-             a.snapshot->'game'->>'sourceGameId' AS source_game_id,
-             a.snapshot->'game'->>'homeTeam' AS home_team,
-             a.snapshot->'game'->>'awayTeam' AS away_team,
-             (a.snapshot->'game'->>'kickoffAt')::timestamptz AS kickoff_at,
-             o.sportsbook, o.market, o.selection, o.point_line, o.american_odds,
-             a.snapshot->>'provenance' AS snapshot_provenance,
-             COALESCE((a.policy->>'reliesOnManualEvidence')::boolean, false) AS relies_on_manual_evidence,
-             a.assessment_role, a.assessment_role_reason, a.primary_analysis_id, a.completed_at
-      FROM analyses a
-      JOIN offers o ON o.id = a.offer_id
-      WHERE a.status = 'completed'
-      ORDER BY a.created_at DESC
-    `;
+    >(
+      `SELECT a.id, a.parent_id, a.created_at, a.conclusion,
+              a.snapshot->'game'->>'sourceGameId' AS source_game_id,
+              a.snapshot->'game'->>'homeTeam' AS home_team,
+              a.snapshot->'game'->>'awayTeam' AS away_team,
+              (a.snapshot->'game'->>'kickoffAt')::timestamptz AS kickoff_at,
+              o.sportsbook, o.market, o.selection, o.point_line, o.american_odds,
+              a.snapshot->>'provenance' AS snapshot_provenance,
+              COALESCE((a.policy->>'reliesOnManualEvidence')::boolean, false) AS relies_on_manual_evidence,
+              ${roleSelect}
+       FROM analyses a
+       JOIN offers o ON o.id = a.offer_id
+       WHERE a.status = 'completed'
+       ORDER BY a.created_at DESC`,
+    );
     return rows.map((row) => ({
       id: row.id,
       parentId: row.parent_id,
@@ -647,22 +663,29 @@ export class JournalRepository {
   /** Only an unfinished analysis can be marked interrupted. Completed rows stay immutable. */
   async markInterrupted(analysisId: string): Promise<void> {
     await this.sql.begin(async (tx) => {
-      const updated = await tx<{ id: string }[]>`
-        UPDATE analyses SET status = 'interrupted', completed_at = COALESCE(completed_at, now())
+      const rows = await tx<AnalysisRow[]>`
+        SELECT * FROM analyses
         WHERE id = ${analysisId} AND status NOT IN ('completed', 'interrupted', 'failed')
-        RETURNING id
+        FOR UPDATE
       `;
-      if (!updated[0]) return;
-      const rows = await tx<AnalysisRow[]>`SELECT * FROM analyses WHERE id = ${analysisId}`;
       const row = rows[0];
       if (!row) return;
-      await assignAssessmentRole(tx, {
+      const role = await chooseAssessmentRole(tx, {
         analysisId,
         status: "interrupted",
         cutoffAt: iso(row.cutoff_at)!,
         gameId: row.snapshot.game.sourceGameId,
         kickoffAt: row.snapshot.game.kickoffAt,
       });
+      await tx`
+        UPDATE analyses SET
+          status = 'interrupted',
+          completed_at = COALESCE(completed_at, now()),
+          assessment_role = ${role.role},
+          assessment_role_reason = ${role.reason},
+          primary_analysis_id = ${role.primaryId}
+        WHERE id = ${analysisId} AND completed_at IS NULL
+      `;
     });
   }
 
@@ -1001,7 +1024,8 @@ export class JournalRepository {
             id, offer_id, parent_id, cutoff_at, status, conclusion,
             method_version, policy_version, schema_version, prompt_version,
             evidence_packet_hash, provider, model, failure_reason, idempotency_key, completed_at,
-            created_at, policy, stages, gaps, usage, probability_model, snapshot
+            created_at, policy, stages, gaps, usage, probability_model, snapshot,
+            assessment_role, assessment_role_reason, primary_analysis_id
           ) VALUES (
             ${analysis.id}, ${analysis.offerId}, ${analysis.parentId},
             ${analysis.cutoffAt}, ${analysis.status}, ${analysis.conclusion},
@@ -1011,7 +1035,8 @@ export class JournalRepository {
             ${analysis.completedAt}, ${analysis.createdAt},
             ${jsonOrNull(tx, analysis.policy)}, ${jsonOrNull(tx, analysis.stages)},
             ${jsonOrNull(tx, analysis.gaps)}, ${jsonOrNull(tx, analysis.usage)},
-            ${jsonOrNull(tx, analysis.probabilityModel)}, ${tx.json(analysis.snapshot as never)}
+            ${jsonOrNull(tx, analysis.probabilityModel)}, ${tx.json(analysis.snapshot as never)},
+            ${analysis.assessmentRole}, ${analysis.assessmentRoleReason}, ${analysis.primaryAnalysisId}
           )
           ON CONFLICT DO NOTHING
         `;
@@ -1156,8 +1181,8 @@ type RoleSql = {
   >;
 };
 
-/** Locks the game's classified rows, then writes one frozen role. Never reads scores. */
-async function assignAssessmentRole(
+/** Locks the game's classified rows. Never reads scores and never writes. */
+async function chooseAssessmentRole(
   tx: RoleSql,
   input: {
     analysisId: string;
@@ -1166,7 +1191,11 @@ async function assignAssessmentRole(
     gameId: string;
     kickoffAt: string;
   },
-) {
+): Promise<{
+  role: "primary" | "refresh" | "ineligible";
+  reason: string;
+  primaryId: string | null;
+}> {
   const locked = await tx.unsafe(
     `SELECT id, completed_at, assessment_role
      FROM analyses
@@ -1179,26 +1208,17 @@ async function assignAssessmentRole(
   const pregame =
     input.status === "completed" && Date.parse(input.cutoffAt) < Date.parse(input.kickoffAt);
   const primary = locked.find((row) => row.assessment_role === "primary");
-  let role: "primary" | "refresh" | "ineligible";
-  let reason: string;
-  let primaryId: string | null = null;
   if (!pregame) {
-    role = "ineligible";
-    reason = input.status === "completed" ? AFTER_KICKOFF_REASON : NOT_COMPLETED_REASON;
-  } else if (!primary || primary.id === input.analysisId) {
-    role = "primary";
-    reason = PRIMARY_REASON;
-  } else {
-    role = "refresh";
-    reason = REFRESH_REASON;
-    primaryId = primary.id;
+    return {
+      role: "ineligible",
+      reason: input.status === "completed" ? AFTER_KICKOFF_REASON : NOT_COMPLETED_REASON,
+      primaryId: null,
+    };
   }
-  await tx.unsafe(
-    `UPDATE analyses
-     SET assessment_role = $2, assessment_role_reason = $3, primary_analysis_id = $4
-     WHERE id = $1 AND assessment_role IS NULL`,
-    [input.analysisId, role, reason, primaryId],
-  );
+  if (!primary || primary.id === input.analysisId) {
+    return { role: "primary", reason: PRIMARY_REASON, primaryId: null };
+  }
+  return { role: "refresh", reason: REFRESH_REASON, primaryId: primary.id };
 }
 
 function listedAssessmentRole(row: {
