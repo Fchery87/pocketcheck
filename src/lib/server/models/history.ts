@@ -1,4 +1,5 @@
 import { easternKickoffUtc, parseCsv } from "../sources/nflverse.ts";
+import type { UpcomingGame } from "./features.ts";
 import type { HistoricalPrices, PricedGame } from "./games.ts";
 
 function numberOrNull(value: string | undefined): number | null {
@@ -57,4 +58,20 @@ export function pricedGamesFromNflverseCsv(csv: string): PricedGame[] {
     });
   }
   return games;
+}
+
+/** One scheduled game's model inputs before kickoff: site and any listed starting quarterbacks. */
+export function upcomingGameFromCsv(csv: string, gameId: string): UpcomingGame | null {
+  const row = parseCsv(csv).find((candidate) => candidate.game_id === gameId);
+  if (!row || !row.gameday || !row.gametime) return null;
+  return {
+    id: gameId,
+    season: Number(row.season),
+    kickoff: easternKickoffUtc(row.gameday, row.gametime),
+    home: row.home_team ?? "",
+    away: row.away_team ?? "",
+    neutral: row.location === "Neutral",
+    ...(row.home_qb_id ? { homeQb: row.home_qb_id } : {}),
+    ...(row.away_qb_id ? { awayQb: row.away_qb_id } : {}),
+  };
 }

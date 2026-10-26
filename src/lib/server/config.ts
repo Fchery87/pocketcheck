@@ -5,6 +5,7 @@ import {
   NWS_USER_AGENT,
   POCKETCHECK_INJURY_CSV,
   POCKETCHECK_JOURNAL,
+  POCKETCHECK_MODEL_ARTIFACT,
   POCKETCHECK_NOW,
   POCKETCHECK_SCHEDULE_CSV,
   POCKETCHECK_WEATHER,
@@ -12,6 +13,7 @@ import {
 } from "$app/env/private";
 import { createDb, type Db } from "./db/client.ts";
 import { createSourceCollector, type EvidenceCollector } from "./analysis/evidence.ts";
+import { createArtifactModel, type ModelSource } from "./analysis/model.ts";
 import { createNeonStore } from "./analysis/neon-store.ts";
 import { createMemoryStore, type ResearchStore } from "./analysis/store.ts";
 import type { ProviderId, ThesisDrafter, ThesisProvider } from "./providers/contracts.ts";
@@ -28,7 +30,7 @@ import { fetchKickoffForecast } from "./sources/nws.ts";
  * tests cannot import.
  *
  * POCKETCHECK_JOURNAL=memory, POCKETCHECK_NOW, POCKETCHECK_SCHEDULE_CSV,
- * POCKETCHECK_INJURY_CSV, and POCKETCHECK_WEATHER=off exist so the browser suite is
+ * POCKETCHECK_INJURY_CSV, POCKETCHECK_WEATHER=off, and POCKETCHECK_MODEL_ARTIFACT=off exist so the browser suite is
  * deterministic and offline. Normal use sets none of them.
  */
 
@@ -66,6 +68,20 @@ export function evidenceCollector(): EvidenceCollector {
               fetch,
               userAgent: NWS_USER_AGENT || "PocketCheck/0.1 (personal NFL research)",
             }),
+  });
+}
+
+/** The fitted artifact npm run model:fit writes, read fresh for each run. */
+export function modelSource(): ModelSource {
+  if (POCKETCHECK_MODEL_ARTIFACT === "off") {
+    return async () => ({
+      status: "unavailable",
+      reason: "The model is off (POCKETCHECK_MODEL_ARTIFACT=off).",
+    });
+  }
+  return createArtifactModel({
+    artifactPath: resolve(POCKETCHECK_MODEL_ARTIFACT || "data/artifacts/baseline.json"),
+    schedulePath: schedulePath(),
   });
 }
 

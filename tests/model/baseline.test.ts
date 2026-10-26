@@ -5,7 +5,7 @@ import {
   moneylineFromMargin,
   spreadFromMargin,
 } from "../../src/lib/server/models/distribution.ts";
-import { buildFeatureRows } from "../../src/lib/server/models/features.ts";
+import { buildFeatureRows, DEFAULT_FEATURES } from "../../src/lib/server/models/features.ts";
 import type { CompletedGame, PricedGame } from "../../src/lib/server/models/games.ts";
 import { predictGame } from "../../src/lib/server/models/predict.ts";
 import { scoreHoldout, summarize } from "../../src/lib/server/models/evaluate.ts";
@@ -36,6 +36,7 @@ describe("prior-game features", () => {
     const after = buildFeatureRows([later, early]);
     expect(after.find((row) => row.gameId === "early")).toEqual(before[0]);
     const plain = buildFeatureRows([later, early], {
+      ...DEFAULT_FEATURES,
       gameDecay: 1,
       seasonCarry: 1,
       priorWeight: 0,

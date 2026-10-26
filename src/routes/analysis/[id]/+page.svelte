@@ -60,6 +60,31 @@
     </section>
   {/if}
 
+  <section data-testid="probability-model">
+    <h2>Model</h2>
+    {#if run.probabilityModel === null}
+      <p>This run was saved before PocketCheck recorded a probability model.</p>
+    {:else if run.probabilityModel.status === "unavailable"}
+      <p>No model probabilities: {run.probabilityModel.reason}</p>
+    {:else}
+      <p>
+        Artifact <code>{run.probabilityModel.artifact.checksum.slice(0, 12)}</code>, version
+        {run.probabilityModel.artifact.version}, trained on games through
+        {easternTime(run.probabilityModel.artifact.trainingCutoff)}.
+      </p>
+      {#if run.probabilityModel.eligible && run.probabilityModel.probabilities}
+        {@const shown = run.probabilityModel.probabilities}
+        <p data-testid="model-probabilities">
+          Experimental: win {percent(shown.win)}, loss {percent(shown.loss)}, push
+          {percent(shown.push)}.
+        </p>
+      {:else}
+        <p>Not used for the {run.offer.market} market: {run.probabilityModel.reason}</p>
+        <p>Its probabilities are recorded with this run but are not shown or used.</p>
+      {/if}
+    {/if}
+  </section>
+
   <section>
     <h2>Evidence gaps</h2>
     {#if run.gaps.length > 0}

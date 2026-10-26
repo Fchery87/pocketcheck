@@ -8,7 +8,7 @@ export type ReleaseStatus = "unreleased" | "released-experimental";
 
 export type ModelArtifact = {
   kind: "pocketcheck-baseline";
-  version: 2;
+  version: 3;
   releaseStatus: ReleaseStatus;
   /** Markets that passed the release gate. Empty while unreleased. */
   releasedMarkets: Market[];

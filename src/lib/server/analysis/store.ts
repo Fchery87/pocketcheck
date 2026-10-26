@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Offer } from "#lib/domain/offer.ts";
 import type { ThesisReport } from "../providers/contracts.ts";
+import type { RunModel } from "./model.ts";
 import type { PolicyDecision } from "./policy.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
 
@@ -74,6 +75,8 @@ export type ResearchRun = {
   renderedText: string;
   failureReason: string | null;
   policy: PolicyDecision | null;
+  /** The probability model this run froze. Null for runs saved before models were wired in. */
+  probabilityModel: RunModel | null;
   provider: string;
   model: string;
   createdAt: string;

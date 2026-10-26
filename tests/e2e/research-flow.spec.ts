@@ -45,6 +45,9 @@ test("offer, report, refresh, and unchanged prior report", async ({ page }) => {
   // Gaps come from evidence collection, not from the drafter.
   await expect(page.getByTestId("evidence-gaps")).toContainText("Weather collection is off");
   await expect(page.getByTestId("evidence-gaps")).toContainText("no publication time");
+  await expect(page.getByTestId("probability-model")).toContainText(
+    "The model is off (POCKETCHECK_MODEL_ARTIFACT=off).",
+  );
   // Injury rows from the cached file and the user's own evidence are both in the run.
   await expect(page.getByTestId("all-evidence")).toContainText("Saquon Barkley");
   await expect(page.getByTestId("all-evidence")).toContainText(

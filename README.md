@@ -45,6 +45,7 @@ cp .env.example .env      # then set DATABASE_URL to your Neon connection string
 npm run db:migrate        # applies migrations/ in order
 npm run data:schedule     # downloads the nflverse schedule to data/sources/games.csv
 npm run data:injuries     # downloads this season's nflverse injury report; re-run before analyzing
+npm run model:fit -- data/sources/games.csv data/artifacts/baseline.json 2022-03-01T00:00:00Z
 npm run dev
 ```
 
@@ -68,4 +69,4 @@ HOST=127.0.0.1 PORT=3000 PROTOCOL_HEADER=x-forwarded-proto node --env-file=.env 
 
 ## Next implementation step
 
-The P1 and P2 items from the 2026-10-25 review are done. The baseline is now fit and scored on real nflverse games against the no-vig closing market, and it still loses to that market (see `docs/research/model-evaluation.md`). A quarterback feature and a per-market release gate are in, and on today's numbers the gate releases nothing. Next: a per-quarterback rating, and wiring the artifact into research runs so a released market can reach the value policy. Line-aware push probabilities were tried and did not help; the note explains why.
+The P1 and P2 items from the 2026-10-25 review are done. The baseline is now fit and scored on real nflverse games against the no-vig closing market, and it still loses to that market (see `docs/research/model-evaluation.md`). Research runs now record the model's probabilities for each offer, and only a market that passes the release gate reaches the value policy. On today's numbers no market passes. Next: an explicit uncertainty assessment before any value candidate, and using the injury report to tell when a team's usual quarterback will not start.

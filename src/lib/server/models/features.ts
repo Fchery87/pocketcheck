@@ -48,6 +48,15 @@ export const FEATURE_DEFINITIONS = [
     description: "The same quarterback share for the away team.",
   },
   {
+    name: "home_qb_rating",
+    description:
+      "Recency-weighted team margin in every strictly earlier game the home starter started, for any team, shrunk toward qbReplacement. The same starter rule as home_qb_share.",
+  },
+  {
+    name: "away_qb_rating",
+    description: "The same quarterback rating for the away team's starter.",
+  },
+  {
     name: "home_indicator",
     description: "1 when the game is not neutral, otherwise 0.",
   },
@@ -64,12 +73,16 @@ export type FeatureRow = {
 /**
  * How team form is weighted. Each later game multiplies earlier weights by gameDecay. A new
  * season multiplies them by seasonCarry. priorWeight is how many games of league-average form
- * every team starts with.
+ * every team starts with. A quarterback's rating decays by qbDecay per start and starts with
+ * qbPriorWeight starts at qbReplacement points of margin.
  */
 export type FeatureParameters = {
   gameDecay: number;
   seasonCarry: number;
   priorWeight: number;
+  qbDecay: number;
+  qbPriorWeight: number;
+  qbReplacement: number;
 };
 
 // Chosen by validation RMSE on 2017-2021 margins, fit through 2016. See docs/research/model-evaluation.md.
@@ -77,6 +90,9 @@ export const DEFAULT_FEATURES: FeatureParameters = {
   gameDecay: 0.94,
   seasonCarry: 0.5,
   priorWeight: 2,
+  qbDecay: 0.97,
+  qbPriorWeight: 4,
+  qbReplacement: -3,
 };
 
 type TeamState = {
@@ -113,13 +129,28 @@ function emptyState(): TeamState {
   };
 }
 
+/** The quarterback with the most of the team's recent starts, the latest on a tie. */
+function usualStarter(state: TeamState): string | undefined {
+  let best: string | undefined;
+  let bestCount = 0;
+  for (const id of state.recentQbs) {
+    const count = state.recentQbs.filter((start) => start === id).length;
+    if (count >= bestCount) {
+      best = id;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
 function qbShare(state: TeamState, qb: string | undefined): number {
   const starts = state.recentQbs;
-  if (starts.length === 0) return 1;
-  const count = (id: string) => starts.filter((start) => start === id).length;
-  if (qb !== undefined) return count(qb) / starts.length;
-  return Math.max(...starts.map(count)) / starts.length;
+  const starter = qb ?? usualStarter(state);
+  if (starts.length === 0 || starter === undefined) return 1;
+  return starts.filter((start) => start === starter).length / starts.length;
 }
+
+type QbState = { weight: number; marginSum: number };
 
 function recordStarter(state: TeamState, qb: string | undefined): void {
   if (qb === undefined) return;
@@ -162,59 +193,114 @@ function applyGame(
   state.lastKickoffMs = kickoff;
 }
 
+/** A game to describe before it is played. */
+export type UpcomingGame = Omit<CompletedGame, "homeScore" | "awayScore">;
+
+function byKickoff(a: UpcomingGame, b: UpcomingGame): number {
+  const delta = kickoffMs(a) - kickoffMs(b);
+  return delta !== 0 ? delta : a.id.localeCompare(b.id);
+}
+
+/** Team and league state, advanced one finished game at a time in kickoff order. */
+function featureBuilder(params: FeatureParameters) {
+  const teams = new Map<string, TeamState>();
+  const quarterbacks = new Map<string, QbState>();
+  let leaguePoints = 0;
+  let leagueTeamGames = 0;
+  const stateOf = (team: string) => {
+    const state = teams.get(team) ?? emptyState();
+    teams.set(team, state);
+    return state;
+  };
+
+  const rating = (team: TeamState, qb: string | undefined) => {
+    const starter = qb ?? usualStarter(team);
+    const state = starter === undefined ? undefined : quarterbacks.get(starter);
+    const weight = (state?.weight ?? 0) + params.qbPriorWeight;
+    if (weight === 0) return params.qbReplacement;
+    return ((state?.marginSum ?? 0) + params.qbPriorWeight * params.qbReplacement) / weight;
+  };
+  const recordRating = (qb: string | undefined, margin: number) => {
+    if (qb === undefined) return;
+    const state = quarterbacks.get(qb) ?? { weight: 0, marginSum: 0 };
+    state.weight = state.weight * params.qbDecay + 1;
+    state.marginSum = state.marginSum * params.qbDecay + margin;
+    quarterbacks.set(qb, state);
+  };
+
+  return {
+    row(game: UpcomingGame): FeatureRow {
+      const home = stateOf(game.home);
+      const away = stateOf(game.away);
+      const at = kickoffMs(game);
+      const season = seasonOf(game);
+      enterSeason(home, season, params);
+      enterSeason(away, season, params);
+      const league = leagueTeamGames === 0 ? 0 : leaguePoints / leagueTeamGames;
+      const shrunk = (state: TeamState, sum: number, toward: number) => {
+        const weight = state.weight + params.priorWeight;
+        return weight === 0 ? toward : (sum + params.priorWeight * toward) / weight;
+      };
+      return {
+        gameId: game.id,
+        kickoff: game.kickoff,
+        features: {
+          home_prior_margin: shrunk(home, home.marginSum, 0),
+          away_prior_margin: shrunk(away, away.marginSum, 0),
+          home_prior_points_for: shrunk(home, home.pointsFor, league),
+          away_prior_points_for: shrunk(away, away.pointsFor, league),
+          home_prior_points_against: shrunk(home, home.pointsAgainst, league),
+          away_prior_points_against: shrunk(away, away.pointsAgainst, league),
+          home_rest_days: restDays(home, at),
+          away_rest_days: restDays(away, at),
+          home_qb_share: qbShare(home, game.homeQb),
+          away_qb_share: qbShare(away, game.awayQb),
+          home_qb_rating: rating(home, game.homeQb),
+          away_qb_rating: rating(away, game.awayQb),
+          home_indicator: game.neutral ? 0 : 1,
+        },
+      };
+    },
+    /** Call after row() for the same game, so the season has already been entered. */
+    apply(game: CompletedGame): void {
+      const home = stateOf(game.home);
+      const away = stateOf(game.away);
+      const at = kickoffMs(game);
+      applyGame(home, game.homeScore, game.awayScore, at, params);
+      applyGame(away, game.awayScore, game.homeScore, at, params);
+      recordStarter(home, game.homeQb);
+      recordStarter(away, game.awayQb);
+      recordRating(game.homeQb, game.homeScore - game.awayScore);
+      recordRating(game.awayQb, game.awayScore - game.homeScore);
+      leaguePoints += game.homeScore + game.awayScore;
+      leagueTeamGames += 2;
+    },
+  };
+}
+
 export function buildFeatureRows(
   games: readonly CompletedGame[],
   params: FeatureParameters = DEFAULT_FEATURES,
 ): FeatureRow[] {
-  const ordered = [...games].sort((a, b) => {
-    const delta = kickoffMs(a) - kickoffMs(b);
-    return delta !== 0 ? delta : a.id.localeCompare(b.id);
+  const builder = featureBuilder(params);
+  return [...games].sort(byKickoff).map((game) => {
+    const row = builder.row(game);
+    builder.apply(game);
+    return row;
   });
-  const teams = new Map<string, TeamState>();
-  const rows: FeatureRow[] = [];
-  let leaguePoints = 0;
-  let leagueTeamGames = 0;
+}
 
-  for (const game of ordered) {
-    const home = teams.get(game.home) ?? emptyState();
-    const away = teams.get(game.away) ?? emptyState();
-    const at = kickoffMs(game);
-    const season = seasonOf(game);
-    enterSeason(home, season, params);
-    enterSeason(away, season, params);
-    const league = leagueTeamGames === 0 ? 0 : leaguePoints / leagueTeamGames;
-    const shrunk = (state: TeamState, sum: number, toward: number) => {
-      const weight = state.weight + params.priorWeight;
-      return weight === 0 ? toward : (sum + params.priorWeight * toward) / weight;
-    };
-
-    rows.push({
-      gameId: game.id,
-      kickoff: game.kickoff,
-      features: {
-        home_prior_margin: shrunk(home, home.marginSum, 0),
-        away_prior_margin: shrunk(away, away.marginSum, 0),
-        home_prior_points_for: shrunk(home, home.pointsFor, league),
-        away_prior_points_for: shrunk(away, away.pointsFor, league),
-        home_prior_points_against: shrunk(home, home.pointsAgainst, league),
-        away_prior_points_against: shrunk(away, away.pointsAgainst, league),
-        home_rest_days: restDays(home, at),
-        away_rest_days: restDays(away, at),
-        home_qb_share: qbShare(home, game.homeQb),
-        away_qb_share: qbShare(away, game.awayQb),
-        home_indicator: game.neutral ? 0 : 1,
-      },
-    });
-
-    teams.set(game.home, home);
-    teams.set(game.away, away);
-    applyGame(home, game.homeScore, game.awayScore, at, params);
-    applyGame(away, game.awayScore, game.homeScore, at, params);
-    recordStarter(home, game.homeQb);
-    recordStarter(away, game.awayQb);
-    leaguePoints += game.homeScore + game.awayScore;
-    leagueTeamGames += 2;
+/** The feature row for a game not yet played, from finished games that kicked off before it. */
+export function featureRowForGame(
+  history: readonly CompletedGame[],
+  game: UpcomingGame,
+  params: FeatureParameters = DEFAULT_FEATURES,
+): FeatureRow {
+  const builder = featureBuilder(params);
+  const before = history.filter((past) => kickoffMs(past) < kickoffMs(game));
+  for (const past of [...before].sort(byKickoff)) {
+    builder.row(past);
+    builder.apply(past);
   }
-
-  return rows;
+  return builder.row(game);
 }

@@ -24,6 +24,11 @@ export const variables = defineEnvVars({
     schema: optional,
     description: "Injury CSV path. Defaults to data/sources/injuries_<season>.csv.",
   },
+  POCKETCHECK_MODEL_ARTIFACT: {
+    schema: optional,
+    description:
+      "Model artifact path, or off. Defaults to data/artifacts/baseline.json. The browser suite sets off.",
+  },
   POCKETCHECK_WEATHER: {
     schema: optional,
     description:

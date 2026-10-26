@@ -18,6 +18,8 @@ export type PolicyInput = {
   gameStarted: boolean;
   materialEvidenceMissing: boolean;
   releaseStatus: ReleaseStatus;
+  /** Why the model is not eligible, shown when releaseStatus is not released. */
+  releaseReason?: string;
   probabilities: OutcomeProbabilities | null;
   decimalOdds: number;
   /** Named target expected value per unit. Not a scientifically established edge threshold. */
@@ -112,6 +114,7 @@ export function decidePolicy(input: PolicyInput): PolicyDecision {
       ...base,
       conclusion: "insufficient evidence",
       blockingReason:
+        input.releaseReason ??
         "The model artifact is unreleased and is not eligible for a value recommendation.",
       expectedValuePerUnit: null,
     };

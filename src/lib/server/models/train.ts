@@ -44,7 +44,7 @@ export function fitArtifact(
   const totalResiduals = residuals(totalTargets, totalModel);
   return withChecksum({
     kind: "pocketcheck-baseline",
-    version: 2,
+    version: 3,
     releaseStatus: "unreleased",
     releasedMarkets: [],
     datasetHash: datasetHash(

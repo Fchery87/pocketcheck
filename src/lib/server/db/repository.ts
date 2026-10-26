@@ -61,6 +61,7 @@ export type AnalysisRecord = {
   stages: unknown;
   gaps: unknown;
   usage: unknown;
+  probabilityModel: unknown;
   evidenceIds: string[];
 };
 
@@ -148,6 +149,7 @@ export type SaveAnalysisInput = {
     stages?: unknown;
     gaps?: unknown;
     usage?: unknown;
+    probabilityModel?: unknown;
   };
   report?: {
     claims: unknown;
@@ -237,7 +239,7 @@ export class JournalRepository {
             id, offer_id, parent_id, cutoff_at, status, conclusion,
             method_version, policy_version, schema_version, prompt_version,
             evidence_packet_hash, provider, model, failure_reason, idempotency_key, completed_at,
-            policy, stages, gaps, usage
+            policy, stages, gaps, usage, probability_model
           ) VALUES (
             ${analysisId}, ${offerId}, ${input.analysis.parentId ?? null}, ${input.analysis.cutoffAt},
             ${input.analysis.status}, ${input.analysis.conclusion ?? null},
@@ -248,7 +250,8 @@ export class JournalRepository {
             ${input.analysis.idempotencyKey ?? null},
             ${completed ? completedAt : null},
             ${jsonOrNull(tx, input.analysis.policy)}, ${jsonOrNull(tx, input.analysis.stages)},
-            ${jsonOrNull(tx, input.analysis.gaps)}, ${jsonOrNull(tx, input.analysis.usage)}
+            ${jsonOrNull(tx, input.analysis.gaps)}, ${jsonOrNull(tx, input.analysis.usage)},
+            ${jsonOrNull(tx, input.analysis.probabilityModel)}
           )
         `;
 
@@ -594,7 +597,7 @@ export class JournalRepository {
             id, offer_id, parent_id, cutoff_at, status, conclusion,
             method_version, policy_version, schema_version, prompt_version,
             evidence_packet_hash, provider, model, failure_reason, idempotency_key, completed_at,
-            created_at, policy, stages, gaps, usage
+            created_at, policy, stages, gaps, usage, probability_model
           ) VALUES (
             ${analysis.id}, ${analysis.offerId}, ${analysis.parentId},
             ${analysis.cutoffAt}, ${analysis.status}, ${analysis.conclusion},
@@ -603,7 +606,8 @@ export class JournalRepository {
             ${analysis.model}, ${analysis.failureReason}, ${analysis.idempotencyKey},
             ${analysis.completedAt}, ${analysis.createdAt},
             ${jsonOrNull(tx, analysis.policy)}, ${jsonOrNull(tx, analysis.stages)},
-            ${jsonOrNull(tx, analysis.gaps)}, ${jsonOrNull(tx, analysis.usage)}
+            ${jsonOrNull(tx, analysis.gaps)}, ${jsonOrNull(tx, analysis.usage)},
+            ${jsonOrNull(tx, analysis.probabilityModel)}
           )
           ON CONFLICT DO NOTHING
         `;
@@ -798,6 +802,7 @@ type AnalysisRow = {
   stages: unknown;
   gaps: unknown;
   usage: unknown;
+  probability_model: unknown;
 };
 
 type ReportRow = {
@@ -914,6 +919,7 @@ function mapAnalysis(row: AnalysisRow, evidenceIds: string[]): AnalysisRecord {
     stages: row.stages,
     gaps: row.gaps,
     usage: row.usage,
+    probabilityModel: row.probability_model,
     evidenceIds,
   };
 }

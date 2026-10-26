@@ -3,6 +3,7 @@ import type { Sql } from "postgres";
 import type { ThesisReport } from "../providers/contracts.ts";
 import type { EvidenceFacts, EvidenceItem } from "../sources/contracts.ts";
 import { JournalRepository, type EvidenceRecord } from "../db/repository.ts";
+import type { RunModel } from "./model.ts";
 import type { PolicyDecision } from "./policy.ts";
 import type {
   ActualBet,
@@ -106,6 +107,7 @@ export function createNeonStore(sql: Sql): ResearchStore {
       evidencePacketHash: analysis.evidencePacketHash ?? "",
       gaps: Array.isArray(analysis.gaps) ? (analysis.gaps as string[]) : [],
       usage: (analysis.usage as RunUsage | null) ?? null,
+      probabilityModel: (analysis.probabilityModel as RunModel | null) ?? null,
       report: (report?.body as ThesisReport | null | undefined) ?? null,
       renderedText: report?.renderedText ?? "",
       failureReason: analysis.failureReason,
@@ -156,6 +158,7 @@ export function createNeonStore(sql: Sql): ResearchStore {
           stages: run.stages,
           gaps: run.gaps,
           usage: run.usage,
+          probabilityModel: run.probabilityModel,
           evidencePacketHash: run.evidencePacketHash,
           provider: run.provider,
           model: run.model,

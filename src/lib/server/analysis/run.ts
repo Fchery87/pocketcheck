@@ -16,6 +16,7 @@ import {
   type RunGame,
 } from "./store.ts";
 import type { ThesisDrafter } from "../providers/contracts.ts";
+import { noModel, type ModelSource, type RunModel } from "./model.ts";
 import { decidePolicy } from "./policy.ts";
 import { assembleEvidencePacket } from "../sources/packet.ts";
 import { createManualEvidence } from "../sources/manual.ts";
@@ -52,6 +53,7 @@ export type AnalysisDependencies = {
   store: ResearchStore;
   drafter?: ThesisDrafter;
   collect?: EvidenceCollector;
+  model?: ModelSource;
 };
 
 export type AnalysisOutcome =
@@ -108,7 +110,12 @@ async function save(store: ResearchStore, run: NewRun): Promise<ResearchRun | { 
 
 export async function runAnalysis(
   request: AnalysisRequest,
-  { store, drafter = createFixtureDrafter(), collect = noSources }: AnalysisDependencies,
+  {
+    store,
+    drafter = createFixtureDrafter(),
+    collect = noSources,
+    model = noModel,
+  }: AnalysisDependencies,
 ): Promise<AnalysisOutcome> {
   const stages: ProgressStage[] = [];
   const note = (stage: ProgressStage) => {
@@ -188,12 +195,26 @@ export async function runAnalysis(
   note("computing");
   const decimalOdds = americanToDecimal(offer.americanOdds);
   const decisiveBreakEven = breakEven(decimalOdds).decisive;
+  let probabilityModel: RunModel;
+  try {
+    probabilityModel = await model(request.game, request.nowIso, offer);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    probabilityModel = {
+      status: "unavailable",
+      reason: `The model could not price this offer: ${redactText(message)}`,
+    };
+  }
+  // Only an eligible model reaches the policy. Otherwise its numbers are recorded, not used.
+  const eligible = probabilityModel.status === "computed" && probabilityModel.eligible;
   const policy = decidePolicy({
     offerValid: true,
     gameStarted: false,
     materialEvidenceMissing: collected.materialGaps.length > 0 || conflictGaps.length > 0,
-    releaseStatus: "unreleased",
-    probabilities: null,
+    releaseStatus: eligible ? "released-experimental" : "unreleased",
+    releaseReason: probabilityModel.reason,
+    probabilities:
+      eligible && probabilityModel.status === "computed" ? probabilityModel.probabilities : null,
     decimalOdds,
   });
   const thesisPacket = buildThesisPacket({
@@ -230,6 +251,7 @@ export async function runAnalysis(
     evidencePacketHash,
     gaps,
     policy,
+    probabilityModel,
     provider: drafter.id,
     model: drafter.modelId,
     usage:

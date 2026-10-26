@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { loadFixtureGames } from "#lib/server/analysis/games.ts";
 import { createFixtureDrafter } from "#lib/server/analysis/fixture-drafter.ts";
 import { runAnalysis, type AnalysisRequest, type ThesisDrafter } from "#lib/server/analysis/run.ts";
+import type { ModelSource } from "#lib/server/analysis/model.ts";
 import type { ResearchStore } from "#lib/server/analysis/store.ts";
 
 const NOW = "2026-10-25T16:00:00.000Z";
@@ -54,6 +55,20 @@ const meteredDrafter: ThesisDrafter = (() => {
   };
 })();
 
+const unreleasedModel: ModelSource = async () => ({
+  status: "computed",
+  artifact: {
+    checksum: "c".repeat(64),
+    version: 2,
+    trainingCutoff: "2026-03-01T00:00:00.000Z",
+    releaseStatus: "unreleased",
+    releasedMarkets: [],
+  },
+  probabilities: { win: 0.55, loss: 0.43, push: 0.02 },
+  eligible: false,
+  reason: "Unreleased artifacts are not eligible for a value recommendation.",
+});
+
 /** Behaviour every research store must share. Run against memory and against Neon. */
 export function describeStoreContract(name: string, makeStore: () => ResearchStore) {
   describe(`${name} research store`, () => {
@@ -62,6 +77,14 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
       const outcome = await runAnalysis(request(), { store });
       expect(outcome.ok, outcome.ok ? "" : outcome.error).toBe(true);
       expect(await store.getRun(outcome.run!.id)).toEqual(outcome.run);
+    });
+
+    it("keeps the probability model the run froze", async () => {
+      const store = makeStore();
+      const outcome = await runAnalysis(request(), { store, model: unreleasedModel });
+      const saved = await store.getRun(outcome.run!.id);
+      expect(saved?.probabilityModel).toEqual(await unreleasedModel(game, NOW, outcome.run!.offer));
+      expect(saved).toEqual(outcome.run);
     });
 
     it("keeps the drafter's reported usage and cost", async () => {

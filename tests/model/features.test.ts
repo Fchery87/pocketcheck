@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
-import { buildFeatureRows, seasonOf } from "../../src/lib/server/models/features.ts";
+import {
+  buildFeatureRows,
+  DEFAULT_FEATURES,
+  seasonOf,
+} from "../../src/lib/server/models/features.ts";
 import type { CompletedGame } from "../../src/lib/server/models/games.ts";
 
 function game(
@@ -14,7 +18,7 @@ function game(
   return { id, kickoff, home, away, homeScore, awayScore, ...(season ? { season } : {}) };
 }
 
-const PLAIN = { gameDecay: 1, seasonCarry: 1, priorWeight: 0 };
+const PLAIN = { ...DEFAULT_FEATURES, gameDecay: 1, seasonCarry: 1, priorWeight: 0 };
 
 describe("seasons", () => {
   it("puts a January playoff game in the season that started the previous fall", () => {
@@ -113,5 +117,54 @@ describe("starting quarterback", () => {
     long.push(start("next", 20, "old"));
     const next = buildFeatureRows(long).find((row) => row.gameId === "next");
     expect(next?.features.home_qb_share).toBe(0);
+  });
+});
+
+describe("quarterback rating", () => {
+  const params = { ...DEFAULT_FEATURES, qbDecay: 1, qbPriorWeight: 2, qbReplacement: -3 };
+  const played = (
+    id: string,
+    day: number,
+    home: string,
+    homeQb: string | undefined,
+    homeScore: number,
+    awayScore: number,
+  ): CompletedGame => ({
+    ...game(
+      id,
+      `2024-09-${String(day).padStart(2, "0")}T17:00:00Z`,
+      home,
+      `X${day}`,
+      homeScore,
+      awayScore,
+    ),
+    ...(homeQb ? { homeQb } : {}),
+  });
+  const rows = new Map(
+    buildFeatureRows(
+      [
+        played("a1", 1, "A", "q", 30, 20),
+        played("a2", 8, "A", "q", 40, 20),
+        played("b1", 15, "B", "q", 0, 0),
+        played("a3", 22, "A", "rookie", 0, 0),
+        played("a4", 29, "A", undefined, 0, 0),
+      ],
+      params,
+    ).map((row) => [row.gameId, row.features]),
+  );
+
+  it("follows a quarterback to a new team, shrunk toward replacement level", () => {
+    // Margins +10 and +20 with two games of replacement level at -3: (30 - 6) / 4.
+    expect(rows.get("b1")?.home_qb_rating).toBe(6);
+  });
+
+  it("rates a quarterback with no starts at replacement level", () => {
+    expect(rows.get("a1")?.home_qb_rating).toBe(-3);
+    expect(rows.get("a3")?.home_qb_rating).toBe(-3);
+  });
+
+  it("rates an unknown starter as the team's most frequent recent starter", () => {
+    // Team A's usual starter is q, who has since played b1 at a margin of 0: (30 + 0 - 6) / 5.
+    expect(rows.get("a4")?.home_qb_rating).toBe(4.8);
   });
 });

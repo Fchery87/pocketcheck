@@ -6,6 +6,7 @@ import { createMemoryStore } from "#lib/server/analysis/store.ts";
 import type { ThesisPacket } from "#lib/server/providers/contracts.ts";
 import type { EvidenceItem } from "#lib/server/sources/contracts.ts";
 import type { CollectedEvidence, EvidenceCollector } from "#lib/server/analysis/evidence.ts";
+import type { ModelSource } from "#lib/server/analysis/model.ts";
 
 const NOW = "2026-10-25T16:00:00.000Z";
 const game = loadFixtureGames("tests/fixtures/sources/games-minimized.csv", NOW).find(
@@ -142,8 +143,8 @@ describe("research run evidence", () => {
     expect(drafter.packets[0]?.items.map((item) => item.id)).toContain(injury.id);
     expect(drafter.packets[0]?.gaps).toContain(caveat);
     expect(outcome.run?.gaps).toContain(caveat);
-    // A caveat alone does not block; the unreleased model still does.
-    expect(outcome.run?.policy?.blockingReason).toMatch(/unreleased/);
+    // A caveat alone does not block; the missing model still does.
+    expect(outcome.run?.policy?.blockingReason).toBe("No model artifact is configured.");
   });
 
   it("blocks on material gaps, which the default collector reports for both sources", async () => {
@@ -214,5 +215,86 @@ describe("research run evidence", () => {
       { store: createMemoryStore(), collect: collector({}) },
     );
     expect(outcome.run?.evidence.map((item) => item.id)).toContain("manual-9");
+  });
+});
+
+describe("research run model", () => {
+  const quiet: EvidenceCollector = async () => ({ items: [], gaps: [], materialGaps: [] });
+  const probabilities = { win: 0.6, loss: 0.38, push: 0.02 };
+  const computed =
+    (eligible: boolean): ModelSource =>
+    async () => ({
+      status: "computed",
+      artifact: {
+        checksum: "a".repeat(64),
+        version: 2,
+        trainingCutoff: "2026-03-01T00:00:00Z",
+        releaseStatus: eligible ? "released-experimental" : "unreleased",
+        releasedMarkets: eligible ? ["moneyline"] : [],
+      },
+      probabilities,
+      eligible,
+      reason: eligible ? "Released for moneyline." : "Unreleased artifacts are not eligible.",
+    });
+
+  it("says no model is configured when none is", async () => {
+    const outcome = await runAnalysis(request(), { store: createMemoryStore(), collect: quiet });
+    expect(outcome.run?.probabilityModel).toEqual({
+      status: "unavailable",
+      reason: "No model artifact is configured.",
+    });
+    expect(outcome.run?.policy?.blockingReason).toBe("No model artifact is configured.");
+  });
+
+  it("records an unreleased model's probabilities without giving them to the policy or the drafter", async () => {
+    const drafter = capturingDrafter();
+    const outcome = await runAnalysis(request(), {
+      store: createMemoryStore(),
+      collect: quiet,
+      drafter,
+      model: computed(false),
+    });
+    expect(outcome.run?.probabilityModel).toMatchObject({ status: "computed", probabilities });
+    expect(outcome.run?.policy).toMatchObject({
+      conclusion: "insufficient evidence",
+      expectedValuePerUnit: null,
+      blockingReason: "Unreleased artifacts are not eligible.",
+    });
+    expect(JSON.stringify(drafter.packets)).not.toContain("0.38");
+  });
+
+  it("gives a released market's probabilities to the policy", async () => {
+    const outcome = await runAnalysis(request({ americanOdds: 110 }), {
+      store: createMemoryStore(),
+      collect: quiet,
+      model: computed(true),
+    });
+    expect(outcome.ok).toBe(true);
+    // 0.6 * 1.1 - 0.38 = 0.28 units per unit staked.
+    expect(outcome.run?.policy?.expectedValuePerUnit).toBeCloseTo(0.28, 10);
+    expect(outcome.run?.policy?.conclusion).toBe("experimental value candidate");
+  });
+
+  it("keeps material evidence gaps ahead of a released model", async () => {
+    const outcome = await runAnalysis(request(), {
+      store: createMemoryStore(),
+      model: computed(true),
+    });
+    expect(outcome.run?.policy?.blockingReason).toBe("Material evidence is missing.");
+  });
+
+  it("records a model failure as unavailable instead of failing the run", async () => {
+    const outcome = await runAnalysis(request(), {
+      store: createMemoryStore(),
+      collect: quiet,
+      model: async () => {
+        throw new Error("artifact unreadable");
+      },
+    });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.run?.probabilityModel).toEqual({
+      status: "unavailable",
+      reason: "The model could not price this offer: artifact unreadable",
+    });
   });
 });

@@ -1,11 +1,13 @@
 import { error, fail, redirect } from "@sveltejs/kit";
 import { americanToDecimal, breakEven } from "#lib/domain/odds.ts";
 import { localInputValue, parseObservedAt } from "#lib/server/analysis/form.ts";
+import { forDisplay } from "#lib/server/analysis/model.ts";
 import { runAnalysis } from "#lib/server/analysis/run.ts";
 import { readSchedule } from "#lib/server/analysis/schedule.ts";
 import {
   ConfigError,
   evidenceCollector,
+  modelSource,
   now,
   researchStore,
   schedulePath,
@@ -27,7 +29,8 @@ export const load: PageServerLoad = async ({ params }) => {
   if (!run) error(404, "Analysis not found");
   const evidenceById = Object.fromEntries(run.evidence.map((item) => [item.id, item]));
   return {
-    run,
+    // Recorded but ineligible model probabilities are not sent to the browser at all.
+    run: { ...run, probabilityModel: forDisplay(run.probabilityModel) },
     decimalOdds: run.offer.decimalOdds,
     decisiveBreakEven: breakEven(run.offer.decimalOdds).decisive,
     claims: (run.report?.claims ?? []).map((claim) => ({
@@ -83,7 +86,12 @@ export const actions = {
         parentId: parent.id,
         carriedEvidence: parent.evidence.filter((item) => item.origin === "manual"),
       },
-      { store: store(), drafter: drafting.drafter, collect: evidenceCollector() },
+      {
+        store: store(),
+        drafter: drafting.drafter,
+        collect: evidenceCollector(),
+        model: modelSource(),
+      },
     );
     if (result.run) redirect(303, `/analysis/${result.run.id}`);
     return fail(400, { error: result.ok ? "Refresh failed" : result.error });
