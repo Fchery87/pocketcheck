@@ -9,14 +9,25 @@ import type { WeatherEvidence } from "../sources/weather.ts";
  * recommendation: evidence that should exist for this game and does not. Caveats, such as an
  * unknown publication time or a closed roof, are gaps but not material.
  */
-export type CollectedEvidence = { items: EvidenceItem[]; gaps: string[]; materialGaps: string[] };
+export type MaterialGapKind = "injury-report" | "weather";
+
+/** Evidence that should exist for this game and does not. It blocks a recommendation. */
+export type MaterialGap = { kind: MaterialGapKind; text: string };
+
+export type CollectedEvidence = { items: EvidenceItem[]; gaps: string[]; materialGaps: MaterialGap[] };
 
 export type EvidenceCollector = (game: ScheduledGame, nowIso: string) => Promise<CollectedEvidence>;
 
 /** No automatic sources, for tests and the walkthrough. Both sources count as missing. */
 export const noSources: EvidenceCollector = async () => {
-  const missing = ["Injury report was not collected.", "Weather was not collected."];
-  return { items: [], gaps: missing, materialGaps: missing };
+  return {
+    items: [],
+    gaps: ["Injury report was not collected.", "Weather was not collected."],
+    materialGaps: [
+      { kind: "injury-report", text: "Injury report was not collected." },
+      { kind: "weather", text: "Weather was not collected." },
+    ],
+  };
 };
 
 const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
@@ -26,7 +37,7 @@ const injuryUrl = (season: number) =>
 function injuryEvidence(path: string, game: ScheduledGame, nowIso: string): CollectedEvidence {
   if (!existsSync(path)) {
     const gap = `No injury file at ${path}. Run npm run data:injuries.`;
-    return { items: [], gaps: [gap], materialGaps: [gap] };
+    return { items: [], gaps: [gap], materialGaps: [{ kind: "injury-report", text: gap }] };
   }
   const record = readDownloadRecord(path);
   const read = injuryEvidenceFromCsv(readFileSync(path, "utf8"), {
@@ -43,7 +54,10 @@ function injuryEvidence(path: string, game: ScheduledGame, nowIso: string): Coll
     );
   }
   // With no rows for this week, the leading gap says so; that one is material.
-  const materialGaps = read.items.length === 0 ? read.gaps.slice(0, 1) : [];
+  const materialGaps = (read.items.length === 0 ? read.gaps.slice(0, 1) : []).map((text) => ({
+    kind: "injury-report" as const,
+    text,
+  }));
   return { items: read.items, gaps, materialGaps };
 }
 
@@ -59,7 +73,7 @@ export function createSourceCollector(input: {
       gaps: [...injuries.gaps, ...(weather.reason ? [weather.reason] : [])],
       materialGaps: [
         ...injuries.materialGaps,
-        ...(weather.state === "missing" ? [weather.reason] : []),
+        ...(weather.state === "missing" ? [{ kind: "weather" as const, text: weather.reason }] : []),
       ],
     };
   };

@@ -50,7 +50,7 @@ describe("source evidence collector", () => {
     expect(injuries[0]?.url).toContain("injuries_2026.csv");
     // Unknown publication time is a caveat, not missing evidence.
     expect(collected.gaps.join(" ")).toMatch(/publication time/);
-    expect(collected.materialGaps.join(" ")).not.toMatch(/publication time|injur/i);
+    expect(collected.materialGaps.map((gap) => gap.text).join(" ")).not.toMatch(/publication time|injur/i);
   });
 
   it("treats a missing injury file as missing material evidence", async () => {
@@ -59,7 +59,7 @@ describe("source evidence collector", () => {
       weather: noForecast,
     });
     const collected = await collect(phi, nowIso);
-    expect(collected.materialGaps.join(" ")).toMatch(/npm run data:injuries/);
+    expect(collected.materialGaps.map((gap) => gap.text).join(" ")).toMatch(/npm run data:injuries/);
   });
 
   it("treats a file with no rows for the game week as missing material evidence", async () => {
@@ -69,7 +69,7 @@ describe("source evidence collector", () => {
     });
     const collected = await collect(buf, nowIso);
     expect(collected.items.some((item) => item.sourceId === "nflverse-injuries")).toBe(false);
-    expect(collected.materialGaps.join(" ")).toMatch(/week 8 injury rows/);
+    expect(collected.materialGaps.map((gap) => gap.text).join(" ")).toMatch(/week 8 injury rows/);
   });
 
   it("flags an injury file older than a day without blocking on it", async () => {
@@ -79,7 +79,7 @@ describe("source evidence collector", () => {
     });
     const collected = await collect(phi, nowIso);
     expect(collected.gaps.join(" ")).toMatch(/retrieved .* re-run npm run data:injuries/i);
-    expect(collected.materialGaps.join(" ")).not.toMatch(/re-run/);
+    expect(collected.materialGaps.map((gap) => gap.text).join(" ")).not.toMatch(/re-run/);
   });
 
   it("adds an applicable forecast and treats a missing outdoor forecast as material", async () => {
@@ -100,13 +100,13 @@ describe("source evidence collector", () => {
       weather: forecast({ state: "applicable", item, reason: null }),
     })(phi, nowIso);
     expect(withForecast.items).toContainEqual(item);
-    expect(withForecast.materialGaps.join(" ")).not.toMatch(/forecast/i);
+    expect(withForecast.materialGaps.map((gap) => gap.text).join(" ")).not.toMatch(/forecast/i);
 
     const without = await createSourceCollector({
       injuryPath: injuryCache("2026-10-25T18:00:00.000Z"),
       weather: noForecast,
     })(phi, nowIso);
-    expect(without.materialGaps.join(" ")).toMatch(/No forecast coverage/);
+    expect(without.materialGaps.map((gap) => gap.text).join(" ")).toMatch(/No forecast coverage/);
   });
 
   it("notes a closed roof without counting weather as missing", async () => {
@@ -115,6 +115,6 @@ describe("source evidence collector", () => {
       weather: forecast({ state: "irrelevant", item: null, reason: "Roof is dome." }),
     })(phi, nowIso);
     expect(collected.gaps).toContain("Roof is dome.");
-    expect(collected.materialGaps).not.toContain("Roof is dome.");
+    expect(collected.materialGaps.map((gap) => gap.text)).not.toContain("Roof is dome.");
   });
 });
