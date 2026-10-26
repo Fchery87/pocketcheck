@@ -20,6 +20,7 @@ Type: task
 - Correct chronological evaluation, reject invalid external records, and treat the inspected holdout as development evidence.
 - Require isolated production-browser acceptance and disposable database verification before completion.
 - [Ticket 01](issues/01-isolated-verification.md) provides the shared verification commands, startup fixture assertions, outbound guard, and disposable database CI job. Synthetic reproduction proves that a missing memory-journal override can expose a stored provider choice through dotenv-selected Neon storage. The original historical override failure remains inconclusive.
+- [Ticket 04](issues/04-validated-model-inputs.md) validates artifact and evaluation JSON at model loading and release boundaries, including required chronology metadata tied to the shared policy.
 
 ## Fog
 
