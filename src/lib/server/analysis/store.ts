@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Offer } from "#lib/domain/offer.ts";
-import type { ThesisReport } from "../providers/contracts.ts";
+import type { ProviderRequestRecord, ThesisReport } from "../providers/contracts.ts";
 import type { RunModel } from "./model.ts";
 import type { PolicyDecision } from "./policy.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
@@ -34,9 +34,13 @@ export type RunUsage = {
   promptTokens: number | null;
   completionTokens: number | null;
   totalTokens: number | null;
-  /** US dollars, as the provider reported it. Null when it reported no cost. */
+  /** US dollars, as the provider reported it. Null when cost is unknown, never an invented zero. */
   costUsd: number | null;
+  /** True when any included request left a token or cost field unreported. */
+  partial: boolean;
 };
+
+export type { ProviderRequestRecord };
 
 export type RunStatus = "pending" | "running" | "completed" | "interrupted" | "failed";
 
@@ -75,8 +79,12 @@ export type ResearchRun = {
   evidencePacketHash: string;
   /** Missing evidence and caveats found while collecting, owned by the app, not the drafter. */
   gaps: string[];
-  /** Drafting usage as the provider reported it. Null when it reported none. */
+  /** Combined usage across every known provider request. Null when none was reported. */
   usage: RunUsage | null;
+  /** Durable provider exchanges. Empty for runs saved before response recovery. */
+  providerRequests: ProviderRequestRecord[];
+  /** True when a sent request has no durable completion and must not be retried automatically. */
+  providerOutcomeAmbiguous: boolean;
   report: ThesisReport | null;
   renderedText: string;
   failureReason: string | null;

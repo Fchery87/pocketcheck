@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Sql } from "postgres";
 import type { AttemptRequest } from "../analysis/attempt.ts";
+import type { ProviderRequestRecord } from "../providers/contracts.ts";
 import { americanToDecimal } from "#lib/domain/odds.ts";
 import type { Offer } from "#lib/domain/offer.ts";
 import type { Settlement as SettlementResult } from "#lib/domain/settlement.ts";
@@ -73,6 +74,8 @@ export type AnalysisSnapshot = {
   game: GameRecord;
   offer: OfferRecord;
   request?: AttemptRequest;
+  providerRequests?: ProviderRequestRecord[];
+  providerOutcomeAmbiguous?: boolean;
 };
 
 export type ReportRecord = {
@@ -161,6 +164,8 @@ export type SaveAnalysisInput = {
     usage?: unknown;
     probabilityModel?: unknown;
     request?: AttemptRequest;
+    providerRequests?: ProviderRequestRecord[];
+    providerOutcomeAmbiguous?: boolean;
   };
   report?: {
     claims: unknown;
@@ -262,6 +267,8 @@ export class JournalRepository {
             completedAt: completed ? completedAt : null,
           },
           ...(input.analysis.request ? { request: input.analysis.request } : {}),
+          providerRequests: input.analysis.providerRequests ?? [],
+          providerOutcomeAmbiguous: input.analysis.providerOutcomeAmbiguous ?? false,
         };
 
         await tx`
@@ -379,7 +386,11 @@ export class JournalRepository {
           stages = ${jsonOrNull(tx, input.analysis.stages)},
           gaps = ${jsonOrNull(tx, input.analysis.gaps)},
           usage = ${jsonOrNull(tx, input.analysis.usage)},
-          probability_model = ${jsonOrNull(tx, input.analysis.probabilityModel)}
+          probability_model = ${jsonOrNull(tx, input.analysis.probabilityModel)},
+          snapshot = snapshot || ${tx.json({
+            providerRequests: input.analysis.providerRequests ?? [],
+            providerOutcomeAmbiguous: input.analysis.providerOutcomeAmbiguous ?? false,
+          } as never)}
         WHERE id = ${analysisId} AND completed_at IS NULL
       `;
       if (input.evidence.length) {
@@ -442,7 +453,11 @@ export class JournalRepository {
           stages = ${jsonOrNull(tx, input.analysis.stages)},
           gaps = ${jsonOrNull(tx, input.analysis.gaps)},
           usage = ${jsonOrNull(tx, input.analysis.usage)},
-          probability_model = ${jsonOrNull(tx, input.analysis.probabilityModel)}
+          probability_model = ${jsonOrNull(tx, input.analysis.probabilityModel)},
+          snapshot = snapshot || ${tx.json({
+            providerRequests: input.analysis.providerRequests ?? [],
+            providerOutcomeAmbiguous: input.analysis.providerOutcomeAmbiguous ?? false,
+          } as never)}
         WHERE id = ${analysisId} AND completed_at IS NULL
         RETURNING id
       `;

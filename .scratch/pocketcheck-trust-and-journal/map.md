@@ -24,6 +24,7 @@ Type: task
 - [Ticket 02](issues/02-immutable-analysis-snapshots.md) stores a versioned game and offer snapshot per analysis; legacy schedule values retain nulls and visible uncertain provenance.
 - [Ticket 02](issues/02-immutable-analysis-snapshots.md) adds versioned immutable per-analysis game and exact-offer snapshots, labels backfilled legacy provenance as uncertain, and verifies memory, Neon, export/restore, and browser report behavior.
 - [Ticket 05](issues/05-durable-analysis-submissions.md) persists stable, idempotent attempts and their progress before external work, preserves collected evidence, and requires a deliberate new attempt after an ambiguous interruption. Provider-response persistence and reuse remain ticket 06 scope.
+- [Ticket 06](issues/06-provider-response-recovery.md) persists each provider request and its known accounting before publication, reuses a durable response when finalization fails, and labels ambiguous completion so it is not retried automatically. Ambiguous completion is not exactly-once.
 
 ## Fog
 

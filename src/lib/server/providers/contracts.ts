@@ -71,6 +71,23 @@ export type UsageRecord = {
   totalTokens: number | null;
 };
 
+export type ProviderRequestRole = "draft" | "repair";
+
+export type ProviderRequestOutcome = "completed" | "failed" | "ambiguous";
+
+/** One completed or failed provider exchange. Responses contain model output, not credentials. */
+export type ProviderRequestRecord = {
+  requestId: string;
+  role: ProviderRequestRole;
+  outcome: ProviderRequestOutcome;
+  response: unknown;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  totalTokens: number | null;
+  costUsd: number | null;
+  costKnown: boolean;
+};
+
 export type ProviderErrorKind = "auth" | "rate_limit" | "timeout" | "transport" | "invalid_report";
 
 /** A failed provider request. The message never contains the API key. */
@@ -98,6 +115,8 @@ export type DraftThesisResult = {
   packet: ThesisPacket;
   usage: UsageRecord | null;
   usageCost: number | null;
+  /** Each request in this draft, including a repair. Absent on drafters that predate response recovery. */
+  providerRequests?: ProviderRequestRecord[];
   modelId: string;
 };
 
