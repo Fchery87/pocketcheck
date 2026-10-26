@@ -19,10 +19,11 @@ Type: task
 - Complete actual-bet contracts, settlement, closing observations, separate summaries, and recovery before expanding sports or model features.
 - Correct chronological evaluation, reject invalid external records, and treat the inspected holdout as development evidence.
 - Require isolated production-browser acceptance and disposable database verification before completion.
+- [Ticket 01](issues/01-isolated-verification.md) provides the shared verification commands, startup fixture assertions, outbound guard, and disposable database CI job. Synthetic reproduction proves that a missing memory-journal override can expose a stored provider choice through dotenv-selected Neon storage. The original historical override failure remains inconclusive.
 
 ## Fog
 
-- The cause of browser tests reading a configured provider instead of the requested fixture mode remains unconfirmed. Reproduce it before choosing the configuration fix.
+- The original root-workspace provider-selection failure remains unexplained. Synthetic production-browser reproduction confirmed that an unset memory-journal override lets `.env` select Neon and read the stored `theclawbay:grok-4.7` choice. Credentials alone do not select a provider. Ticket 01 rejects that configuration before startup and checks the effective fixture drafter before submission. The original inline `POCKETCHECK_JOURNAL=memory` command selected fixture in the isolated reproduction.
 - Legacy records may lack original game snapshots, independent actual-bet contracts, or timestamped starter assumptions. Preserve and label those limitations.
 - Prospective performance is unknown. Implementing the evaluation protocol does not establish that a market qualifies for release.
 

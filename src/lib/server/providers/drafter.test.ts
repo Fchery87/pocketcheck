@@ -49,10 +49,10 @@ const grok: ModelCatalogEntry = {
 };
 
 describe("resolveDrafter", () => {
-  it("uses the fixture drafter when that is the choice", async () => {
+  it("keeps the fixture choice even when both provider credentials are present", async () => {
     const resolved = await resolveDrafter({
       settings: createMemorySettings(),
-      keys: {},
+      keys: { theclawbay: "synthetic-never-valid", deepseek: "synthetic-never-valid" },
       makeProvider: () => {
         throw new Error("no provider expected");
       },
