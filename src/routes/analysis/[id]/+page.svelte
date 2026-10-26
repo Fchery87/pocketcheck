@@ -159,6 +159,9 @@
         <p>Not used for the {run.offer.market} market: {run.probabilityModel.reason}</p>
         <p>Its probabilities are recorded with this run but are not shown or used.</p>
       {/if}
+      <p data-testid="protocol-status">
+        Protocol {run.probabilityModel.protocol.id}: {run.probabilityModel.protocol.blockingReason}
+      </p>
       {#if run.forecast?.provenance === "captured"}
         <p data-testid="forecast-provenance">
           Forecast frozen at {easternTime(run.forecast.decisionCutoff)} with policy
