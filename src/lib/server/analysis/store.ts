@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { parseOffer, type Offer, type OfferRules, type SideSelection, type Market } from "#lib/domain/offer.ts";
 import type { ThesisReport } from "../providers/contracts.ts";
 import type { RunModel } from "./model.ts";
+import type { SavedForecast } from "./forecast-record.ts";
 import type { PolicyDecision } from "./policy.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
 import type { AttemptRequest } from "./attempt.ts";
@@ -83,6 +84,10 @@ export type ResearchRun = {
   policy: PolicyDecision | null;
   /** The probability model this run froze. Null for runs saved before models were wired in. */
   probabilityModel: RunModel | null;
+  /**
+   * Decision-time forecast inputs. Null marks a legacy run whose input provenance was not captured.
+   */
+  forecast: SavedForecast | null;
   provider: string;
   model: string;
   createdAt: string;
@@ -219,6 +224,7 @@ export function createMemoryStore(): ResearchStore {
         id,
         snapshotVersion: 1,
         snapshotProvenance: "captured",
+        forecast: input.forecast ?? null,
         createdAt: new Date().toISOString(),
       });
       runs.set(id, saved);

@@ -1,0 +1,122 @@
+import type { OutcomeProbabilities } from "../../domain/odds.ts";
+import type { Offer } from "../../domain/offer.ts";
+import { valueEligibility, type ModelArtifact } from "./artifact.ts";
+import {
+  featureRowForGame,
+  type FeatureName,
+  type FeatureRow,
+  type UpcomingGame,
+} from "./features.ts";
+import type { CompletedGame } from "./games.ts";
+import { offerProbabilities } from "./offer-probability.ts";
+import { predictGame } from "./predict.ts";
+import { conservativeProbabilities, type UncertaintyAssessment } from "./uncertainty.ts";
+
+export const FORECAST_RECORD_VERSION = 1;
+
+export const INPUT_AVAILABILITY = {
+  version: "decision-time-starters-v1",
+  results: "strictly-before-decision-cutoff",
+  starters:
+    "known and assumed identities require evidence at or before the decision cutoff; archived actual starters without that evidence stay unknown",
+} as const;
+
+export type StarterState = "known" | "assumed" | "unknown";
+
+export type StarterAssumption = {
+  state: StarterState;
+  identity: string | null;
+  evidenceAt: string | null;
+};
+
+export type ProspectiveGame = UpcomingGame & {
+  homeScore?: number;
+  awayScore?: number;
+  starters?: { home: StarterAssumption; away: StarterAssumption };
+};
+
+export type ProspectiveForecast = {
+  version: typeof FORECAST_RECORD_VERSION;
+  decisionCutoff: string;
+  inputAvailability: typeof INPUT_AVAILABILITY;
+  artifact: { checksum: string; version: ModelArtifact["version"] };
+  features: FeatureRow["features"];
+  featureVersion: typeof FORECAST_RECORD_VERSION;
+  starters: { home: StarterAssumption; away: StarterAssumption };
+  marketEligibility: { market: Offer["market"]; eligible: boolean };
+  probabilities: OutcomeProbabilities;
+  uncertainty: UncertaintyAssessment;
+  policyVersion: string;
+};
+
+export type ForecastInputs = {
+  artifact: ModelArtifact;
+  history: readonly CompletedGame[];
+  game: ProspectiveGame;
+  cutoff: string;
+  offer: Offer;
+  policyVersion: string;
+};
+
+const UNKNOWN: StarterAssumption = { state: "unknown", identity: null, evidenceAt: null };
+
+function starterFor(recorded: StarterAssumption | undefined, cutoff: string): StarterAssumption {
+  if (!recorded || recorded.state === "unknown" || !recorded.identity || !recorded.evidenceAt) {
+    return UNKNOWN;
+  }
+  if (Date.parse(recorded.evidenceAt) > Date.parse(cutoff)) return UNKNOWN;
+  if (recorded.state !== "known" && recorded.state !== "assumed") return UNKNOWN;
+  return { state: recorded.state, identity: recorded.identity, evidenceAt: recorded.evidenceAt };
+}
+
+/** Freeze the inputs and probabilities available at the decision cutoff. */
+export function freezeProspectiveForecast(input: ForecastInputs): ProspectiveForecast {
+  const home = starterFor(input.game.starters?.home, input.cutoff);
+  const away = starterFor(input.game.starters?.away, input.cutoff);
+  const game: UpcomingGame = {
+    id: input.game.id,
+    season: input.game.season,
+    kickoff: input.game.kickoff,
+    home: input.game.home,
+    away: input.game.away,
+    ...(input.game.neutral ? { neutral: true } : {}),
+    ...(home.state === "known" || home.state === "assumed" ? { homeQb: home.identity! } : {}),
+    ...(away.state === "known" || away.state === "assumed" ? { awayQb: away.identity! } : {}),
+  };
+  const row = featureRowForGame(
+    input.history,
+    game,
+    input.artifact.featureParameters,
+    input.cutoff,
+  );
+  const predicted = predictGame(input.artifact, row);
+  const probabilities = offerProbabilities(predicted, input.offer);
+  const eligibility = valueEligibility(input.artifact, input.offer.market);
+  return {
+    version: FORECAST_RECORD_VERSION,
+    decisionCutoff: input.cutoff,
+    inputAvailability: INPUT_AVAILABILITY,
+    artifact: { checksum: input.artifact.checksum, version: input.artifact.version },
+    features: row.features,
+    featureVersion: FORECAST_RECORD_VERSION,
+    starters: { home, away },
+    marketEligibility: { market: input.offer.market, eligible: eligibility.eligible },
+    probabilities,
+    uncertainty: conservativeProbabilities(
+      input.artifact.uncertainty,
+      input.offer.market,
+      probabilities,
+    ),
+    policyVersion: input.policyVersion,
+  };
+}
+
+/** Later schedules, artifacts, starters, scores, and policies cannot replace a frozen forecast. */
+export function replayProspectiveForecast(
+  saved: ProspectiveForecast,
+  _current: ForecastInputs,
+): ProspectiveForecast {
+  return structuredClone(saved);
+}
+
+export type { FeatureName };
