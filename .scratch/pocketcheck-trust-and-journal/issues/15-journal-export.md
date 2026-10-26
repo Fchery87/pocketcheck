@@ -4,7 +4,7 @@
 
 **Blocked by:** 06: Recover provider responses and report complete usage, 07: Enforce evidence coverage and graceful source failure, 08: Support accurate offer entry and line-changing refreshes, 11: Settle assessments and bets with correction history, 12: Record and compare closing offers, 14: Freeze prospective model inputs and forecasts
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Type:** task
 
@@ -12,10 +12,18 @@
 
 **User stories:** 38, 39.
 
-- [ ] Expose journal export in the application and include identifiers, original timestamps, parent links, immutable analysis snapshots, evidence, gaps, manual coverage, and policy results.
-- [ ] Include actual-bet contracts and stakes, primary classifications, closing observations, settlement and correction history, frozen forecasts, and provider attempt accounting.
-- [ ] Preserve failed, interrupted, and ambiguous attempts and their recoverable durable responses, while excluding credentials and credential-bearing request headers.
-- [ ] Exclude bulk source caches and model training datasets. Keep the forecast identities and recorded inputs required for journal recovery.
-- [ ] Declare a backup format version and retain provenance limits for legacy records. Export does not invent missing historical facts.
-- [ ] Read the downloaded artifact and verify relationships, exact timestamps, accounting, and history against saved records. Inject secret sentinels and prove they do not appear in the backup.
+- [x] Expose journal export in the application and include identifiers, original timestamps, parent links, immutable analysis snapshots, evidence, gaps, manual coverage, and policy results.
+- [x] Include actual-bet contracts and stakes, primary classifications, closing observations, settlement and correction history, frozen forecasts, and provider attempt accounting.
+- [x] Preserve failed, interrupted, and ambiguous attempts and their recoverable durable responses, while excluding credentials and credential-bearing request headers.
+- [x] Exclude bulk source caches and model training datasets. Keep the forecast identities and recorded inputs required for journal recovery.
+- [x] Declare a backup format version and retain provenance limits for legacy records. Export does not invent missing historical facts.
+- [x] Read the downloaded artifact and verify relationships, exact timestamps, accounting, and history against saved records. Inject secret sentinels and prove they do not appear in the backup.
 - [ ] Verify download through production-browser acceptance and document backup contents, confidentiality, and the versioned recovery contract.
+
+The last box is open because production-browser acceptance was not run. Port 42627 was not serving an isolated app in this worktree, and the shared browser suite was not free to take. Backup contents, confidentiality, and the version 1 recovery contract are documented in `docs/testing.md`.
+
+## Answer
+
+The journal page links to `/journal/export`, which downloads `pocketcheck-journal-v1.json`. Format version is 1. The file is the existing journal export: games, offers, linked evidence, analyses with snapshots, reports, private research, bets, settlements, and closing observations. Analyses keep identifiers, original timestamps, parent links, gaps, policy, primary classification, usage, frozen forecasts, and provider attempts, including failed and ambiguous outcomes. Durable response bodies stay. Credential-named fields such as `authorization` and `apiKey` are removed. Settings rows and training tables are not queried. Legacy provenance values are copied as stored.
+
+A disposable Postgres test saved a failed analysis with an ambiguous attempt, a forecast, a placed contract and stake, and a closing observation, plus a settings row holding `sk-sentinel`. The downloaded JSON matched those records and timestamps. The sentinel and the words `authorization` and `apiKey` were absent. Restoring the existing export, including closings, still round-trips. Ticket 16 still owns atomic restore validation.

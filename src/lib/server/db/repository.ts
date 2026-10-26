@@ -168,6 +168,7 @@ export type JournalExport = {
   userResearch: UserResearchRecord[];
   bets: BetRecord[];
   settlements: SettlementRecord[];
+  closings: ClosingRecord[];
 };
 
 export type SaveAnalysisInput = {
@@ -1013,16 +1014,25 @@ export class JournalRepository {
             ORDER BY created_at ASC
           `
         : [];
+    const closings = ids.length || betIds.length
+      ? await this.sql<ClosingRow[]>`
+          SELECT * FROM closing_observations
+          WHERE analysis_id = ANY(${ids.length ? ids : [randomUUID()]}::uuid[])
+             OR bet_id = ANY(${betIds.length ? betIds : [randomUUID()]}::uuid[])
+          ORDER BY created_at ASC
+        `
+      : [];
     return {
       version: 1,
       games: games.map(mapGame),
       offers: offers.map(mapOffer),
       evidence: evidence.map(mapEvidence),
-      analyses: mapped,
+      analyses: mapped.map(stripAnalysisSecrets),
       reports: reports.map(mapReport),
       userResearch: research.map(mapResearch),
       bets: bets.map(mapBet),
       settlements: settlements.map(mapSettlement),
+      closings: closings.map(mapClosing),
     };
   }
 
@@ -1158,6 +1168,20 @@ export class JournalRepository {
           ON CONFLICT DO NOTHING
         `;
       }
+      for (const closing of snapshot.closings ?? []) {
+        await tx`
+          INSERT INTO closing_observations (
+            id, analysis_id, bet_id, provenance, sportsbook, market, selection, point_line,
+            rules, american_odds, decimal_odds, observed_at, source
+          ) VALUES (
+            ${closing.id}, ${closing.analysisId}, ${closing.betId}, ${closing.provenance},
+            ${closing.sportsbook}, ${closing.market}, ${closing.selection}, ${closing.pointLine},
+            ${tx.json(closing.rules as never)}, ${closing.americanOdds}, ${closing.decimalOdds},
+            ${closing.observedAt}, ${closing.source}
+          )
+          ON CONFLICT DO NOTHING
+        `;
+      }
     });
 
     return this.exportJournal(snapshot.analyses.map((row) => row.id));
@@ -1214,6 +1238,39 @@ export class JournalRepository {
     const rows = await this.sql<SettlementRow[]>`SELECT * FROM settlements WHERE id = ${id}`;
     return rows[0] ? mapSettlement(rows[0]) : null;
   }
+}
+
+const CREDENTIAL_KEYS = new Set([
+  "authorization",
+  "proxy-authorization",
+  "x-api-key",
+  "api-key",
+  "apikey",
+  "api_key",
+  "cookie",
+  "set-cookie",
+]);
+
+function stripSecrets(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripSecrets);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !CREDENTIAL_KEYS.has(key.toLowerCase()))
+        .map(([key, item]) => [key, stripSecrets(item)]),
+    );
+  }
+  return value;
+}
+
+function stripAnalysisSecrets(analysis: AnalysisRecord): AnalysisRecord {
+  return {
+    ...analysis,
+    snapshot: stripSecrets(analysis.snapshot) as AnalysisSnapshot,
+    policy: stripSecrets(analysis.policy),
+    stages: stripSecrets(analysis.stages),
+    usage: stripSecrets(analysis.usage),
+  };
 }
 
 function jsonOrNull(tx: Pick<Sql, "json">, value: unknown) {

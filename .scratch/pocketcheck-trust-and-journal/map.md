@@ -33,6 +33,7 @@ Type: task
 - [Ticket 12](issues/12-closing-offers.md) records later closing observations and compares decimal odds only when market, side, point line, sportsbook, and rules match. A moved line is not an odds change. A missing or untimestamped archive is unavailable, not zero.
 - [Ticket 11](issues/11-settlements-and-corrections.md) records append-only settlement notices and grades the researched offer and each actual bet from their own contracts. A postponement stays unresolved. A repeated event is ignored. A conflicting event identifier is rejected. A correction names the earlier notice, requires a reason, and leaves history in place.
 - [Ticket 13](issues/13-separate-performance-summaries.md) shows frozen primary assessments and actual bets as separate journal views. Refreshes stay out of the primary sample. Counts and denominators are shown. Missing closes and unresolved results are not zero. Corrections update the effective summary and keep prior notices.
+- [Ticket 15](issues/15-journal-export.md) downloads journal format version 1 from the journal page. The file keeps recovery records and strips credential fields. It does not include settings, bulk caches, or training data. Browser download acceptance was not run.
 
 ## Fog
 

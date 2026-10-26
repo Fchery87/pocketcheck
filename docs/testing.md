@@ -32,6 +32,18 @@ Each test creates a random `it_` schema, applies every SQL migration there, and 
 
 CI's separate `database` job provisions a PostgreSQL 16 service with a disposable database, explicitly sets `TEST_DATABASE_URL`, and invokes `npm run verify:database`. Both jobs must pass before the change is considered verified. Repository maintainers must require both jobs in branch protection.
 
+## Journal backup
+
+The journal page downloads `/journal/export` as `pocketcheck-journal-v1.json`. Format version is `1`.
+
+The file contains games, offers, evidence used by analyses, analysis identifiers, original timestamps, parent links, immutable snapshots, gaps, manual coverage, and policy results. It also contains actual-bet contracts and stakes, primary classifications, closing observations, settlement and correction history, frozen forecasts, and provider attempt accounting. Failed, interrupted, and ambiguous attempts stay in the file with their durable responses.
+
+Legacy records keep their saved provenance limits. Export does not fill in facts the record does not have.
+
+The file does not contain provider credentials, credential-bearing request headers, application settings, bulk source caches, or model training datasets. Forecast identity and the recorded inputs needed to recover a forecast stay in the snapshot.
+
+Ticket 16 validates and applies a restore. This download does not write.
+
 ## Keep live experiments separate
 
 Automated acceptance uses the deterministic fixture drafter. To experiment with a live provider, use the normal application and its Settings page with your own credentials and journal. Such requests can incur provider charges. A live result does not replace isolated verification or establish model eligibility.
