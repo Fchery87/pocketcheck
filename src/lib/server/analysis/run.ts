@@ -21,7 +21,13 @@ import {
   type ResearchStore,
   type RunGame,
 } from "./store.ts";
-import type { ThesisDrafter } from "../providers/contracts.ts";
+import type {
+  DraftThesisResult,
+  ProviderRequestRecord,
+  ThesisDrafter,
+  ThesisReport,
+} from "../providers/contracts.ts";
+import type { RunUsage } from "./store.ts";
 import { noModel, type ModelSource, type RunModel } from "./model.ts";
 import type { SavedForecast } from "./forecast-record.ts";
 import { decidePolicy } from "./policy.ts";
@@ -110,6 +116,100 @@ function snapshot(game: ScheduledGame): RunGame {
   };
 }
 
+function durableDraft(run: ResearchRun): ProviderRequestRecord | null {
+  if (run.providerOutcomeAmbiguous) return null;
+  const completed = run.providerRequests.filter(
+    (item) => item.outcome === "completed" && item.response && typeof item.response === "object",
+  );
+  const repair = [...completed].reverse().find((item) => item.role === "repair");
+  return repair ?? completed.at(-1) ?? null;
+}
+
+async function finalizeFromDurable(
+  store: ResearchStore,
+  current: ResearchRun,
+  durable: ProviderRequestRecord,
+): Promise<AnalysisOutcome> {
+  const report = durable.response as ThesisReport;
+  const checked = validateThesisReport(report, {
+    items: current.evidence,
+    gaps: current.gaps,
+    decimalOdds: report.decimalOdds,
+    decisiveBreakEven: report.decisiveBreakEven,
+    policy: {
+      version: current.policy?.policyVersion ?? "unknown",
+      conclusion: current.policy?.conclusion ?? report.conclusion,
+      blockingReason: current.policy?.blockingReason ?? null,
+    },
+  });
+  if (!checked.ok) {
+    const failed = await store.saveRun({
+      ...current,
+      status: "failed",
+      report: null,
+      renderedText: "",
+      failureReason: checked.reasons.join("; "),
+    });
+    return { ok: false, error: checked.reasons.join("; "), run: failed };
+  }
+  const renderedText = [
+    checked.report.conclusion,
+    checked.report.summary,
+    ...checked.report.claims.map((claim) => `${claim.evidenceIds.join(", ")}: ${claim.text}`),
+    ...checked.report.missingInputs,
+    `American odds ${current.offer.americanOdds}`,
+  ].join("\n");
+  const run = await store.saveRun({
+    ...current,
+    status: "completed",
+    stages: [...progressStages],
+    report: checked.report,
+    renderedText,
+    failureReason: null,
+  });
+  return { ok: true, run };
+}
+
+function providerRequestsOf(drafted: DraftThesisResult): ProviderRequestRecord[] {
+  if (drafted.providerRequests) return drafted.providerRequests;
+  if (!drafted.usage && drafted.usageCost === null) return [];
+  return [
+    {
+      requestId: "legacy-draft",
+      role: drafted.repairAttempted ? "repair" : "draft",
+      outcome: "completed",
+      response: drafted.report,
+      promptTokens: drafted.usage?.promptTokens ?? null,
+      completionTokens: drafted.usage?.completionTokens ?? null,
+      totalTokens: drafted.usage?.totalTokens ?? null,
+      costUsd: drafted.usageCost,
+      costKnown: drafted.usageCost !== null,
+    },
+  ];
+}
+
+function sumKnown(values: Array<number | null>): number | null {
+  if (values.some((value) => value === null)) return null;
+  return values.reduce((total, value) => total + (value ?? 0), 0);
+}
+
+/** Totals every known request. A missing field stays unknown and marks the total partial. */
+export function combineProviderUsage(requests: ProviderRequestRecord[]): RunUsage | null {
+  if (requests.length === 0) return null;
+  const costKnown = requests.every((item) => item.costKnown);
+  const promptTokens = sumKnown(requests.map((item) => item.promptTokens));
+  const completionTokens = sumKnown(requests.map((item) => item.completionTokens));
+  const totalTokens = sumKnown(requests.map((item) => item.totalTokens));
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    costUsd: costKnown ? requests.reduce((total, item) => total + (item.costUsd ?? 0), 0) : null,
+    partial:
+      !costKnown || promptTokens === null || completionTokens === null || totalTokens === null,
+  };
+}
+
 function leanOf(request: AnalysisRequest): PrivateLean | null {
   const text = request.lean?.trim() ?? "";
   const rationale = request.rationale?.trim() ?? "";
@@ -165,6 +265,7 @@ export async function runAnalysis(
         sourceTime: entry.sourceTime,
         enteredAt: request.nowIso,
         ...(entry.covers ? { covers: entry.covers } : {}),
+        ...(entry.team ? { team: entry.team } : {}),
       }),
     );
   } catch (error) {
@@ -196,6 +297,7 @@ export async function runAnalysis(
           url: entry.url,
           sourceTime: entry.sourceTime,
           covers: entry.covers ?? null,
+          team: entry.team ?? null,
         })),
         carriedEvidence: request.carriedEvidence ?? [],
         drafter: { provider: drafter.id, modelId: drafter.modelId },
@@ -215,6 +317,8 @@ export async function runAnalysis(
     provider: drafter.id,
     model: drafter.modelId,
     usage: null,
+    providerRequests: [],
+    providerOutcomeAmbiguous: false,
     report: null,
     renderedText: "",
     failureReason: null,
@@ -223,6 +327,8 @@ export async function runAnalysis(
   if (begun.kind === "conflict") return { ok: false, error: begun.error };
   if (begun.kind === "existing") {
     if (begun.run.status === "completed") return { ok: true, run: begun.run };
+    const durable = durableDraft(begun.run);
+    if (durable) return finalizeFromDurable(store, begun.run, durable);
     const error =
       begun.run.status === "failed"
         ? (begun.run.failureReason ?? "This attempt failed. Start a new attempt to retry.")
@@ -344,6 +450,13 @@ export async function runAnalysis(
       packet: thesisPacket,
     });
 
+    const providerRequests = providerRequestsOf(drafted);
+    current = await store.updateAttempt({
+      ...current,
+      providerRequests,
+      providerOutcomeAmbiguous: providerRequests.some((item) => item.outcome === "ambiguous"),
+      usage: combineProviderUsage(providerRequests),
+    });
     await advance("checking report");
     const checked = drafted.report ? validateThesisReport(drafted.report, thesisPacket) : null;
     const common = {
@@ -356,19 +469,14 @@ export async function runAnalysis(
       forecast: forecastRecord,
       provider: drafter.id,
       model: drafter.modelId,
-      usage:
-        drafted.usage || drafted.usageCost !== null
-          ? {
-              promptTokens: drafted.usage?.promptTokens ?? null,
-              completionTokens: drafted.usage?.completionTokens ?? null,
-              totalTokens: drafted.usage?.totalTokens ?? null,
-              costUsd: drafted.usageCost,
-            }
-          : null,
+      providerRequests,
+      usage: combineProviderUsage(providerRequests),
     };
-    if (!checked?.ok) {
-      const failureReason =
-        checked?.reasons.join("; ") ?? drafted.error?.message ?? "Report check failed";
+    const ambiguous = providerRequests.some((item) => item.outcome === "ambiguous");
+    if (ambiguous || !checked?.ok) {
+      const failureReason = ambiguous
+        ? "Provider completion is ambiguous. This request may already have been charged. Start a new attempt before sending another provider request. Completion is not exactly once."
+        : (checked?.reasons.join("; ") ?? drafted.error?.message ?? "Report check failed");
       const failed = await store.saveRun({
         ...common,
         status: "failed",
@@ -397,6 +505,9 @@ export async function runAnalysis(
     });
     return { ok: true, run };
   } catch (error) {
+    if (current.providerRequests.some((item) => item.outcome === "completed" && item.response)) {
+      throw error;
+    }
     const reason = error instanceof Error ? error.message : String(error);
     return failAttempt(reason);
   }

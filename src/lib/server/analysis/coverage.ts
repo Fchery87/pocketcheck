@@ -32,6 +32,12 @@ export function coverMaterialGaps(
     const limit = MANUAL_FRESHNESS_HOURS[gap.kind];
     let cover: EvidenceItem | null = null;
     for (const item of manual.filter((candidate) => candidate.facts.covers === gap.kind)) {
+      if (gap.team && item.facts.team !== gap.team) {
+        notes.push(
+          `Manual evidence ${item.id} is tagged as the ${label} but not for ${gap.team}, so it does not clear that team's coverage.`,
+        );
+        continue;
+      }
       if (item.publishedAt === "unknown") {
         notes.push(
           `Manual evidence ${item.id} is tagged as the ${label} but has no source time, so it cannot stand in for it.`,

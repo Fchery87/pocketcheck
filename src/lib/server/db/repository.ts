@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Sql } from "postgres";
 import type { AttemptRequest } from "../analysis/attempt.ts";
 import type { SavedForecast } from "../analysis/forecast-record.ts";
+import type { ProviderRequestRecord } from "../providers/contracts.ts";
 import { americanToDecimal } from "#lib/domain/odds.ts";
 import type { Offer } from "#lib/domain/offer.ts";
 import type { Settlement as SettlementResult } from "#lib/domain/settlement.ts";
@@ -77,6 +78,8 @@ export type AnalysisSnapshot = {
   game: GameRecord;
   offer: OfferRecord;
   request?: AttemptRequest;
+  providerRequests?: ProviderRequestRecord[];
+  providerOutcomeAmbiguous?: boolean;
   forecast?: SavedForecast | null;
 };
 
@@ -98,10 +101,25 @@ export type UserResearchRecord = {
   rationale: string | null;
 };
 
+export type BetContract = {
+  market: "moneyline" | "spread" | "total";
+  selection: "home" | "away" | "over" | "under";
+  pointLine: number | null;
+  rules: {
+    period: "full-game";
+    overtime: "included";
+    tie: "push" | "loss" | "win" | "void" | null;
+  };
+};
+
+/** A bet without `contract` predates independent execution terms. Do not infer them. */
 export type BetRecord = {
   id: string;
   offerId: string;
   analysisId: string | null;
+  submissionId: string | null;
+  contract: BetContract | null;
+  contractFingerprint: string | null;
   americanOdds: number;
   decimalOdds: number;
   placedAt: string;
@@ -166,6 +184,8 @@ export type SaveAnalysisInput = {
     usage?: unknown;
     probabilityModel?: unknown;
     request?: AttemptRequest;
+    providerRequests?: ProviderRequestRecord[];
+    providerOutcomeAmbiguous?: boolean;
     forecast?: SavedForecast | null;
   };
   report?: {
@@ -268,6 +288,8 @@ export class JournalRepository {
             completedAt: completed ? completedAt : null,
           },
           ...(input.analysis.request ? { request: input.analysis.request } : {}),
+          providerRequests: input.analysis.providerRequests ?? [],
+          providerOutcomeAmbiguous: input.analysis.providerOutcomeAmbiguous ?? false,
           ...(input.analysis.forecast ? { forecast: input.analysis.forecast } : {}),
         };
 
@@ -399,7 +421,12 @@ export class JournalRepository {
           stages = ${jsonOrNull(tx, input.analysis.stages)},
           gaps = ${jsonOrNull(tx, input.analysis.gaps)},
           usage = ${jsonOrNull(tx, input.analysis.usage)},
-          probability_model = ${jsonOrNull(tx, input.analysis.probabilityModel)}
+          probability_model = ${jsonOrNull(tx, input.analysis.probabilityModel)},
+          snapshot = snapshot || ${tx.json({
+            providerRequests: input.analysis.providerRequests ?? [],
+            providerOutcomeAmbiguous: input.analysis.providerOutcomeAmbiguous ?? false,
+            ...(input.analysis.forecast ? { forecast: input.analysis.forecast } : {}),
+          } as never)}
         WHERE id = ${analysisId} AND completed_at IS NULL
       `;
       if (input.evidence.length) {
@@ -447,9 +474,15 @@ export class JournalRepository {
 
     const completedAt = input.analysis.status === "completed" ? new Date().toISOString() : null;
     const evidenceIds = input.evidence.map((item) => item.id ?? randomUUID());
-    const snapshot = input.analysis.forecast
-      ? { ...existing.snapshot, forecast: input.analysis.forecast }
-      : existing.snapshot;
+    const snapshot = {
+      ...existing.snapshot,
+      providerRequests: input.analysis.providerRequests ?? existing.snapshot.providerRequests ?? [],
+      providerOutcomeAmbiguous:
+        input.analysis.providerOutcomeAmbiguous ??
+        existing.snapshot.providerOutcomeAmbiguous ??
+        false,
+      ...(input.analysis.forecast ? { forecast: input.analysis.forecast } : {}),
+    };
     await this.sql.begin(async (tx) => {
       const updated = await tx<{ id: string }[]>`
         UPDATE analyses SET
@@ -648,23 +681,59 @@ export class JournalRepository {
   async recordBet(input: {
     offerId: string;
     analysisId?: string | null;
+    submissionId?: string | null;
+    contract?: BetContract | null;
+    contractFingerprint?: string | null;
     americanOdds: number;
     placedAt: string;
     stakeUnits: number;
     sportsbook?: string | null;
   }): Promise<BetRecord> {
+    if (input.submissionId) {
+      const existing = await this.findBetBySubmissionId(input.submissionId);
+      if (existing) {
+        if (existing.contractFingerprint !== input.contractFingerprint) {
+          throw new BetSubmissionConflict(
+            "This submission identifier was already used with different inputs.",
+          );
+        }
+        return existing;
+      }
+    }
     const id = randomUUID();
-    await this.sql`
-      INSERT INTO bets (id, offer_id, analysis_id, american_odds, decimal_odds, placed_at, stake_units, sportsbook)
-      VALUES (
-        ${id}, ${input.offerId}, ${input.analysisId ?? null}, ${input.americanOdds},
-        ${americanToDecimal(input.americanOdds)}, ${input.placedAt}, ${input.stakeUnits},
-        ${input.sportsbook ?? null}
-      )
-    `;
+    try {
+      await this.sql`
+        INSERT INTO bets (
+          id, offer_id, analysis_id, submission_id, contract, contract_fingerprint,
+          american_odds, decimal_odds, placed_at, stake_units, sportsbook
+        ) VALUES (
+          ${id}, ${input.offerId}, ${input.analysisId ?? null}, ${input.submissionId ?? null},
+          ${input.contract ? this.sql.json(input.contract as never) : null},
+          ${input.contractFingerprint ?? null}, ${input.americanOdds},
+          ${americanToDecimal(input.americanOdds)}, ${input.placedAt}, ${input.stakeUnits},
+          ${input.sportsbook ?? null}
+        )
+      `;
+    } catch (error) {
+      if (input.submissionId && isUniqueViolation(error)) {
+        const existing = await this.findBetBySubmissionId(input.submissionId);
+        if (existing?.contractFingerprint === input.contractFingerprint) return existing;
+        throw new BetSubmissionConflict(
+          "This submission identifier was already used with different inputs.",
+        );
+      }
+      throw error;
+    }
     const bet = await this.readBet(id);
     if (!bet) throw new Error("Bet was not persisted");
     return bet;
+  }
+
+  async findBetBySubmissionId(submissionId: string): Promise<BetRecord | null> {
+    const rows = await this.sql<BetRow[]>`
+      SELECT * FROM bets WHERE submission_id = ${submissionId}
+    `;
+    return rows[0] ? mapBet(rows[0]) : null;
   }
 
   async recordSettlement(input: {
@@ -888,9 +957,13 @@ export class JournalRepository {
       }
       for (const bet of snapshot.bets) {
         await tx`
-          INSERT INTO bets (id, offer_id, analysis_id, american_odds, decimal_odds, placed_at, stake_units, sportsbook)
-          VALUES (
-            ${bet.id}, ${bet.offerId}, ${bet.analysisId}, ${bet.americanOdds}, ${bet.decimalOdds},
+          INSERT INTO bets (
+            id, offer_id, analysis_id, submission_id, contract, contract_fingerprint,
+            american_odds, decimal_odds, placed_at, stake_units, sportsbook
+          ) VALUES (
+            ${bet.id}, ${bet.offerId}, ${bet.analysisId}, ${bet.submissionId ?? null},
+            ${bet.contract ? tx.json(bet.contract as never) : null},
+            ${bet.contractFingerprint ?? null}, ${bet.americanOdds}, ${bet.decimalOdds},
             ${bet.placedAt}, ${bet.stakeUnits}, ${bet.sportsbook ?? null}
           )
           ON CONFLICT DO NOTHING
@@ -1064,6 +1137,13 @@ function listedAssessmentRole(row: {
   return { role: "primary", reason: row.assessment_role_reason ?? "" };
 }
 
+export class BetSubmissionConflict extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BetSubmissionConflict";
+  }
+}
+
 type GameRow = {
   id: string;
   source_game_id: string;
@@ -1159,6 +1239,9 @@ type BetRow = {
   id: string;
   offer_id: string;
   analysis_id: string | null;
+  submission_id: string | null;
+  contract: BetContract | null;
+  contract_fingerprint: string | null;
   american_odds: number;
   decimal_odds: string;
   placed_at: Date;
@@ -1290,6 +1373,9 @@ function mapBet(row: BetRow): BetRecord {
     id: row.id,
     offerId: row.offer_id,
     analysisId: row.analysis_id,
+    submissionId: row.submission_id,
+    contract: row.contract,
+    contractFingerprint: row.contract_fingerprint,
     americanOdds: row.american_odds,
     decimalOdds: num(row.decimal_odds)!,
     placedAt: iso(row.placed_at)!,

@@ -12,7 +12,7 @@ import type { WeatherEvidence } from "../sources/weather.ts";
 export type MaterialGapKind = "injury-report" | "weather";
 
 /** Evidence that should exist for this game and does not. It blocks a recommendation. */
-export type MaterialGap = { kind: MaterialGapKind; text: string };
+export type MaterialGap = { kind: MaterialGapKind; text: string; team?: string };
 
 export type CollectedEvidence = {
   items: EvidenceItem[];
@@ -52,16 +52,28 @@ function injuryEvidence(path: string, game: ScheduledGame, nowIso: string): Coll
     sourceUrl: record.source ?? injuryUrl(game.season),
   });
   const gaps = [...read.gaps];
-  if (Date.parse(nowIso) - Date.parse(record.retrievedAt) > STALE_AFTER_MS) {
+  const stale = Date.parse(nowIso) - Date.parse(record.retrievedAt) > STALE_AFTER_MS;
+  if (stale) {
     gaps.push(
-      `Injury file was retrieved ${record.retrievedAt}. Re-run npm run data:injuries for the latest report.`,
+      `Injury file was retrieved ${record.retrievedAt}. Retrieval time does not establish publication time. Re-run npm run data:injuries for the latest report.`,
     );
   }
-  // With no rows for this week, the leading gap says so; that one is material.
-  const materialGaps = (read.items.length === 0 ? read.gaps.slice(0, 1) : []).map((text) => ({
-    kind: "injury-report" as const,
-    text,
-  }));
+  const materialGaps: MaterialGap[] = [];
+  for (const [team, coverage] of Object.entries(read.teams)) {
+    if (coverage === "unknown") {
+      materialGaps.push({
+        kind: "injury-report",
+        team,
+        text: `${team} week ${game.week} injury coverage is not established. Absence of player rows is not a clean report.`,
+      });
+    } else if (stale) {
+      materialGaps.push({
+        kind: "injury-report",
+        team,
+        text: `${team} week ${game.week} injury coverage was retrieved ${record.retrievedAt}, older than 24 hours. Retrieval time does not establish publication time.`,
+      });
+    }
+  }
   return { items: read.items, gaps, materialGaps };
 }
 

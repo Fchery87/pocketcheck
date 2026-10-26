@@ -183,4 +183,86 @@ describe("provider transport", () => {
     const result = await claw.draftThesis({ modelId: "grok-4.7", catalog: usable, packet });
     expect(result.usageCost).toBeCloseTo(0.00168708, 10);
   });
+
+  it("keeps both metered responses and does not invent a missing cost", async () => {
+    let calls = 0;
+    const { provider: claw, bodies } = provider(() => {
+      calls += 1;
+      if (calls === 1) {
+        return Response.json({
+          id: "req-draft",
+          choices: [{ message: { content: "not-json" } }],
+          usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120, cost: 0.01 },
+        });
+      }
+      return Response.json({
+        id: "req-repair",
+        choices: [{ message: { content: "{}" } }],
+        usage: { prompt_tokens: 40, completion_tokens: 10 },
+      });
+    });
+    const result = await claw.draftThesis({ modelId: "grok-4.7", catalog: usable, packet });
+    expect(bodies).toHaveLength(2);
+    expect(result.providerRequests).toEqual([
+      expect.objectContaining({
+        requestId: "req-draft",
+        role: "draft",
+        outcome: "completed",
+        promptTokens: 100,
+        costUsd: 0.01,
+        costKnown: true,
+      }),
+      expect.objectContaining({
+        requestId: "req-repair",
+        role: "repair",
+        outcome: "completed",
+        promptTokens: 40,
+        totalTokens: null,
+        costUsd: null,
+        costKnown: false,
+      }),
+    ]);
+    expect(JSON.stringify(result.providerRequests)).not.toContain(FAKE_KEY);
+  });
+
+  it("keeps the first request when the repair request fails in transit", async () => {
+    let calls = 0;
+    const { provider: claw } = provider(() => {
+      calls += 1;
+      if (calls === 1) {
+        return Response.json({
+          id: "req-draft",
+          choices: [{ message: { content: "not-json" } }],
+          usage: { prompt_tokens: 80, completion_tokens: 20, total_tokens: 100, cost: 0.02 },
+        });
+      }
+      throw new TypeError("fetch failed");
+    });
+    const result = await claw.draftThesis({ modelId: "grok-4.7", catalog: usable, packet });
+    expect(result.draftingFailed).toBe(true);
+    expect(result.repairAttempted).toBe(true);
+    expect(result.providerRequests?.[0]).toMatchObject({
+      requestId: "req-draft",
+      promptTokens: 80,
+      costUsd: 0.02,
+      costKnown: true,
+    });
+    expect(result.providerRequests?.[1]).toMatchObject({
+      role: "repair",
+      outcome: "failed",
+      costUsd: null,
+      costKnown: false,
+    });
+  });
+
+  it("marks a sent request that times out as ambiguous rather than a known miss", async () => {
+    const { provider: claw } = provider(hanging, { timeoutMs: 20 });
+    const result = await claw.draftThesis({ modelId: "grok-4.7", catalog: usable, packet });
+    expect(result.providerRequests?.[0]).toMatchObject({
+      role: "draft",
+      outcome: "ambiguous",
+      response: null,
+      costKnown: false,
+    });
+  });
 });

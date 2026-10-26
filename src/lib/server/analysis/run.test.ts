@@ -208,6 +208,58 @@ describe("research run evidence", () => {
     expect(outcome.run?.gaps.join(" ")).toMatch(/disagree on availability:PHI:Saquon Barkley/);
   });
 
+  it("saves a changed spread line on the child and leaves the parent contract", async () => {
+    const store = createMemoryStore();
+    const parent = (
+      await runAnalysis(
+        request({ market: "spread", selection: "home", pointLine: -3.5, tieRule: undefined }),
+        { store },
+      )
+    ).run!;
+    const child = await runAnalysis(
+      request({
+        market: "spread",
+        selection: "home",
+        pointLine: -2.5,
+        sportsbook: "Moved Book",
+        americanOdds: -105,
+        observedAt: "2026-10-25T15:50:00.000Z",
+        tieRule: undefined,
+        parentId: parent.id,
+        requestId: "refresh-line-1",
+      }),
+      { store },
+    );
+    expect(child.ok).toBe(true);
+    const savedChild = await store.getRun(child.run!.id);
+    const savedParent = await store.getRun(parent.id);
+    expect(savedChild?.offer).toMatchObject({
+      market: "spread",
+      selection: "home",
+      pointLine: -2.5,
+      sportsbook: "Moved Book",
+      americanOdds: -105,
+      observedAt: "2026-10-25T15:50:00.000Z",
+    });
+    expect(savedChild?.parentId).toBe(parent.id);
+    expect(savedChild?.request.id).toBe("refresh-line-1");
+    expect(savedParent).toEqual(parent);
+    expect(savedParent?.offer.pointLine).toBe(-3.5);
+  });
+
+  it("refuses an invalid refreshed line before drafting", async () => {
+    const drafter = capturingDrafter();
+    const outcome = await runAnalysis(
+      request({ market: "spread", selection: "home", pointLine: undefined, tieRule: undefined }),
+      { store: createMemoryStore(), drafter },
+    );
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.error).toMatch(/point line/i);
+    expect(outcome.run).toBeUndefined();
+    expect(drafter.packets).toHaveLength(0);
+  });
+
   it("carries earlier manual evidence into a refresh", async () => {
     const outcome = await runAnalysis(
       request({
@@ -382,6 +434,42 @@ describe("value policy with uncertainty", () => {
   });
 });
 
+describe("injury coverage by team", () => {
+  const item = (team: string, player: string): EvidenceItem => ({
+    id: `nflverse-injuries-${team}-${player}`,
+    sourceId: "nflverse-injuries",
+    url: "https://github.com/nflverse/nflverse-data/releases/download/injuries/injuries_2026.csv",
+    retrievedAt: "2026-10-25T12:00:00.000Z",
+    publishedAt: "unknown",
+    origin: "automatic",
+    facts: { team, player, reportStatus: "Questionable", season: 2026, week: 7 },
+    excerpt: null,
+    checksum: null,
+    factKey: `availability:${team}:${player}`,
+  });
+  const bothMissing = [
+    { kind: "injury-report" as const, text: "DAL week 7 injury coverage is not established." },
+    { kind: "injury-report" as const, text: "PHI week 7 injury coverage is not established." },
+    { kind: "weather" as const, text: "Weather was not collected." },
+  ];
+
+  it("keeps the opponent uncovered when only one team has injury rows", async () => {
+    const outcome = await runAnalysis(request(), {
+      store: createMemoryStore(),
+      collect: async () => ({
+        items: [item("PHI", "Saquon Barkley")],
+        gaps: ["DAL week 7 injury coverage is not established."],
+        materialGaps: [bothMissing[0]!, bothMissing[2]!],
+      }),
+    });
+    const gaps = outcome.run!.gaps.join(" ");
+    expect(gaps).toMatch(/DAL/);
+    expect(outcome.run!.policy!.blockingReason).toBe("Material evidence is missing.");
+    expect(outcome.run!.policy!.manualCoverage).toEqual([]);
+    expect(outcome.run!.evidence.some((entry) => entry.facts.team === "PHI")).toBe(true);
+  });
+});
+
 describe("manual evidence standing in for a missing source", () => {
   const missingBoth: EvidenceCollector = async () => ({
     items: [],
@@ -466,6 +554,61 @@ describe("manual evidence standing in for a missing source", () => {
       "weather",
     ]);
     expect(refreshed.run!.policy!.blockingReason).toBe("Material evidence is missing.");
+  });
+
+  it("clears only the team the fresh injury note names", async () => {
+    const scoped: EvidenceCollector = async () => ({
+      items: [],
+      gaps: [
+        "DAL week 7 injury coverage is not established.",
+        "PHI week 7 injury coverage is not established.",
+      ],
+      materialGaps: [
+        {
+          kind: "injury-report",
+          team: "DAL",
+          text: "DAL week 7 injury coverage is not established.",
+        },
+        {
+          kind: "injury-report",
+          team: "PHI",
+          text: "PHI week 7 injury coverage is not established.",
+        },
+      ],
+    });
+    const outcome = await runAnalysis(
+      request({
+        manualEvidence: [{ ...entry("injury-report", hoursBefore(2)), team: "PHI" }],
+      }),
+      { store: createMemoryStore(), collect: scoped },
+    );
+    expect(outcome.run!.policy!.manualCoverage.map((coverage) => coverage.kind)).toEqual([
+      "injury-report",
+    ]);
+    expect(outcome.run!.policy!.blockingReason).toBe("Material evidence is missing.");
+    expect(outcome.run!.gaps.join(" ")).toMatch(/not for DAL/);
+    expect(outcome.run!.evidence.some((item) => item.facts.team === "PHI")).toBe(true);
+  });
+
+  it("keeps a readable analysis when the weather payload is null", async () => {
+    const outcome = await runAnalysis(request(), {
+      store: createMemoryStore(),
+      collect: async () => ({
+        items: [],
+        gaps: ["NWS forecast payload was empty. Retrieval did not establish a kickoff forecast."],
+        materialGaps: [
+          {
+            kind: "weather",
+            text: "NWS forecast payload was empty. Retrieval did not establish a kickoff forecast.",
+          },
+        ],
+      }),
+    });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.run!.status).toBe("completed");
+    expect(outcome.run!.gaps.join(" ")).toMatch(/payload was empty/);
+    expect(outcome.run!.policy!.blockingReason).toBe("Material evidence is missing.");
+    expect(outcome.run!.report?.claims.length).toBeGreaterThan(0);
   });
 
   it("accepts evidence exactly at the freshness limit and ignores a source time after the cutoff", async () => {

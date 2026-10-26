@@ -26,11 +26,16 @@
     form.dataset.submitting = "true";
     const odds = form.querySelector<HTMLInputElement>('[data-testid="refresh-odds"]');
     const observed = form.querySelector<HTMLInputElement>('[data-testid="refresh-observed-at"]');
-    const submittedOdds = form.elements.namedItem("americanOdds");
-    const submittedObserved = form.elements.namedItem("observedAt");
-    if (odds && submittedOdds instanceof HTMLInputElement) submittedOdds.value = odds.value;
-    if (observed && submittedObserved instanceof HTMLInputElement)
-      submittedObserved.value = observed.value;
+    const line = form.querySelector<HTMLInputElement>('[data-testid="refresh-line"]');
+    const book = form.querySelector<HTMLInputElement>('[data-testid="refresh-book"]');
+    const copy = (display: HTMLInputElement | null, name: string) => {
+      const submitted = form.elements.namedItem(name);
+      if (display && submitted instanceof HTMLInputElement) submitted.value = display.value;
+    };
+    copy(odds, "americanOdds");
+    copy(observed, "observedAt");
+    copy(line, "pointLine");
+    copy(book, "sportsbook");
     const button = form.querySelector<HTMLButtonElement>('[data-testid="refresh"]');
     if (button) button.disabled = true;
     form.querySelector<HTMLElement>('[data-testid="submission-pending"]')?.removeAttribute("hidden");
@@ -61,7 +66,9 @@
     </section>
   {/if}
   {#if run.parentId}
-    <p>Refresh of <a href="/analysis/{run.parentId}">an earlier report</a>. That report is unchanged.</p>
+    <p>
+      Refresh of <a href="/analysis/{run.parentId}" data-testid="parent-link">an earlier report</a>. That report is unchanged.
+    </p>
   {/if}
   {#if form?.error}
     <p data-testid="form-error">{form.error}</p>
@@ -69,7 +76,7 @@
 
   <section data-testid="offer">
     <h2>Offer</h2>
-    <p>
+    <p data-testid="offer-contract">
       {run.offer.sportsbook}: {run.offer.market}, {run.offer.selection}
       {signedLine(run.offer.pointLine)}
     </p>
@@ -287,18 +294,42 @@
   {/if}
 
   {#if !fixture}
-    <p data-testid="usage">
-      {#if run.usage}
-        Drafting used {run.usage.totalTokens ?? "an unreported number of"} tokens
-        {#if run.usage.promptTokens !== null && run.usage.completionTokens !== null}
-          ({run.usage.promptTokens} prompt, {run.usage.completionTokens} completion)
-        {/if}. Cost {run.usage.costUsd === null
-          ? "not reported"
-          : `$${run.usage.costUsd.toFixed(4)}, as reported by ${run.provider}`}.
-      {:else}
-        {run.provider} reported no usage for this run.
+    <section data-testid="usage">
+      {#if run.providerOutcomeAmbiguous}
+        <p data-testid="provider-outcome">
+          Provider completion is ambiguous. This request may already have been charged. Start a new
+          attempt before sending another provider request. Completion is not exactly once.
+        </p>
       {/if}
-    </p>
+      {#if run.usage}
+        <p>
+          Known usage across {run.providerRequests.length === 1 ? "1 provider request" : `${run.providerRequests.length} provider requests`}
+          {#if run.usage.partial}(partial){/if}:
+          {run.usage.totalTokens === null ? "total tokens unknown" : `${run.usage.totalTokens} tokens`}
+          {#if run.usage.promptTokens !== null && run.usage.completionTokens !== null}
+            ({run.usage.promptTokens} prompt, {run.usage.completionTokens} completion)
+          {:else if run.usage.promptTokens === null || run.usage.completionTokens === null}
+            (some token fields unknown)
+          {/if}.
+          Cost {run.usage.costUsd === null
+            ? "unknown, not zero"
+            : `$${run.usage.costUsd.toFixed(4)}, as reported by ${run.provider}`}.
+        </p>
+      {:else}
+        <p>{run.provider} reported no usage for this run. Missing cost is unknown, not zero.</p>
+      {/if}
+      {#if run.providerRequests.length > 0}
+        <ul data-testid="provider-requests">
+          {#each run.providerRequests as item (item.requestId + item.role)}
+            <li>
+              {item.role} {item.requestId}: {item.outcome}.
+              {item.totalTokens === null ? "tokens unknown" : `${item.totalTokens} tokens`}.
+              Cost {item.costKnown && item.costUsd !== null ? `$${item.costUsd.toFixed(4)}` : "unknown"}.
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </section>
   {/if}
 
   <ol data-testid="progress">
@@ -325,9 +356,41 @@
     />
     <input type="hidden" name="americanOdds" value={run.offer.americanOdds} />
     <input type="hidden" name="observedAt" value={data.refreshObservedDefault} />
+    <input type="hidden" name="pointLine" value={run.offer.pointLine ?? ""} />
+    <input type="hidden" name="sportsbook" value={run.offer.sportsbook} />
+    <input type="hidden" name="market" value={run.offer.market} />
+    <input type="hidden" name="selection" value={run.offer.selection} />
     <p role="status" data-testid="submission-pending" hidden>Saving your new attempt…</p>
     <h2>{run.status === "completed" ? "Refresh at a new price" : "Start a new attempt"}</h2>
-    <input type="hidden" name="sportsbook" value={refreshValue("sportsbook", run.offer.sportsbook)} />
+    <p data-testid="refresh-keeps">
+      Keeps {run.offer.market}, {run.offer.selection}. A different market or selection is a new analysis, not a refresh.
+    </p>
+    <label>
+      Sportsbook
+      <input
+        name="displaySportsbook"
+        value={refreshValue("sportsbook", run.offer.sportsbook)}
+        required
+        data-testid="refresh-book"
+      />
+    </label>
+    {#if run.offer.market !== "moneyline"}
+      <label>
+        {run.offer.market === "spread" ? "Selected-side line" : "Total line"}
+        <input
+          name="displayPointLine"
+          value={refreshValue("pointLine", run.offer.pointLine ?? "")}
+          required
+          inputmode="decimal"
+          data-testid="refresh-line"
+        />
+      </label>
+      <p data-testid="refresh-line-guidance">
+        {run.offer.market === "spread"
+          ? "The line belongs to the selected side. Changing the number does not change which side you researched."
+          : "Over and under share this total. Changing the number does not change over or under."}
+      </p>
+    {/if}
     <label>
       American odds
       <input

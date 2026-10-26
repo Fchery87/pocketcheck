@@ -6,6 +6,8 @@ import {
   parseManualEvidence,
   parseObservedAt,
 } from "#lib/server/analysis/form.ts";
+import { americanToDecimal, PriceError } from "#lib/domain/odds.ts";
+import { offerEntryGuidance, type SideSelection, type TieRule } from "#lib/domain/offer.ts";
 import { runAnalysis } from "#lib/server/analysis/run.ts";
 import { readSchedule, upcomingGames } from "#lib/server/analysis/schedule.ts";
 import {
@@ -85,6 +87,32 @@ export const actions = {
     if (!upcomingGames([game], nowIso).length) return refuse(400, "The game has already started");
     const observedAt = parseObservedAt(values.observedAt ?? "");
     if (!observedAt) return refuse(400, "Enter when you observed this price");
+    const market = values.market;
+    if (market !== "moneyline" && market !== "spread" && market !== "total") {
+      return refuse(400, "Choose a market");
+    }
+    const selection = values.selection as SideSelection;
+    const guidance = offerEntryGuidance(market);
+    if (!guidance.selections.includes(selection)) {
+      return refuse(400, `A ${market} selection must be ${guidance.selections.join(" or ")}`);
+    }
+    const pointLineRaw = values.pointLine ?? "";
+    let pointLine: number | undefined;
+    if (guidance.line) {
+      if (!pointLineRaw) return refuse(400, `A ${market} requires a point line`);
+      pointLine = Number(pointLineRaw);
+      if (!Number.isFinite(pointLine)) return refuse(400, "The point line is not a number");
+    }
+    const americanOdds = Number(values.americanOdds);
+    try {
+      americanToDecimal(americanOdds);
+    } catch (error) {
+      return refuse(400, error instanceof PriceError ? error.message : "Invalid American price");
+    }
+    const tieRule = values.tieRule as TieRule;
+    if (market === "moneyline" && !["push", "loss", "win", "void"].includes(tieRule)) {
+      return refuse(400, "A moneyline requires a tie rule");
+    }
 
     let store;
     try {
@@ -96,7 +124,6 @@ export const actions = {
     const drafting = await thesisDrafter();
     if (!drafting.ok) return refuse(503, drafting.error);
 
-    const pointLineRaw = values.pointLine ?? "";
     const result = await runAnalysis(
       {
         game,
@@ -104,12 +131,12 @@ export const actions = {
         nowIso,
         scheduleRetrievedAt: values.scheduleRetrievedAt || schedule.retrievedAt,
         sportsbook: values.sportsbook ?? "",
-        market: values.market as "moneyline" | "spread" | "total",
-        selection: values.selection as "home" | "away" | "over" | "under",
-        pointLine: pointLineRaw === "" ? undefined : Number(pointLineRaw),
-        americanOdds: Number(values.americanOdds),
+        market,
+        selection,
+        pointLine,
+        americanOdds,
         observedAt,
-        tieRule: values.tieRule as "push" | "loss" | "win" | "void",
+        tieRule: market === "moneyline" ? tieRule : undefined,
         lean: values.lean,
         rationale: values.rationale,
         manualEvidence: manual.entries,
