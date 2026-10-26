@@ -918,6 +918,171 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
       expect((await store.listBets())[0]).toMatchObject({ pointLine: -3.5, americanOdds: -105 });
     });
 
+    it("grades the researched line and the placed line from one score without mixing them", async () => {
+      const store = makeStore();
+      const run = (
+        await runAnalysis(
+          request({
+            market: "spread",
+            selection: "home",
+            pointLine: -3,
+            americanOdds: -110,
+          }),
+          { store },
+        )
+      ).run!;
+      const recorded = await store.recordBet({
+        analysisId: run.id,
+        submissionId: "placement-half-point",
+        sportsbook: "Other Book",
+        market: "spread",
+        selection: "home",
+        pointLine: -3.5,
+        americanOdds: -105,
+        stakeUnits: 1,
+        placedAt: "2026-10-25T15:55:00.000Z",
+        rules: { period: "full-game", overtime: "included" },
+      });
+      expect(recorded.kind).toBe("created");
+      if (recorded.kind !== "created") throw new Error("expected a created bet");
+
+      const settled = await store.recordSettlement({
+        eventId: "final-dal-phi",
+        analysisId: run.id,
+        betId: recorded.bet.id,
+        kind: "final",
+        homeScore: 20,
+        awayScore: 17,
+        recordedAt: "2026-10-27T04:00:00.000Z",
+        source: "official",
+      });
+      expect(settled.kind).toBe("recorded");
+      if (settled.kind !== "recorded") throw new Error("expected a recorded settlement");
+
+      const read = await store.readSettlement({ analysisId: run.id, betId: recorded.bet.id });
+      expect(read.assessment).toMatchObject({
+        result: "push",
+        effective: "push",
+        history: [{ id: settled.noticeId, result: "push" }],
+      });
+      expect(read.bet).toMatchObject({
+        result: "loss",
+        effective: "loss",
+        history: [{ id: settled.noticeId, result: "loss" }],
+      });
+      expect((await store.getRun(run.id))?.offer.pointLine).toBe(-3);
+      expect((await store.listBets()).find((item) => item.id === recorded.bet.id)?.pointLine).toBe(
+        -3.5,
+      );
+    });
+
+    it("ignores a repeated settlement notice and rejects a conflicting event identifier", async () => {
+      const store = makeStore();
+      const run = (await runAnalysis(request(), { store })).run!;
+      const input = {
+        eventId: "final-repeat",
+        analysisId: run.id,
+        kind: "final" as const,
+        homeScore: 24,
+        awayScore: 17,
+        recordedAt: "2026-10-27T04:00:00.000Z",
+        source: "official",
+      };
+      const first = await store.recordSettlement(input);
+      const again = await store.recordSettlement(input);
+      expect(first.kind).toBe("recorded");
+      expect(again).toEqual(first.kind === "recorded" ? { kind: "duplicate", noticeId: first.noticeId } : first);
+      const conflict = await store.recordSettlement({ ...input, homeScore: 10 });
+      expect(conflict).toMatchObject({
+        kind: "conflict",
+        error: expect.stringMatching(/different inputs/i),
+      });
+      const read = await store.readSettlement({ analysisId: run.id });
+      expect(read.assessment.history).toHaveLength(1);
+      expect(read.assessment.effective).toBe("win");
+    });
+
+    it("keeps a postponement unresolved until a later final score is recorded", async () => {
+      const store = makeStore();
+      const run = (await runAnalysis(request(), { store })).run!;
+      const postponed = await store.recordSettlement({
+        eventId: "postponed-dal-phi",
+        analysisId: run.id,
+        kind: "postponed",
+        recordedAt: "2026-10-26T23:00:00.000Z",
+        source: "official",
+        reason: "weather",
+      });
+      expect(postponed.kind).toBe("recorded");
+      const open = await store.readSettlement({ analysisId: run.id });
+      expect(open.assessment.effective).toBe("unresolved");
+      expect(open.assessment.history).toHaveLength(1);
+
+      const final = await store.recordSettlement({
+        eventId: "final-after-postponement",
+        analysisId: run.id,
+        kind: "final",
+        homeScore: 24,
+        awayScore: 20,
+        recordedAt: "2026-10-28T04:00:00.000Z",
+        source: "official",
+      });
+      expect(final.kind).toBe("recorded");
+      const closed = await store.readSettlement({ analysisId: run.id });
+      expect(closed.assessment.history.map((row) => row.result)).toEqual(["unresolved", "win"]);
+      expect(closed.assessment.effective).toBe("win");
+    });
+
+    it("keeps the earlier notice when a correction supplies a reason", async () => {
+      const store = makeStore();
+      const run = (await runAnalysis(request(), { store })).run!;
+      const first = await store.recordSettlement({
+        eventId: "early-score",
+        analysisId: run.id,
+        kind: "final",
+        homeScore: 17,
+        awayScore: 20,
+        recordedAt: "2026-10-27T03:00:00.000Z",
+        source: "official",
+      });
+      expect(first.kind).toBe("recorded");
+      if (first.kind !== "recorded") throw new Error("expected a recorded settlement");
+      const missing = await store.recordSettlement({
+        eventId: "score-correction",
+        analysisId: run.id,
+        kind: "final",
+        homeScore: 24,
+        awayScore: 20,
+        recordedAt: "2026-10-27T16:00:00.000Z",
+        source: "official-correction",
+        correctsNoticeId: first.noticeId,
+      });
+      expect(missing).toMatchObject({
+        kind: "conflict",
+        error: expect.stringMatching(/reason/i),
+      });
+      const corrected = await store.recordSettlement({
+        eventId: "score-correction",
+        analysisId: run.id,
+        kind: "final",
+        homeScore: 24,
+        awayScore: 20,
+        recordedAt: "2026-10-27T16:00:00.000Z",
+        source: "official-correction",
+        reason: "official score correction",
+        correctsNoticeId: first.noticeId,
+      });
+      expect(corrected.kind).toBe("recorded");
+      const read = await store.readSettlement({ analysisId: run.id });
+      expect(read.assessment.history.map((row) => row.result)).toEqual(["loss", "win"]);
+      expect(read.assessment.history[1]).toMatchObject({
+        correctsId: first.noticeId,
+        reason: "official score correction",
+      });
+      expect(read.assessment.effective).toBe("win");
+      expect(read.assessment.history[0]?.id).toBe(first.noticeId);
+    });
+
     it("rejects a bet for an analysis that does not exist", async () => {
       const store = makeStore();
       await expect(
