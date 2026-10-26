@@ -13,6 +13,7 @@ import { readSchedule, upcomingGames } from "#lib/server/analysis/schedule.ts";
 import {
   ConfigError,
   evidenceCollector,
+  forecastSource,
   modelSource,
   now,
   researchStore,
@@ -140,7 +141,13 @@ export const actions = {
         rationale: values.rationale,
         manualEvidence: manual.entries,
       },
-      { store, drafter: drafting.drafter, collect: evidenceCollector(), model: modelSource() },
+      {
+        store,
+        drafter: drafting.drafter,
+        collect: evidenceCollector(),
+        model: modelSource(),
+        forecast: forecastSource(),
+      },
     );
     if (!result.ok) {
       if (result.run) redirect(303, `/analysis/${result.run.id}`);

@@ -8,6 +8,7 @@ import { readSchedule } from "#lib/server/analysis/schedule.ts";
 import {
   ConfigError,
   evidenceCollector,
+  forecastSource,
   modelSource,
   now,
   researchStore,
@@ -110,6 +111,7 @@ export const actions = {
         drafter: drafting.drafter,
         collect: evidenceCollector(),
         model: modelSource(),
+        forecast: forecastSource(),
       },
     );
     if (result.run) redirect(303, `/analysis/${result.run.id}`);
