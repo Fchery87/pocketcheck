@@ -7,15 +7,19 @@ const released = {
   materialEvidenceMissing: false,
   releaseStatus: "released-experimental" as const,
   probabilities: { win: 0.55, loss: 0.45, push: 0 },
+  uncertainty: {
+    available: true as const,
+    confidence: 0.9,
+    probabilities: { win: 0.55, loss: 0.45, push: 0 },
+  },
   decimalOdds: 1.909090909,
-  targetExpectedValue: 0,
 };
 
 describe("experimental value policy", () => {
-  it("names policy-2026-10-25 and does not treat the threshold as established science", () => {
+  it("names policy-2026-10-25.2 and does not treat the threshold as established science", () => {
     const decision = decidePolicy(released);
     expect(decision.policyVersion).toBe(POLICY_VERSION);
-    expect(decision.policyVersion).toBe("policy-2026-10-25");
+    expect(decision.policyVersion).toBe("policy-2026-10-25.2");
     expect(decision.label.toLowerCase()).toContain("not scientifically established");
     expect(decision.experimental).toBe(true);
   });
@@ -52,7 +56,7 @@ describe("experimental value policy", () => {
     const decision = decidePolicy({ ...released, probabilities: null });
     expect(decision.expectedValuePerUnit).toBeNull();
     expect(decision.conclusion).toBe("insufficient evidence");
-    expect(decision.priceCutoff.available).toBe(false);
+    expect(decision.priceCutoff.available).toBe(true);
   });
 
   it("shows experimental expected value for a released artifact with a valid pregame offer", () => {
@@ -64,5 +68,14 @@ describe("experimental value policy", () => {
     if (decision.priceCutoff.available) {
       expect(decision.priceCutoff.decimalMinimum).toBeCloseTo(1 + 0.45 / 0.55, 8);
     }
+  });
+
+  it("passes when the point expected value is not positive", () => {
+    const decision = decidePolicy({
+      ...released,
+      probabilities: { win: 0.5, loss: 0.5, push: 0 },
+      decimalOdds: 1.909090909,
+    });
+    expect(decision.conclusion).toBe("pass");
   });
 });

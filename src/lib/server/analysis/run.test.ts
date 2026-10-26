@@ -7,6 +7,7 @@ import type { ThesisPacket } from "#lib/server/providers/contracts.ts";
 import type { EvidenceItem } from "#lib/server/sources/contracts.ts";
 import type { CollectedEvidence, EvidenceCollector } from "#lib/server/analysis/evidence.ts";
 import type { ModelSource } from "#lib/server/analysis/model.ts";
+import type { UncertaintyAssessment } from "#lib/server/models/uncertainty.ts";
 
 const NOW = "2026-10-25T16:00:00.000Z";
 const game = loadFixtureGames("tests/fixtures/sources/games-minimized.csv", NOW).find(
@@ -233,7 +234,11 @@ describe("research run model", () => {
         releasedMarkets: eligible ? ["moneyline"] : [],
       },
       probabilities,
-      uncertainty: { available: false, reason: "test" },
+      uncertainty: {
+        available: true,
+        confidence: 0.9,
+        probabilities: { win: 0.55, loss: 0.43, push: 0.02 },
+      },
       eligible,
       reason: eligible ? "Released for moneyline." : "Unreleased artifacts are not eligible.",
     });
@@ -297,5 +302,76 @@ describe("research run model", () => {
       status: "unavailable",
       reason: "The model could not price this offer: artifact unreadable",
     });
+  });
+});
+
+describe("value policy with uncertainty", () => {
+  const quiet: EvidenceCollector = async () => ({ items: [], gaps: [], materialGaps: [] });
+  const point = { win: 0.6, loss: 0.38, push: 0.02 };
+  const released = (uncertainty: UncertaintyAssessment): ModelSource => async () => ({
+    status: "computed",
+    artifact: {
+      checksum: "b".repeat(64),
+      version: 4,
+      trainingCutoff: "2026-03-01T00:00:00Z",
+      releaseStatus: "released-experimental",
+      releasedMarkets: ["moneyline"],
+    },
+    probabilities: point,
+    uncertainty,
+    eligible: true,
+    reason: "Released for moneyline.",
+  });
+  const sure = (win: number, loss: number): UncertaintyAssessment => ({
+    available: true,
+    confidence: 0.9,
+    probabilities: { win, loss, push: 0.02 },
+  });
+  const run = (model: ModelSource, americanOdds = 110) =>
+    runAnalysis(request({ americanOdds }), { store: createMemoryStore(), collect: quiet, model });
+
+  it("calls a market a candidate only when the conservative estimate clears the threshold", async () => {
+    const outcome = await run(released(sure(0.5, 0.48)));
+    const policy = outcome.run!.policy!;
+    expect(policy.policyVersion).toBe("policy-2026-10-25.2");
+    expect(policy.conclusion).toBe("experimental value candidate");
+    expect(policy.expectedValuePerUnit).toBeCloseTo(0.6 * 1.1 - 0.38, 10);
+    expect(policy.conservativeExpectedValuePerUnit).toBeCloseTo(0.5 * 1.1 - 0.48, 10);
+    expect(policy.threshold).toEqual({ version: "threshold-2026-10-25", conservativeExpectedValue: 0 });
+    expect(policy.priceCutoff).toMatchObject({ available: true, decimalMinimum: 1 + 0.48 / 0.5 });
+  });
+
+  it("leans, not recommends, when only the point estimate is positive", async () => {
+    const policy = (await run(released(sure(0.45, 0.53)))).run!.policy!;
+    expect(policy.conclusion).toBe("experimental lean");
+    expect(policy.blockingReason).toMatch(/conservative estimate at 90% confidence is -0\.0350/);
+  });
+
+  it("reports insufficient evidence when uncertainty cannot be assessed", async () => {
+    const policy = (
+      await run(released({ available: false, reason: "Training produced 12 forecasts." }))
+    ).run!.policy!;
+    expect(policy.conclusion).toBe("insufficient evidence");
+    expect(policy.blockingReason).toBe(
+      "Uncertainty assessment unavailable: Training produced 12 forecasts.",
+    );
+    expect(policy.conservativeExpectedValuePerUnit).toBeNull();
+  });
+
+  it("passes when the price leaves no positive expected value", async () => {
+    const policy = (await run(released(sure(0.5, 0.48)), -200)).run!.policy!;
+    expect(policy.conclusion).toBe("pass");
+    expect(policy.expectedValuePerUnit).toBeCloseTo(0.6 * 0.5 - 0.38, 10);
+  });
+
+  it("does not assess uncertainty for an ineligible model", async () => {
+    const ineligible: ModelSource = async (...args) => ({
+      ...(await released(sure(0.5, 0.48))(...args)),
+      eligible: false,
+      reason: "Unreleased artifacts are not eligible.",
+    }) as Awaited<ReturnType<ModelSource>>;
+    const policy = (await run(ineligible)).run!.policy!;
+    expect(policy.conclusion).toBe("insufficient evidence");
+    expect(policy.uncertainty).toEqual({ available: false, reason: "Not assessed." });
   });
 });

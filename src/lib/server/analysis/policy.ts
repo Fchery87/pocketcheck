@@ -1,7 +1,9 @@
 import { expectedValue, type OutcomeProbabilities } from "#lib/domain/odds.ts";
+import { VALUE_THRESHOLD } from "#lib/domain/threshold.ts";
 import type { ReleaseStatus } from "../models/artifact.ts";
+import type { UncertaintyAssessment } from "../models/uncertainty.ts";
 
-export const POLICY_VERSION = "policy-2026-10-25";
+export const POLICY_VERSION = "policy-2026-10-25.2";
 
 export const POLICY_CONCLUSIONS = [
   "pass",
@@ -21,9 +23,9 @@ export type PolicyInput = {
   /** Why the model is not eligible, shown when releaseStatus is not released. */
   releaseReason?: string;
   probabilities: OutcomeProbabilities | null;
+  /** Conservative probabilities from the artifact's calibration. Assessed only for an eligible model. */
+  uncertainty: UncertaintyAssessment;
   decimalOdds: number;
-  /** Named target expected value per unit. Not a scientifically established edge threshold. */
-  targetExpectedValue?: number;
 };
 
 export type PolicyDecision = {
@@ -32,9 +34,12 @@ export type PolicyDecision = {
   experimental: true;
   blockingReason: string | null;
   expectedValuePerUnit: number | null;
+  conservativeExpectedValuePerUnit: number | null;
+  threshold: typeof VALUE_THRESHOLD;
+  uncertainty: UncertaintyAssessment;
   priceCutoff:
     | { available: false; reason: string }
-    | { available: true; decimalMinimum: number; targetExpectedValue: number };
+    | { available: true; decimalMinimum: number; conservativeExpectedValue: number };
   label: "Experimental estimate. Not proof of an edge. Thresholds in this policy are versioned and are not scientifically established.";
 };
 
@@ -45,42 +50,29 @@ function finiteProbabilities(
   return [probabilities.win, probabilities.loss, probabilities.push].every(Number.isFinite);
 }
 
-function priceCutoff(
-  probabilities: OutcomeProbabilities | null,
-  target: number | undefined,
-): PolicyDecision["priceCutoff"] {
-  if (!finiteProbabilities(probabilities)) {
+function priceCutoff(uncertainty: UncertaintyAssessment): PolicyDecision["priceCutoff"] {
+  if (!uncertainty.available) {
+    return { available: false, reason: `Price cutoff is unavailable: ${uncertainty.reason}` };
+  }
+  const { win, loss } = uncertainty.probabilities;
+  if (!(win > 0)) {
     return {
       available: false,
-      reason:
-        "Price cutoff is unavailable because outcome probabilities are missing or not finite.",
+      reason: "Price cutoff is unavailable because the conservative win probability is zero.",
     };
   }
-  if (target === undefined || !Number.isFinite(target)) {
-    return {
-      available: false,
-      reason: "Price cutoff is unavailable because no target expected value was supplied.",
-    };
-  }
-  if (!(probabilities.win > 0)) {
-    return {
-      available: false,
-      reason: "Price cutoff is unavailable because the win probability is not greater than zero.",
-    };
-  }
-  return {
-    available: true,
-    decimalMinimum: 1 + (probabilities.loss + target) / probabilities.win,
-    targetExpectedValue: target,
-  };
+  const target = VALUE_THRESHOLD.conservativeExpectedValue;
+  return { available: true, decimalMinimum: 1 + (loss + target) / win, conservativeExpectedValue: target };
 }
 
 export function decidePolicy(input: PolicyInput): PolicyDecision {
-  const cutoff = priceCutoff(input.probabilities, input.targetExpectedValue);
   const base: Omit<PolicyDecision, "conclusion" | "blockingReason" | "expectedValuePerUnit"> = {
     policyVersion: POLICY_VERSION,
     experimental: true as const,
-    priceCutoff: cutoff,
+    conservativeExpectedValuePerUnit: null,
+    threshold: VALUE_THRESHOLD,
+    uncertainty: input.uncertainty,
+    priceCutoff: priceCutoff(input.uncertainty),
     label:
       "Experimental estimate. Not proof of an edge. Thresholds in this policy are versioned and are not scientifically established." as const,
   };
@@ -144,20 +136,42 @@ export function decidePolicy(input: PolicyInput): PolicyDecision {
     };
   }
 
-  if (value.perUnit > 0) {
+  if (value.perUnit <= 0) {
     return {
       ...base,
-      conclusion: "experimental value candidate",
-      blockingReason: null,
+      conclusion: "pass",
+      blockingReason: "The released artifact does not show positive expected value at the recorded price.",
       expectedValuePerUnit: value.perUnit,
     };
   }
-
+  if (!input.uncertainty.available) {
+    return {
+      ...base,
+      conclusion: "insufficient evidence",
+      blockingReason: `Uncertainty assessment unavailable: ${input.uncertainty.reason}`,
+      expectedValuePerUnit: value.perUnit,
+    };
+  }
+  const conservative = expectedValue({
+    decimalOdds: input.decimalOdds,
+    probabilities: input.uncertainty.probabilities,
+    illustrative: false,
+  }).perUnit!;
+  const confidence = `${Math.round(input.uncertainty.confidence * 100)}%`;
+  if (conservative <= VALUE_THRESHOLD.conservativeExpectedValue) {
+    return {
+      ...base,
+      conclusion: "experimental lean",
+      blockingReason: `Positive point estimate, but the conservative estimate at ${confidence} confidence is ${conservative.toFixed(4)} units, not above the ${VALUE_THRESHOLD.conservativeExpectedValue} threshold (${VALUE_THRESHOLD.version}).`,
+      expectedValuePerUnit: value.perUnit,
+      conservativeExpectedValuePerUnit: conservative,
+    };
+  }
   return {
     ...base,
-    conclusion: "experimental lean",
-    blockingReason:
-      "The released artifact does not show positive expected value at the recorded price.",
+    conclusion: "experimental value candidate",
+    blockingReason: null,
     expectedValuePerUnit: value.perUnit,
+    conservativeExpectedValuePerUnit: conservative,
   };
 }

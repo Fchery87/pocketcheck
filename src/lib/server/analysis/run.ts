@@ -215,6 +215,10 @@ export async function runAnalysis(
     releaseReason: probabilityModel.reason,
     probabilities:
       eligible && probabilityModel.status === "computed" ? probabilityModel.probabilities : null,
+    uncertainty:
+      eligible && probabilityModel.status === "computed"
+        ? probabilityModel.uncertainty
+        : { available: false, reason: "Not assessed." },
     decimalOdds,
   });
   const thesisPacket = buildThesisPacket({
