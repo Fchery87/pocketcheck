@@ -30,6 +30,16 @@ npm run model:release -- data/artifacts/baseline.json data/artifacts/baseline-ev
 
 The fit command also accepts the synthetic JSON fixture in `tests/model/fixtures/`. Without a cutoff, the earliest 70% of games train. The artifact (version 4) stores the dataset hash, feature definitions and parameters, training cutoff, fit parameters, base rates, residual source, residual support, key weights, a walk-forward calibration table, and a checksum of those fields. Artifacts stay under `data/artifacts/`, which is gitignored. Evaluating on the full history takes about 10 seconds.
 
+## External input contracts
+
+Artifact loading, `model:evaluate`, and `model:release` parse artifact JSON as unknown input. Supported artifacts have kind `pocketcheck-baseline` and version 4. They require the complete feature definitions, finite model coefficients and means, positive feature scales, valid residual support and bandwidth, normalized base-rate probabilities, and a complete calibration table for moneyline, spread, and total. Release status must agree with the unique supported released markets. The SHA-256 checksum must match the validated contents. A matching checksum alone does not establish a valid artifact.
+
+Evaluation reports use version 1. Their required identity fields are `artifactChecksum`, `datasetHash`, `trainingCutoff`, and `holdoutGames`. The checksum, dataset, and training cutoff must match the artifact being released. Older unversioned reports must be regenerated with `npm run model:evaluate`.
+
+Every report requires its overall scores, calibration, market summaries, price coverage, baseline comparisons, and threshold records for all three markets. Scores must be finite and nonnegative. Counts must be nonnegative safe integers and agree across the holdout, market, calibration, coverage, and threshold records. Baseline counts cannot exceed their market samples. Duplicate baseline identities are invalid. Probabilities and interval endpoints must be valid and ordered. Required numeric fields cannot be missing or null. Zero scores and counts remain valid. Nullable uncertainty intervals and rates remain null only where the contract represents unavailable evidence.
+
+Invalid artifacts produce an unavailable-model reason in research runs and supply no model probabilities to the policy or browser. The artifact's training cutoff must precede the game and cannot follow the research decision cutoff. Invalid release inputs exit with code 1 and an explanation before writing output, preserving any existing output file. Valid reports still need to pass the release gate. A versioned historical report does not satisfy the independent prospective protocol required by the current project specification.
+
 ## Baselines
 
 The constant 57/40/3 home-field guess has been removed. Each baseline is scored on the same forecasts as the model:

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -105,6 +106,100 @@ describe("the model a run uses", () => {
     expect(result.status === "unavailable" && result.reason).toMatch(/npm run model:fit/);
   });
 
+  it("returns an unavailable model for malformed artifacts even with matching checksums", async () => {
+    const { checksum: _checksum, ...body } = artifact;
+    const malformed = [
+      null,
+      [],
+      { ...body, margin: { ...body.margin, model: { ...body.margin.model, intercept: null } } },
+      { ...body, baseRates: { moneyline: { win: 1, loss: 1, push: 0 } } },
+      { ...body, uncertainty: { ...body.uncertainty, markets: { moneyline: [] } } },
+      { ...body, trainingCutoff: "invalid" },
+      { ...body, featureParameters: { ...body.featureParameters, priorWeight: 0 } },
+      { ...body, fitParameters: { ...body.fitParameters, residualFolds: -1 } },
+      {
+        ...body,
+        margin: {
+          ...body.margin,
+          residuals: { ...body.margin.residuals, support: { min: 3, max: -3 } },
+        },
+      },
+      { ...body, releaseStatus: "released-experimental", releasedMarkets: [] },
+    ];
+    for (const [index, value] of malformed.entries()) {
+      const path = join(directory, `invalid-${index}.json`);
+      writeFileSync(
+        path,
+        JSON.stringify(
+          value === null || Array.isArray(value)
+            ? value
+            : {
+                ...value,
+                checksum: createHash("sha256").update(JSON.stringify(value)).digest("hex"),
+              },
+        ),
+      );
+      const result = await createArtifactModel({ artifactPath: path, schedulePath })(
+        game,
+        CUTOFF,
+        spreadOffer("home", -3),
+      );
+      expect(result).toMatchObject({
+        status: "unavailable",
+        reason: expect.stringMatching(/artifact/i),
+      });
+      expect(result).not.toHaveProperty("probabilities");
+      expect(forDisplay(result)).toEqual(result);
+    }
+    const path = join(directory, "invalid-json.json");
+    writeFileSync(path, "{broken");
+    await expect(
+      createArtifactModel({ artifactPath: path, schedulePath })(
+        game,
+        CUTOFF,
+        spreadOffer("home", -3),
+      ),
+    ).resolves.toMatchObject({ status: "unavailable" });
+  });
+
+  it("rejects unsupported chronology metadata even with a valid checksum", async () => {
+    const { checksum: _checksum, ...body } = artifact;
+    for (const patch of [
+      { version: "unknown" },
+      { fallback: "immediate" },
+      { cutoff: "inclusive" },
+      { kickoffGroups: "split" },
+    ]) {
+      const value = {
+        ...body,
+        chronology: {
+          version: "result-availability-v1",
+          fallback: "kickoff-plus-24-hours",
+          cutoff: "strictly-before",
+          kickoffGroups: "intact",
+          ...patch,
+        },
+      };
+      const path = join(directory, "unsupported-chronology.json");
+      writeFileSync(
+        path,
+        JSON.stringify({
+          ...value,
+          checksum: createHash("sha256").update(JSON.stringify(value)).digest("hex"),
+        }),
+      );
+      const result = await createArtifactModel({ artifactPath: path, schedulePath })(
+        game,
+        CUTOFF,
+        spreadOffer("home", -3),
+      );
+      expect(result).toMatchObject({
+        status: "unavailable",
+        reason: expect.stringMatching(/chronology/),
+      });
+    }
+  });
+
   it("refuses an artifact whose checksum does not match", async () => {
     const tampered = saved("tampered.json", {
       ...artifact,
@@ -135,6 +230,18 @@ describe("the model a run uses", () => {
       schedulePath,
     })(early, "2024-09-30T12:00:00.000Z", spreadOffer("home", -3));
     expect(result.status === "unavailable" && result.reason).toMatch(/trained on games through/);
+  });
+
+  it("refuses an artifact trained after the research decision cutoff", async () => {
+    const result = await createArtifactModel({
+      artifactPath: saved("future-training.json", artifact),
+      schedulePath,
+    })(game, "2024-10-01T12:00:00.000Z", spreadOffer("home", -3));
+    expect(result).toMatchObject({
+      status: "unavailable",
+      reason: expect.stringMatching(/decision cutoff/),
+    });
+    expect(result).not.toHaveProperty("probabilities");
   });
 
   it("records the offer's probabilities and why an unreleased market is not eligible", async () => {
@@ -178,6 +285,10 @@ describe("the model a run uses", () => {
     };
     const releasedFor = (market: "moneyline" | "spread") =>
       releaseArtifact(artifact, {
+        version: 1,
+        datasetHash: artifact.datasetHash,
+        trainingCutoff: artifact.trainingCutoff,
+        holdoutGames: 900,
         artifactChecksum: artifact.checksum,
         summary: {
           count: 0,

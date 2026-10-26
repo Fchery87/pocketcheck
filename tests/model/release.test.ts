@@ -132,6 +132,10 @@ describe("releasing an artifact", () => {
 
   it("records the released markets and a fresh checksum", () => {
     const released = releaseArtifact(artifact, {
+      version: 1,
+      datasetHash: artifact.datasetHash,
+      trainingCutoff: artifact.trainingCutoff,
+      holdoutGames: 900,
       artifactChecksum: artifact.checksum,
       summary: passing,
     });
@@ -148,13 +152,27 @@ describe("releasing an artifact", () => {
 
   it("refuses an evaluation of a different artifact", () => {
     expect(() =>
-      releaseArtifact(artifact, { artifactChecksum: "0".repeat(64), summary: passing }),
+      releaseArtifact(artifact, {
+        version: 1,
+        datasetHash: artifact.datasetHash,
+        trainingCutoff: artifact.trainingCutoff,
+        holdoutGames: 900,
+        artifactChecksum: "0".repeat(64),
+        summary: passing,
+      }),
     ).toThrow(/different artifact/);
   });
 
   it("refuses when no market passes, leaving the artifact unreleased", () => {
     expect(() =>
-      releaseArtifact(artifact, { artifactChecksum: artifact.checksum, summary: summary([]) }),
+      releaseArtifact(artifact, {
+        version: 1,
+        datasetHash: artifact.datasetHash,
+        trainingCutoff: artifact.trainingCutoff,
+        holdoutGames: 900,
+        artifactChecksum: artifact.checksum,
+        summary: summary([]),
+      }),
     ).toThrow(/No market passed/);
     expect(artifact.releaseStatus).toBe("unreleased");
     expect(artifact.releasedMarkets).toEqual([]);

@@ -75,6 +75,10 @@ const EPS = 1e-12;
 
 /** What model:evaluate writes, and what model:release reads back. */
 export type EvaluationReport = {
+  version: 1;
+  datasetHash: string;
+  trainingCutoff: string;
+  holdoutGames: number;
   artifactChecksum: string;
   summary: EvaluationSummary;
 };
