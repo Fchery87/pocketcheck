@@ -41,10 +41,7 @@ export const load: PageServerLoad = async () => {
         const read = await journal.readSettlement({ analysisId: assessment.id, betId: bet.id });
         rows.push({ betId: bet.id, grade: read.bet });
       }
-      const read = await journal.readSettlement({
-        analysisId: assessment.id,
-        betId: related[0]?.id ?? null,
-      });
+      const read = await journal.readSettlement({ analysisId: assessment.id });
       return { analysisId: assessment.id, assessment: read.assessment, bets: rows };
     }),
   );

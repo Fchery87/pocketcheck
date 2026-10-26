@@ -18,9 +18,9 @@
 - [x] Exclude bulk source caches and model training datasets. Keep the forecast identities and recorded inputs required for journal recovery.
 - [x] Declare a backup format version and retain provenance limits for legacy records. Export does not invent missing historical facts.
 - [x] Read the downloaded artifact and verify relationships, exact timestamps, accounting, and history against saved records. Inject secret sentinels and prove they do not appear in the backup.
-- [ ] Verify download through production-browser acceptance and document backup contents, confidentiality, and the versioned recovery contract.
+- [x] Verify download through production-browser acceptance and document backup contents, confidentiality, and the versioned recovery contract. The production browser downloads the journal the page uses, including the correction reason, and a secret sentinel is absent. Backup contents remain documented in `docs/testing.md`.
 
-The last box is open because production-browser acceptance was not run. Port 42627 was not serving an isolated app in this worktree, and the shared browser suite was not free to take. Backup contents, confidentiality, and the version 1 recovery contract are documented in `docs/testing.md`.
+The production browser now downloads the same journal the page reads. Backup contents, confidentiality, and the version 1 recovery contract are documented in `docs/testing.md`.
 
 ## Answer
 

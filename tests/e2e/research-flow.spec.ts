@@ -374,6 +374,95 @@ test("a comparable close, a moved line, and a missing close stay distinct", asyn
   await expect(rows.nth(0).getByTestId("closing-comparison")).toBeVisible();
 });
 
+test("a correction, export, and restore keep the journal and leave a bad file unread", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.waitForLoadState("networkidle");
+  await page.getByTestId("game-id").selectOption("2026_07_DAL_PHI");
+  await page.getByLabel("Sportsbook").fill("Recovery Book");
+  await page.locator('select[name="market"]').selectOption("moneyline");
+  await page.locator('select[name="selection"]').selectOption("home");
+  await page.getByTestId("tie-rule").selectOption("push");
+  await page.getByTestId("american-odds").fill("-110");
+  await page.getByTestId("observed-at").fill("2026-10-25T11:30");
+  await page.getByTestId("manual-text").fill("Beat reporter: Barkley practiced fully Friday.");
+  await page.getByTestId("manual-url").fill("https://example.test/barkley-friday");
+  await page.getByRole("button", { name: "Add another" }).click();
+  const forecast = page.getByTestId("manual-evidence").locator("div").nth(1);
+  await forecast.getByTestId("manual-text").fill("Kickoff 52F, wind 8 mph");
+  await forecast.getByTestId("manual-time").fill("2026-10-25T11:30");
+  await forecast.getByTestId("manual-covers").selectOption("weather");
+  await page.getByTestId("analyze").click();
+  await expect(page.getByTestId("conclusion")).toHaveText("insufficient evidence");
+
+  await page.goto("/journal");
+  await page
+    .getByTestId("settle-analysis")
+    .selectOption({ index: await optionIndex(page, "settle-analysis", "moneyline home") });
+  await page.getByTestId("settle-event").fill("browser-recovery-final");
+  await page.getByTestId("settle-home").fill("24");
+  await page.getByTestId("settle-away").fill("17");
+  await page.getByRole("button", { name: "Record settlement" }).click();
+  await expect(page.getByTestId("settlement-recorded")).toHaveText("Settlement recorded");
+  const noticeId = await page.getByTestId("settlement-notice-id").first().innerText();
+  await page
+    .getByTestId("settle-analysis")
+    .selectOption({ index: await optionIndex(page, "settle-analysis", "moneyline home") });
+  await page.getByTestId("settle-event").fill("browser-recovery-correction");
+  await page.getByTestId("settle-home").fill("20");
+  await page.getByTestId("settle-away").fill("20");
+  await page.getByTestId("settle-corrects").fill(noticeId ?? "");
+  await page.getByTestId("settle-reason").fill("Official score was corrected to a tie.");
+  await page.getByRole("button", { name: "Record settlement" }).click();
+  await expect(page.getByTestId("settlement-recorded")).toHaveText("Settlement recorded");
+  const corrected = page.getByTestId("settlements").locator("li").first();
+  await expect(corrected.getByTestId("assessment-result")).toContainText("push");
+  await expect(corrected.getByTestId("settlement-notice").last()).toContainText("corrects");
+  await expect(corrected.getByTestId("settlement-notice").first()).toContainText("win");
+
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByTestId("journal-export").click(),
+  ]);
+  const backupPath = await download.path();
+  expect(backupPath).toBeTruthy();
+  const raw = await download.createReadStream().then(streamToString);
+  const backup = JSON.parse(raw);
+  expect(backup.version).toBe(1);
+  expect(raw).toContain("Recovery Book");
+  expect(raw).toContain("Official score was corrected to a tie.");
+  expect(raw).not.toContain("secret-sentinel");
+
+  await page.getByTestId("restore-file").setInputFiles({
+    name: "damaged.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({ ...backup, version: 99 })),
+  });
+  await page.getByRole("button", { name: "Restore journal" }).click();
+  await expect(page.getByTestId("form-error").first()).toContainText("Version 1");
+  await expect(page.getByTestId("assessments")).toContainText("Recovery Book");
+
+  await page.getByTestId("restore-file").setInputFiles(backupPath!);
+  await page.getByRole("button", { name: "Restore journal" }).click();
+  await expect(page.getByTestId("restore-recorded")).toBeVisible();
+  await page.reload();
+  await expect(page.getByTestId("assessments")).toContainText("Recovery Book");
+  const restoredCorrection = page
+    .getByTestId("settlement-notice")
+    .filter({ hasText: "Official score was corrected to a tie." });
+  await expect(restoredCorrection).toContainText("corrects");
+});
+
+function streamToString(stream: NodeJS.ReadableStream): Promise<string> {
+  const chunks: Buffer[] = [];
+  return new Promise((resolve, reject) => {
+    stream.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+    stream.on("error", reject);
+    stream.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+  });
+}
+
 test("a started game cannot be selected", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("game-id").locator("option[value='2026_01_OLD_GAME']")).toHaveCount(

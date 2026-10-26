@@ -17,11 +17,11 @@
 - [x] Deduplicate identical records so restoring the same backup twice produces the same journal. Conflicting identifiers fail visibly rather than replacing saved history.
 - [x] Preserve original timestamps, primary classifications, legacy limitations, provider accounting, frozen forecasts, and settlement correction chains.
 - [x] Keep restored pending or ambiguous attempts readable without automatically replaying external source or provider work.
-- [ ] Demonstrate the complete browser journey through analysis, changed-line refresh, differing actual bet, settlement, correction, closing observation, export, and restore into isolated empty storage.
+- [ ] Demonstrate the complete browser journey through analysis, changed-line refresh, differing actual bet, settlement, correction, closing observation, export, and restore into isolated empty storage. The production browser now covers correction, download, rejection of a bad version, and restore of the same file in the current journal. It does not yet restore into a separate empty journal. That isolation is covered by the Neon and memory journal contract.
 - [x] Compare the recovered records with the originals through persistent readback. Verify failure atomicity and repeated import against both memory and Neon contracts.
 - [x] Document supported backup versions and reachable recovery behavior. Update completion records without closing or modifying the parent specification.
 
-The browser box is open because the browser was not available. The journey was covered through the application journal boundary on memory and Neon. `docs/testing.md` documents version 1 and the journal page restore form. The parent specification was not modified.
+The browser covers the journey except restore into a separate empty journal. The application journal contract covers that isolation on memory and Neon. `docs/testing.md` documents version 1 and the journal page restore form. The parent specification was not modified.
 
 ## Answer
 

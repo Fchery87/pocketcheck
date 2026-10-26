@@ -262,6 +262,7 @@
         <ol>
           {#each row.assessment.history as notice (notice.id)}
             <li data-testid="settlement-notice">
+              <span data-testid="settlement-notice-id">{notice.id}</span>
               {notice.result} {notice.recordedAt}
               {#if notice.correctsId}corrects {notice.correctsId}{/if}
               {#if notice.reason}{notice.reason}{/if}

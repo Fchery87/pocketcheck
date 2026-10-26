@@ -1,12 +1,11 @@
 import { error } from "@sveltejs/kit";
-import { ConfigError, databaseForJournal } from "#lib/server/config.ts";
-import { JournalRepository } from "#lib/server/db/repository.ts";
+import { ConfigError, researchStore } from "#lib/server/config.ts";
 import type { RequestHandler } from "./$types";
 
-/** Version 1 journal backup. Credentials and settings are not part of this response. */
+/** Version 1 journal backup from the same journal the application reads. */
 export const GET: RequestHandler = async () => {
   try {
-    const backup = await new JournalRepository(databaseForJournal()).exportJournal();
+    const backup = await researchStore().exportJournal();
     return new Response(JSON.stringify(backup), {
       headers: {
         "content-type": "application/json; charset=utf-8",
