@@ -467,4 +467,13 @@ describe("manual evidence standing in for a missing source", () => {
     ]);
     expect(refreshed.run!.policy!.blockingReason).toBe("Material evidence is missing.");
   });
+
+  it("accepts evidence exactly at the freshness limit and ignores a source time after the cutoff", async () => {
+    const exact = await analyze([entry("weather", hoursBefore(12))]);
+    expect(exact.run!.policy!.manualCoverage.map((coverage) => coverage.kind)).toEqual(["weather"]);
+    const future = await analyze([entry("weather", hoursBefore(-1))]);
+    expect(future.run!.policy!.manualCoverage).toEqual([]);
+    expect(future.run!.policy!.blockingReason).toBe("Material evidence is missing.");
+    expect(future.run!.gaps.join(" ")).not.toMatch(/hours old/);
+  });
 });

@@ -47,7 +47,7 @@
     <section data-testid="policy">
       <h2>Conclusion</h2>
       <p data-testid="conclusion">{run.policy.conclusion}</p>
-      {#if run.policy.reliesOnManualEvidence}
+      {#if run.policy.reliesOnManualEvidence && run.policy.manualCoverage}
         <p data-testid="manual-coverage">
           This conclusion relies on your manual evidence for the
           {run.policy.manualCoverage
@@ -77,7 +77,7 @@
           <p data-testid="conservative-ev">Uncertainty: {uncertainty.reason}</p>
         {/if}
       {/if}
-      {#if run.policy.priceCutoff.available}
+      {#if run.policy.priceCutoff?.available}
         <p>
           The conclusion changes at decimal odds below {run.policy.priceCutoff.decimalMinimum.toFixed(3)}.
         </p>
