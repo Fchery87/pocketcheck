@@ -99,9 +99,7 @@ describe("release gate", () => {
     expect(decision.moneyline.reason).toMatch(/Development evidence/);
     expect(decision.moneyline.reason).toMatch(/does not release/);
     expect(decision.spread.released).toBe(false);
-    expect(decision.spread.reason).toMatch(
-      /log loss 0\.7900 is worse than the market's 0\.7700/,
-    );
+    expect(decision.spread.reason).toMatch(/log loss 0\.7900 is worse than the market's 0\.7700/);
     expect(decision.total.released).toBe(false);
     expect(decision.total.reason).toMatch(/Development evidence/);
   });
@@ -110,12 +108,7 @@ describe("release gate", () => {
     const decision = releaseDecision(
       summary([
         comparison("moneyline", 600, [0.44, 0.6], [0.43, 0.64]),
-        comparison(
-          "spread",
-          RELEASE_GATE.minimumPricedGames - 1,
-          [0.4, 0.6],
-          [0.5, 0.7],
-        ),
+        comparison("spread", RELEASE_GATE.minimumPricedGames - 1, [0.4, 0.6], [0.5, 0.7]),
       ]),
     );
     expect(decision.moneyline.released).toBe(false);
@@ -130,23 +123,16 @@ describe("release gate", () => {
 
   it("ignores the base-rate baseline, which the model can beat while losing to the market", () => {
     const decision = releaseDecision(summary([]));
-    expect(Object.values(decision).every((market) => !market.released)).toBe(
-      true,
-    );
+    expect(Object.values(decision).every((market) => !market.released)).toBe(true);
   });
 });
 
 describe("releasing an artifact", () => {
   const games = JSON.parse(
-    readFileSync(
-      new URL("./fixtures/synthetic-games.json", import.meta.url),
-      "utf8",
-    ),
+    readFileSync(new URL("./fixtures/synthetic-games.json", import.meta.url), "utf8"),
   ).games as PricedGame[];
   const artifact = fitArtifact(games, "2024-09-15T20:00:00Z");
-  const passing = summary([
-    comparison("moneyline", 600, [0.42, 0.63], [0.43, 0.64]),
-  ]);
+  const passing = summary([comparison("moneyline", 600, [0.42, 0.63], [0.43, 0.64])]);
 
   it("refuses to release from development evidence even when the holdout comparison is clean", () => {
     expect(() =>

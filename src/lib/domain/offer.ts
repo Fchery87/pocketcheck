@@ -7,7 +7,7 @@ export type TieRule = "push" | "loss" | "win" | "void";
 export type OfferRules = {
   period: "full-game";
   overtime: "included";
-  tie?: TieRule;
+  tie?: TieRule | null;
 };
 
 export type OpposingPrice = {
@@ -76,7 +76,8 @@ const GUIDANCE: Record<Market, OfferEntryGuidance> = {
     selections: ["over", "under"],
     line: "Enter the total. Over 44.5 and under 44.5 share that number.",
     tieRule: null,
-    explanation: "Over wins when the combined score is above the line. Under wins when it is below.",
+    explanation:
+      "Over wins when the combined score is above the line. Under wins when it is below.",
   },
 };
 

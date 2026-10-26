@@ -54,7 +54,8 @@ describe("offer entry guidance", () => {
       selections: ["over", "under"],
       line: "Enter the total. Over 44.5 and under 44.5 share that number.",
       tieRule: null,
-      explanation: "Over wins when the combined score is above the line. Under wins when it is below.",
+      explanation:
+        "Over wins when the combined score is above the line. Under wins when it is below.",
     });
   });
 });
@@ -97,12 +98,12 @@ describe("parseRefreshContract", () => {
   });
 
   it("refuses a different market or selection instead of rewriting the refresh chain", () => {
-    expect(parseRefreshContract(fields({ market: "total", selection: "over" }), parent)).toMatchObject(
-      {
-        ok: false,
-        error: expect.stringMatching(/separate research/i),
-      },
-    );
+    expect(
+      parseRefreshContract(fields({ market: "total", selection: "over" }), parent),
+    ).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/separate research/i),
+    });
     expect(parseRefreshContract(fields({ selection: "away" }), parent)).toMatchObject({
       ok: false,
       error: expect.stringMatching(/separate research/i),

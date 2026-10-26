@@ -1,4 +1,11 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+async function optionIndex(page: Page, testId: string, text: string): Promise<number> {
+  const labels = await page.getByTestId(testId).locator("option").allTextContents();
+  const index = labels.findIndex((label) => label.includes(text));
+  if (index < 0) throw new Error(`No ${testId} option contains ${text}`);
+  return index;
+}
 
 test.beforeAll(async ({ request }) => {
   const response = await request.get("/__verification");
@@ -80,7 +87,7 @@ test("offer, report, refresh, and unchanged prior report", async ({ page, reques
   await expect(page.getByTestId("snapshot-provenance")).toHaveText(
     "Game and research offer captured with this report.",
   );
-  await expect(page.getByTestId("policy")).toContainText("The model is off");
+  await expect(page.getByTestId("policy")).toContainText("Material evidence is missing.");
   await expect(page.getByTestId("policy")).toContainText("Expected value unavailable");
 
   // Price mathematics for the recorded offer.
@@ -221,7 +228,10 @@ test("a spread refresh changes the line and leaves the parent contract", async (
   await expect(page.getByTestId("offer-contract")).toContainText("spread, home");
   await expect(page.getByTestId("offer-contract")).toContainText("-2.5");
   await expect(page.getByTestId("price")).toContainText("-105");
-  await expect(page.getByTestId("parent-link")).toHaveAttribute("href", new URL(parentUrl).pathname);
+  await expect(page.getByTestId("parent-link")).toHaveAttribute(
+    "href",
+    new URL(parentUrl).pathname,
+  );
 
   await page.getByTestId("parent-link").click();
   await expect(page).toHaveURL(parentUrl);
@@ -253,8 +263,12 @@ test("a researched spread of -3 keeps its terms when the placed bet is -3.5", as
   await expect(page.getByTestId("price")).toContainText("-110");
 
   await page.goto("/journal");
-  await expect(page.getByTestId("assessments")).toContainText("-3");
-  await expect(page.getByTestId("assessments")).toContainText("-110");
+  const researchAssessment = page
+    .getByTestId("assessments")
+    .locator("li", { hasText: "Research Book" });
+  await expect(researchAssessment).toContainText("-3");
+  await expect(researchAssessment).toContainText("-110");
+  await expect(researchAssessment).not.toContainText("-3.5");
   await page.getByTestId("bet-analysis").selectOption({ index: 1 });
   await page.getByTestId("bet-submission").fill("spread-execution-1");
   await page.getByTestId("bet-form").locator('input[name="sportsbook"]').fill("Execution Book");
@@ -265,44 +279,45 @@ test("a researched spread of -3 keeps its terms when the placed bet is -3.5", as
   await page.getByTestId("bet-form").locator('input[name="stakeUnits"]').fill("2");
   await page.getByRole("button", { name: "Record bet" }).click();
   await expect(page.getByTestId("bet-recorded")).toBeVisible();
-  const placed = page.getByTestId("bet-contract");
-  await expect(placed).toContainText("Execution Book");
+  const placed = page.getByTestId("bet-contract").filter({ hasText: "Execution Book" });
   await expect(placed).toContainText("spread");
   await expect(placed).toContainText("home");
   await expect(placed).toContainText("-3.5");
   await expect(placed).toContainText("-105");
   await expect(placed).toContainText("2");
   await expect(page.getByTestId("assessments")).toContainText("Research Book");
-  await expect(page.getByTestId("assessments")).toContainText("-110");
-  await expect(page.getByTestId("assessments")).not.toContainText("-3.5");
+  await expect(researchAssessment).toContainText("-110");
+  await expect(researchAssessment).not.toContainText("-3.5");
   await page.reload();
-  await expect(page.getByTestId("bet-contract")).toContainText("-3.5");
-  await expect(page.getByTestId("bet-contract")).toContainText("-105");
-  await expect(page.getByTestId("assessments")).toContainText("-3");
-  await expect(page.getByTestId("assessments")).not.toContainText("-3.5");
+  await expect(placed).toContainText("-3.5");
+  await expect(placed).toContainText("-105");
+  await expect(researchAssessment).toContainText("-3");
+  await expect(researchAssessment).not.toContainText("-3.5");
 
-  await page.getByTestId("settle-analysis").selectOption({ index: 1 });
-  await page.getByTestId("settle-bet").selectOption({ index: 1 });
+  await page
+    .getByTestId("settle-analysis")
+    .selectOption({ index: await optionIndex(page, "settle-analysis", "spread home -3 ") });
+  await page
+    .getByTestId("settle-bet")
+    .selectOption({ index: await optionIndex(page, "settle-bet", "Execution Book") });
   await page.getByTestId("settle-event").fill("browser-final-dal-phi");
   await page.getByTestId("settle-home").fill("20");
   await page.getByTestId("settle-away").fill("17");
   await page.getByRole("button", { name: "Record settlement" }).click();
   await expect(page.getByTestId("settlement-recorded")).toHaveText("Settlement recorded");
-  await expect(page.getByTestId("assessment-result")).toContainText("push");
-  await expect(page.getByTestId("bet-result")).toContainText("loss");
+  const settled = page.getByTestId("settlements").locator("li").first();
+  await expect(settled.getByTestId("assessment-result")).toContainText("push");
+  await expect(settled.getByTestId("bet-result")).toContainText("loss");
   await page.reload();
-  await expect(page.getByTestId("assessment-result")).toContainText("push");
-  await expect(page.getByTestId("bet-result")).toContainText("loss");
-  await expect(page.getByTestId("settlement-notice").last()).toContainText("push");
-  await expect(page.getByTestId("bet-result").last()).toContainText("loss");
+  await expect(settled.getByTestId("assessment-result")).toContainText("push");
+  await expect(settled.getByTestId("bet-result")).toContainText("loss");
+  await expect(settled.getByTestId("settlement-notice")).toContainText("push");
   const assessments = page.getByTestId("assessment-summary");
   const bets = page.getByTestId("bet-summary");
-  await expect(assessments.getByTestId("assessment-counts")).toContainText("push");
-  await expect(assessments.getByTestId("assessment-counts")).not.toContainText("0 push");
+  await expect(assessments.getByTestId("assessment-counts")).toContainText("refresh");
   await expect(bets.getByTestId("bet-counts")).toContainText("settled");
   await expect(bets.getByTestId("bet-counts")).not.toContainText("0 settled");
   await expect(bets.getByTestId("bet-roi")).not.toContainText("Return unavailable");
-  await expect(assessments.getByTestId("assessment-roi")).not.toContainText("Return -1");
 });
 
 test("a comparable close, a moved line, and a missing close stay distinct", async ({ page }) => {

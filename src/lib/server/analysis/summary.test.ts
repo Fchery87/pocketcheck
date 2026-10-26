@@ -37,12 +37,54 @@ describe("prospective summaries", () => {
 
   it("counts a mixed primary and bet cohort without treating refunds, refreshes, or missing closes as zero", () => {
     const assessments = summarizePrimary([
-      { id: "win", gameId: "g1", role: "primary", settlement: "win", unitProfit: 0.91, closing: "comparable" },
-      { id: "loss", gameId: "g2", role: "primary", settlement: "loss", unitProfit: -1, closing: "missing" },
-      { id: "push", gameId: "g3", role: "primary", settlement: "push", unitProfit: 0, closing: "comparable" },
-      { id: "void", gameId: "g4", role: "primary", settlement: "void", unitProfit: 0, closing: "missing" },
-      { id: "open", gameId: "g5", role: "primary", settlement: "unresolved", unitProfit: null, closing: "missing" },
-      { id: "later", gameId: "g1", role: "refresh", settlement: "win", unitProfit: 2, closing: "comparable" },
+      {
+        id: "win",
+        gameId: "g1",
+        role: "primary",
+        settlement: "win",
+        unitProfit: 0.91,
+        closing: "comparable",
+      },
+      {
+        id: "loss",
+        gameId: "g2",
+        role: "primary",
+        settlement: "loss",
+        unitProfit: -1,
+        closing: "missing",
+      },
+      {
+        id: "push",
+        gameId: "g3",
+        role: "primary",
+        settlement: "push",
+        unitProfit: 0,
+        closing: "comparable",
+      },
+      {
+        id: "void",
+        gameId: "g4",
+        role: "primary",
+        settlement: "void",
+        unitProfit: 0,
+        closing: "missing",
+      },
+      {
+        id: "open",
+        gameId: "g5",
+        role: "primary",
+        settlement: "unresolved",
+        unitProfit: null,
+        closing: "missing",
+      },
+      {
+        id: "later",
+        gameId: "g1",
+        role: "refresh",
+        settlement: "win",
+        unitProfit: 2,
+        closing: "comparable",
+      },
     ]);
     expect(assessments.sample).toBe("primary-only");
     expect(assessments.counts).toEqual({
@@ -61,7 +103,13 @@ describe("prospective summaries", () => {
       { id: "placed-win", stakeUnits: 2, settlement: "win", profit: 1.82, closing: "comparable" },
       { id: "placed-loss", stakeUnits: 1, settlement: "loss", profit: -1, closing: "missing" },
       { id: "refund", stakeUnits: 3, settlement: "void", profit: 0, closing: "missing" },
-      { id: "still-open", stakeUnits: 4, settlement: "unresolved", profit: null, closing: "missing" },
+      {
+        id: "still-open",
+        stakeUnits: 4,
+        settlement: "unresolved",
+        profit: null,
+        closing: "missing",
+      },
     ]);
     expect(bets.sample).toBe("actual-bets");
     expect(bets.counts).toEqual({

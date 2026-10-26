@@ -1,7 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import { americanToDecimal } from "#lib/domain/odds.ts";
 import { settleOffer, type Settlement } from "#lib/domain/settlement.ts";
-import { parseOffer, type Offer, type OfferRules, type SideSelection, type Market } from "#lib/domain/offer.ts";
+import {
+  parseOffer,
+  type Offer,
+  type OfferRules,
+  type SideSelection,
+  type Market,
+} from "#lib/domain/offer.ts";
 import { compareClosing, type ClosingComparison } from "./closing.ts";
 import type { ProviderRequestRecord, ThesisReport } from "../providers/contracts.ts";
 import type { RunModel } from "./model.ts";
@@ -327,6 +333,21 @@ export type RecordSettlementResult =
   | { kind: "duplicate"; noticeId: string }
   | { kind: "conflict"; error: string };
 
+export type StoredNotice = {
+  id: string;
+  eventId: string;
+  analysisId: string;
+  betId: string | null;
+  kind: SettlementNoticeKind;
+  homeScore: number | null;
+  awayScore: number | null;
+  source: string;
+  reason: string | null;
+  correctsId: string | null;
+  recordedAt: string;
+  payloadKey: string;
+};
+
 export type ResearchStore = {
   beginAttempt: (run: NewRun) => Promise<BeginAttemptResult>;
   updateAttempt: (run: NewRun) => Promise<ResearchRun>;
@@ -530,7 +551,12 @@ export function createMemoryStore(): ResearchStore {
     async recordArchivedClosing(input) {
       const saved = recordMemoryClosing(
         { runs, bets, closings },
-        { ...input, rules: { period: "full-game", overtime: "included" }, observedAt: "", source: input.source },
+        {
+          ...input,
+          rules: { period: "full-game", overtime: "included" },
+          observedAt: "",
+          source: input.source,
+        },
         "archived-untimestamped",
       );
       return structuredClone(saved);
@@ -560,7 +586,7 @@ export function createMemoryStore(): ResearchStore {
       for (const bet of incoming.bets) {
         if (!bets.some((item) => item.id === bet.id)) {
           bets.push(bet);
-          submissions.set(bet.submissionId, bet.id);
+          if (bet.submissionId) submissions.set(bet.submissionId, bet.id);
         }
       }
       for (const closing of incoming.closings) {
@@ -835,7 +861,9 @@ function recordMemorySettlement(
 }
 
 export function gradeFromNotices(offer: Offer, notices: StoredNotice[]): SettlementGrade {
-  const ordered = [...notices].sort((left, right) => left.recordedAt.localeCompare(right.recordedAt));
+  const ordered = [...notices].sort((left, right) =>
+    left.recordedAt.localeCompare(right.recordedAt),
+  );
   const history = ordered.map((notice) => ({
     id: notice.id,
     eventId: notice.eventId,

@@ -46,7 +46,11 @@ describe("closing comparison", () => {
   it("compares when the rules are compatible", () => {
     const result = compareClosing(
       { ...open, rules: { period: "full-game", overtime: "included", tie: null } },
-      { ...open, decimalOdds: 1.87, rules: { period: "full-game", overtime: "included", tie: null } },
+      {
+        ...open,
+        decimalOdds: 1.87,
+        rules: { period: "full-game", overtime: "included", tie: null },
+      },
     );
     expect(result).toMatchObject({ available: true, difference: expect.closeTo(-0.04, 8) });
   });
@@ -54,7 +58,11 @@ describe("closing comparison", () => {
   it("refuses a direct comparison when the tie rule differs", () => {
     const result = compareClosing(
       { ...open, rules: { period: "full-game", overtime: "included", tie: "push" } },
-      { ...open, decimalOdds: 1.87, rules: { period: "full-game", overtime: "included", tie: "loss" } },
+      {
+        ...open,
+        decimalOdds: 1.87,
+        rules: { period: "full-game", overtime: "included", tie: "loss" },
+      },
     );
     expect(result).toEqual({ available: false, reason: "incompatible-rules" });
   });

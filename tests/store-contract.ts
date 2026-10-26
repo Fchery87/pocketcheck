@@ -10,10 +10,7 @@ const game = loadFixtureGames("tests/fixtures/sources/games-minimized.csv", NOW)
   (item) => item.id === "2026_07_DAL_PHI",
 )!;
 
-function buildRequest(
-  overrides: Partial<AnalysisRequest> = {},
-  scope = "",
-): AnalysisRequest {
+function buildRequest(overrides: Partial<AnalysisRequest> = {}, scope = ""): AnalysisRequest {
   const id = overrides.requestId ?? "default";
   return {
     game,
@@ -73,6 +70,11 @@ const unreleasedModel: ModelSource = async () => ({
   uncertainty: { available: false, reason: "test" },
   eligible: false,
   reason: "Unreleased artifacts are not eligible for a value recommendation.",
+  protocol: {
+    id: "prospective-2026-10-26",
+    role: "independent",
+    blockingReason: "Independent prospective evidence is missing.",
+  },
 });
 
 /** Behaviour every research store must share. Run against memory and against Neon. */
@@ -494,7 +496,11 @@ export function describeStoreContract(
             draftingFailed: true,
             repairAttempted: false,
             refusal: null,
-            error: { kind: "timeout", status: null, message: "draft timed out after the request was sent" },
+            error: {
+              kind: "timeout",
+              status: null,
+              message: "draft timed out after the request was sent",
+            },
             report: null,
             packet: {
               items: [],
@@ -892,7 +898,11 @@ export function describeStoreContract(
         americanOdds: -108,
         stakeUnits: 1,
         placedAt: "2026-10-25T15:55:00.000Z",
-        rules: { period: "full-game" as const, overtime: "included" as const, tie: "push" as const },
+        rules: {
+          period: "full-game" as const,
+          overtime: "included" as const,
+          tie: "push" as const,
+        },
       };
       const [first, second] = await Promise.all([store.recordBet(input), store.recordBet(input)]);
       const bets = await store.listBets();
@@ -1089,7 +1099,9 @@ export function describeStoreContract(
         source: "manual-close",
         rules: { period: "full-game", overtime: "included" },
       });
-      const closing = (await store.listClosings()).find((item) => item.subject.id === recorded.bet.id);
+      const closing = (await store.listClosings()).find(
+        (item) => item.subject.id === recorded.bet.id,
+      );
       expect(closing?.comparison.available).toBe(true);
       if (closing?.comparison.available) {
         expect(closing.comparison.openDecimal).toBeCloseTo(1.952380952, 6);
@@ -1190,7 +1202,9 @@ export function describeStoreContract(
       const first = await store.recordSettlement(input);
       const again = await store.recordSettlement(input);
       expect(first.kind).toBe("recorded");
-      expect(again).toEqual(first.kind === "recorded" ? { kind: "duplicate", noticeId: first.noticeId } : first);
+      expect(again).toEqual(
+        first.kind === "recorded" ? { kind: "duplicate", noticeId: first.noticeId } : first,
+      );
       const conflict = await store.recordSettlement({ ...input, homeScore: 10 });
       expect(conflict).toMatchObject({
         kind: "conflict",
@@ -1393,9 +1407,9 @@ export function describeStoreContract(
         betId: placed.bet.id,
       });
       expect(grade.assessment.history.map((row) => row.id)).toContain(first.noticeId);
-      expect(grade.assessment.history.some((row) => row.reason === "official score correction")).toBe(
-        true,
-      );
+      expect(
+        grade.assessment.history.some((row) => row.reason === "official score correction"),
+      ).toBe(true);
     });
 
     it("restores an identical backup once and leaves a bad version unread", async () => {
@@ -1417,9 +1431,9 @@ export function describeStoreContract(
       expect(JSON.stringify(reread)).toContain(outcome.run.id);
       expect(JSON.stringify(reread)).toContain(outcome.run.createdAt);
       const before = await empty.listCompleted();
-      await expect(
-        empty.restoreJournal({ ...backup, version: 2 as never }),
-      ).rejects.toThrow(/version/i);
+      await expect(empty.restoreJournal({ ...backup, version: 2 as never })).rejects.toThrow(
+        /version/i,
+      );
       expect(await empty.listCompleted()).toEqual(before);
     });
   });

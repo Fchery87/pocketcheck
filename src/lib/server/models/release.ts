@@ -24,8 +24,7 @@ export const PROSPECTIVE_PROTOCOL = {
   period: { start: "2026-10-26T00:00:00Z", end: null as string | null },
   minimumPricedGames: RELEASE_GATE.minimumPricedGames,
   uncertainty: "slate-clustered-90-log-loss-difference" as const,
-  criteria:
-    "no-worse-brier-and-log-loss-and-interval-upper-at-most-zero" as const,
+  criteria: "no-worse-brier-and-log-loss-and-interval-upper-at-most-zero" as const,
   frozenBeforeOutcomes: true,
 };
 
@@ -66,9 +65,7 @@ export function releaseDecision(
     const { count, model, baseline } = comparison;
     const problems: string[] = [];
     if (count < gate.minimumPricedGames) {
-      problems.push(
-        `only ${count} priced holdout games, fewer than ${gate.minimumPricedGames}`,
-      );
+      problems.push(`only ${count} priced holdout games, fewer than ${gate.minimumPricedGames}`);
     }
     if (model.logLoss > baseline.logLoss) {
       problems.push(
@@ -113,9 +110,7 @@ export function releaseUnderProtocol(input: {
     return {
       released: false,
       protocolId: input.protocol.id,
-      reasons: [
-        "The protocol artifact does not match the artifact being released.",
-      ],
+      reasons: ["The protocol artifact does not match the artifact being released."],
       markets: blocked("The protocol artifact does not match this artifact."),
       profitability: null,
     };
@@ -124,12 +119,8 @@ export function releaseUnderProtocol(input: {
     return {
       released: false,
       protocolId: input.protocol.id,
-      reasons: [
-        "The protocol was not frozen before its outcomes were inspected.",
-      ],
-      markets: blocked(
-        "The protocol was not frozen before outcome inspection.",
-      ),
+      reasons: ["The protocol was not frozen before its outcomes were inspected."],
+      markets: blocked("The protocol was not frozen before outcome inspection."),
       profitability: null,
     };
   }
@@ -227,9 +218,7 @@ export function releaseArtifact(
   } | null = null,
 ): ModelArtifact {
   if (report.artifactChecksum !== artifact.checksum) {
-    throw new Error(
-      "The evaluation is of a different artifact. Evaluate this artifact first.",
-    );
+    throw new Error("The evaluation is of a different artifact. Evaluate this artifact first.");
   }
   const decision = releaseUnderProtocol({
     artifact,
@@ -240,9 +229,7 @@ export function releaseArtifact(
     development: { role: "development", summary: report.summary },
     prospective: prospective?.evaluation ?? null,
   });
-  const releasedMarkets = MARKETS.filter(
-    (market) => decision.markets[market].released,
-  );
+  const releasedMarkets = MARKETS.filter((market) => decision.markets[market].released);
   if (!decision.released || releasedMarkets.length === 0) {
     const reasons = decision.reasons.join(" ");
     throw new Error(

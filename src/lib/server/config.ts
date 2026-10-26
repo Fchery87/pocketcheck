@@ -112,7 +112,8 @@ let store: ResearchStore | undefined;
 
 /** The journal. Neon unless the memory journal is explicitly requested; never a silent fallback. */
 export function researchStore(): ResearchStore {
-  store ??= POCKETCHECK_JOURNAL === "memory" ? createMemoryStore() : createNeonStore(database());
+  store ??=
+    POCKETCHECK_JOURNAL === "memory" ? createMemoryStore() : createNeonStore(databaseForJournal());
   return store;
 }
 
@@ -121,7 +122,9 @@ let settings: SettingsStore | undefined;
 /** Non-secret settings, kept beside the journal. */
 export function settingsStore(): SettingsStore {
   settings ??=
-    POCKETCHECK_JOURNAL === "memory" ? createMemorySettings() : createNeonSettings(database());
+    POCKETCHECK_JOURNAL === "memory"
+      ? createMemorySettings()
+      : createNeonSettings(databaseForJournal());
   return settings;
 }
 

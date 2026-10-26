@@ -29,4 +29,3 @@ If the final report write fails after that persistence, repeating the same reque
 Verified with `node_modules/.bin/vp test run src/lib/server/analysis/store.test.ts` (20 passed) and `node_modules/.bin/vp test run tests/providers/transport.test.ts tests/providers/thesis.test.ts` (32 passed). Analysis and provider unit tests: 137 passed. Neon was not run because `TEST_DATABASE_URL` is unset.
 
 Limit: ambiguous provider completion is not exactly-once. A later deliberate attempt can still be charged if the provider completed the earlier request after the process lost the response.
-

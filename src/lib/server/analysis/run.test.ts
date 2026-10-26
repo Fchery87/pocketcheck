@@ -242,7 +242,7 @@ describe("research run evidence", () => {
       observedAt: "2026-10-25T15:50:00.000Z",
     });
     expect(savedChild?.parentId).toBe(parent.id);
-    expect(savedChild?.request.id).toBe("refresh-line-1");
+    expect(savedChild?.request?.id).toBe("refresh-line-1");
     expect(savedParent).toEqual(parent);
     expect(savedParent?.offer.pointLine).toBe(-3.5);
   });
@@ -293,6 +293,13 @@ describe("research run model", () => {
       },
       eligible,
       reason: eligible ? "Released for moneyline." : "Unreleased artifacts are not eligible.",
+      protocol: {
+        id: "prospective-2026-10-26",
+        role: "independent",
+        blockingReason: eligible
+          ? "Released for moneyline."
+          : "Independent prospective evidence is missing.",
+      },
     });
 
   it("says no model is configured when none is", async () => {
@@ -375,6 +382,11 @@ describe("value policy with uncertainty", () => {
       uncertainty,
       eligible: true,
       reason: "Released for moneyline.",
+      protocol: {
+        id: "prospective-2026-10-26",
+        role: "independent",
+        blockingReason: "Released for moneyline.",
+      },
     });
   const sure = (win: number, loss: number): UncertaintyAssessment => ({
     available: true,

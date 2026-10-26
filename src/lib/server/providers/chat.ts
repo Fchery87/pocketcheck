@@ -24,7 +24,13 @@ type CompletionPayload = {
 
 type Exchange =
   | { ok: true; payload: CompletionPayload; requestId: string }
-  | { ok: false; status: number | null; kind: ProviderErrorKind; message: string; requestId: string };
+  | {
+      ok: false;
+      status: number | null;
+      kind: ProviderErrorKind;
+      message: string;
+      requestId: string;
+    };
 
 function requestRecord(
   role: ProviderRequestRecord["role"],

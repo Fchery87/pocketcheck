@@ -5,22 +5,13 @@ import { valueEligibility, type ModelArtifact } from "../models/artifact.ts";
 import { PROSPECTIVE_PROTOCOL } from "../models/release.ts";
 import { parseArtifact } from "../models/inputs.ts";
 import { featureRowForGame } from "../models/features.ts";
-import {
-  freezeProspectiveForecast,
-  INPUT_AVAILABILITY,
-} from "../models/forecast.ts";
+import { freezeProspectiveForecast, INPUT_AVAILABILITY } from "../models/forecast.ts";
 import type { Market } from "../models/games.ts";
-import {
-  pricedGamesFromNflverseCsv,
-  upcomingGameFromCsv,
-} from "../models/history.ts";
+import { pricedGamesFromNflverseCsv, upcomingGameFromCsv } from "../models/history.ts";
 import { offerProbabilities } from "../models/offer-probability.ts";
 import { predictGame } from "../models/predict.ts";
 import type { ScheduledGame } from "../sources/contracts.ts";
-import {
-  conservativeProbabilities,
-  type UncertaintyAssessment,
-} from "../models/uncertainty.ts";
+import { conservativeProbabilities, type UncertaintyAssessment } from "../models/uncertainty.ts";
 import { POLICY_VERSION } from "./policy.ts";
 import type { SavedForecast } from "./forecast-record.ts";
 import type { ForecastSource } from "./run.ts";
@@ -70,15 +61,11 @@ export function createArtifactModel(input: {
 }): ModelSource {
   return async (game, cutoffIso, offer) => {
     if (!existsSync(input.artifactPath)) {
-      return unavailable(
-        `No model artifact at ${input.artifactPath}. Run npm run model:fit.`,
-      );
+      return unavailable(`No model artifact at ${input.artifactPath}. Run npm run model:fit.`);
     }
     let artifact: ModelArtifact;
     try {
-      const value: unknown = JSON.parse(
-        readFileSync(input.artifactPath, "utf8"),
-      );
+      const value: unknown = JSON.parse(readFileSync(input.artifactPath, "utf8"));
       artifact = parseArtifact(value);
     } catch (error) {
       return unavailable(
@@ -92,14 +79,10 @@ export function createArtifactModel(input: {
       );
     }
     if (Date.parse(artifact.trainingCutoff) > Date.parse(cutoffIso)) {
-      return unavailable(
-        "The model artifact was trained after this research decision cutoff.",
-      );
+      return unavailable("The model artifact was trained after this research decision cutoff.");
     }
     if (!existsSync(input.schedulePath)) {
-      return unavailable(
-        `No schedule at ${input.schedulePath}. Run npm run data:schedule.`,
-      );
+      return unavailable(`No schedule at ${input.schedulePath}. Run npm run data:schedule.`);
     }
     const csv = readFileSync(input.schedulePath, "utf8");
     const cutoff = Date.parse(cutoffIso);
@@ -113,12 +96,7 @@ export function createArtifactModel(input: {
       home: game.home,
       away: game.away,
     };
-    const row = featureRowForGame(
-      history,
-      upcoming,
-      artifact.featureParameters,
-      cutoffIso,
-    );
+    const row = featureRowForGame(history, upcoming, artifact.featureParameters, cutoffIso);
     const probabilities = offerProbabilities(predictGame(artifact, row), offer);
     const uncertainty = conservativeProbabilities(
       artifact.uncertainty,
@@ -163,13 +141,10 @@ export function createArtifactForecast(input: {
 }): ForecastSource {
   return async (game, cutoffIso, offer, model) => {
     if (model.status !== "computed") return null;
-    if (!existsSync(input.artifactPath) || !existsSync(input.schedulePath))
-      return null;
+    if (!existsSync(input.artifactPath) || !existsSync(input.schedulePath)) return null;
     let artifact: ModelArtifact;
     try {
-      artifact = parseArtifact(
-        JSON.parse(readFileSync(input.artifactPath, "utf8")) as unknown,
-      );
+      artifact = parseArtifact(JSON.parse(readFileSync(input.artifactPath, "utf8")) as unknown);
     } catch {
       return null;
     }
@@ -221,8 +196,7 @@ export type DisplayedModel =
     });
 
 export function forDisplay(model: RunModel | null): DisplayedModel | null {
-  if (model === null || model.status === "unavailable" || model.eligible)
-    return model;
+  if (model === null || model.status === "unavailable" || model.eligible) return model;
   return {
     ...model,
     probabilities: null,

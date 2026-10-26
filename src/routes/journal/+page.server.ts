@@ -1,5 +1,11 @@
 import { error, fail } from "@sveltejs/kit";
-import { parseOffer, type Market, type OfferRules, type SideSelection, type TieRule } from "#lib/domain/offer.ts";
+import {
+  parseOffer,
+  type Market,
+  type OfferRules,
+  type SideSelection,
+  type TieRule,
+} from "#lib/domain/offer.ts";
 import { ConfigError, now, researchStore } from "#lib/server/config.ts";
 import { journalSummaries } from "#lib/server/analysis/summary.ts";
 import type { SettlementNoticeKind } from "#lib/server/analysis/store.ts";
@@ -54,7 +60,8 @@ export const load: PageServerLoad = async () => {
     })),
     bets: bets.map((bet) => ({
       ...bet,
-      grade: settlements.flatMap((row) => row.bets).find((row) => row.betId === bet.id)?.grade ?? null,
+      grade:
+        settlements.flatMap((row) => row.bets).find((row) => row.betId === bet.id)?.grade ?? null,
     })),
     closings,
   });
@@ -76,7 +83,10 @@ export const actions = {
     if (!analysisId)
       return fail(400, { recorded: false, error: "Choose the analysis this bet belongs to" });
     if (!submissionId) {
-      return fail(400, { recorded: false, error: "Enter a submission identifier for this placement" });
+      return fail(400, {
+        recorded: false,
+        error: "Enter a submission identifier for this placement",
+      });
     }
     if (!markets.has(market as Market)) {
       return fail(400, { recorded: false, error: "Choose the market you placed" });
@@ -96,7 +106,8 @@ export const actions = {
     }
     const journal = store();
     const analysis = await journal.getRun(analysisId);
-    if (!analysis) return fail(400, { recorded: false, error: `Analysis not found: ${analysisId}` });
+    if (!analysis)
+      return fail(400, { recorded: false, error: `Analysis not found: ${analysisId}` });
     const rules: OfferRules = {
       period: "full-game",
       overtime: "included",
@@ -153,7 +164,8 @@ export const actions = {
     const reason = String(data.get("reason") ?? "").trim();
     const correctsNoticeId = String(data.get("correctsNoticeId") ?? "").trim();
     if (!analysisId) return fail(400, { settled: false, error: "Choose the analysis to settle" });
-    if (!eventId) return fail(400, { settled: false, error: "Enter a settlement event identifier" });
+    if (!eventId)
+      return fail(400, { settled: false, error: "Enter a settlement event identifier" });
     if (!kinds.has(kind as SettlementNoticeKind)) {
       return fail(400, { settled: false, error: "Choose a settlement kind" });
     }
@@ -177,7 +189,12 @@ export const actions = {
         correctsNoticeId: correctsNoticeId || null,
       });
       if (result.kind === "conflict") return fail(409, { settled: false, error: result.error });
-      return { recorded: false, settled: true, duplicate: result.kind === "duplicate", error: null };
+      return {
+        recorded: false,
+        settled: true,
+        duplicate: result.kind === "duplicate",
+        error: null,
+      };
     } catch (cause) {
       return fail(400, {
         settled: false,
@@ -198,12 +215,19 @@ export const actions = {
     const source = String(data.get("source") ?? "").trim();
     const tie = String(data.get("tie") ?? "").trim();
     if (subjectKind !== "analysis" && subjectKind !== "bet") {
-      return fail(400, { recorded: false, error: "Choose the research or bet this close belongs to" });
+      return fail(400, {
+        recorded: false,
+        error: "Choose the research or bet this close belongs to",
+      });
     }
     if (!subjectId) {
-      return fail(400, { recorded: false, error: "Choose the research or bet this close belongs to" });
+      return fail(400, {
+        recorded: false,
+        error: "Choose the research or bet this close belongs to",
+      });
     }
-    if (!source) return fail(400, { recorded: false, error: "Name the source of this closing observation" });
+    if (!source)
+      return fail(400, { recorded: false, error: "Name the source of this closing observation" });
     if (!observedAt) {
       return fail(400, { recorded: false, error: "Enter when you observed this closing offer" });
     }

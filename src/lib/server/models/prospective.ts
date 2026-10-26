@@ -1,16 +1,8 @@
 import type { OutcomeProbabilities } from "../../domain/odds.ts";
-import {
-  multiclassBrier,
-  multiclassLogLoss,
-  type Outcome,
-} from "./evaluate.ts";
+import { multiclassBrier, multiclassLogLoss, type Outcome } from "./evaluate.ts";
 import type { Market } from "./games.ts";
 import { clusteredInterval, UNCERTAINTY_OPTIONS } from "./uncertainty.ts";
-import {
-  RELEASE_GATE,
-  type EvaluationProtocol,
-  type MarketRelease,
-} from "./release.ts";
+import { RELEASE_GATE, type EvaluationProtocol, type MarketRelease } from "./release.ts";
 
 /** A forecast saved at decision time. Evaluation must not replace these probabilities. */
 export type FrozenForecastRecord = {
@@ -63,40 +55,29 @@ function scores(
 ): { brier: number; logLoss: number } | null {
   const settled = records.filter((record) => record.outcome !== null);
   const brier = average(
-    settled.map((record) =>
-      multiclassBrier(probability(record), record.outcome!),
-    ),
+    settled.map((record) => multiclassBrier(probability(record), record.outcome!)),
   );
   const logLoss = average(
-    settled.map((record) =>
-      multiclassLogLoss(probability(record), record.outcome!),
-    ),
+    settled.map((record) => multiclassLogLoss(probability(record), record.outcome!)),
   );
   if (brier === null || logLoss === null) return null;
   return { brier, logLoss };
 }
 
-function differenceInterval(
-  records: readonly FrozenForecastRecord[],
-): [number, number] | null {
+function differenceInterval(records: readonly FrozenForecastRecord[]): [number, number] | null {
   const bySlate = new Map<string, number[]>();
   for (const record of records) {
     if (record.outcome === null || record.closingBaseline === null) continue;
     const difference =
       multiclassLogLoss(record.probabilities, record.outcome) -
       multiclassLogLoss(record.closingBaseline, record.outcome);
-    bySlate.set(record.slate, [
-      ...(bySlate.get(record.slate) ?? []),
-      difference,
-    ]);
+    bySlate.set(record.slate, [...(bySlate.get(record.slate) ?? []), difference]);
   }
   return clusteredInterval(
     [...bySlate.values()],
     (sample) => {
       const all = sample.flat();
-      return all.length === 0
-        ? null
-        : all.reduce((sum, value) => sum + value, 0) / all.length;
+      return all.length === 0 ? null : all.reduce((sum, value) => sum + value, 0) / all.length;
     },
     UNCERTAINTY_OPTIONS,
   );
@@ -130,9 +111,7 @@ function judge(
     );
   }
   if (!interval) {
-    problems.push(
-      "the slate-clustered 90% log-loss difference interval is unavailable",
-    );
+    problems.push("the slate-clustered 90% log-loss difference interval is unavailable");
   } else if (interval[1] > 0) {
     problems.push(
       `the log-loss difference interval upper endpoint ${interval[1].toFixed(4)} is above zero`,
@@ -158,29 +137,18 @@ export function evaluateProspectiveForecasts(
   const markets = {} as Record<Market, ProspectiveMarketResult>;
   for (const market of MARKETS) {
     const members = records.filter(
-      (record) =>
-        record.market === market &&
-        record.artifactChecksum === protocol.artifactChecksum,
+      (record) => record.market === market && record.artifactChecksum === protocol.artifactChecksum,
     );
     const mismatched = records.filter(
-      (record) =>
-        record.market === market &&
-        record.artifactChecksum !== protocol.artifactChecksum,
+      (record) => record.market === market && record.artifactChecksum !== protocol.artifactChecksum,
     );
     const settled = members.filter(
       (record) => record.outcome !== null && record.closingBaseline !== null,
     );
-    const missingObservations = members.filter(
-      (record) => record.closingBaseline === null,
-    ).length;
-    const unresolved = members.filter(
-      (record) => record.outcome === null,
-    ).length;
+    const missingObservations = members.filter((record) => record.closingBaseline === null).length;
+    const unresolved = members.filter((record) => record.outcome === null).length;
     const model = scores(settled, (record) => record.probabilities);
-    const closing = scores(
-      settled,
-      (record) => record.closingBaseline ?? record.probabilities,
-    );
+    const closing = scores(settled, (record) => record.closingBaseline ?? record.probabilities);
     const interval = differenceInterval(settled);
     const release =
       mismatched.length > 0 && members.length === 0

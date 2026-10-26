@@ -189,8 +189,9 @@ function providerRequestsOf(drafted: DraftThesisResult): ProviderRequestRecord[]
 }
 
 function sumKnown(values: Array<number | null>): number | null {
-  if (values.some((value) => value === null)) return null;
-  return values.reduce((total, value) => total + (value ?? 0), 0);
+  const numbers = values.filter((value): value is number => value !== null);
+  if (numbers.length !== values.length) return null;
+  return numbers.reduce((total, value) => total + value, 0);
 }
 
 /** Totals every known request. A missing field stays unknown and marks the total partial. */
@@ -476,7 +477,9 @@ export async function runAnalysis(
     if (ambiguous || !checked?.ok) {
       const failureReason = ambiguous
         ? "Provider completion is ambiguous. This request may already have been charged. Start a new attempt before sending another provider request. Completion is not exactly once."
-        : (checked?.reasons.join("; ") ?? drafted.error?.message ?? "Report check failed");
+        : checked && !checked.ok
+          ? checked.reasons.join("; ")
+          : (drafted.error?.message ?? "Report check failed");
       const failed = await store.saveRun({
         ...common,
         status: "failed",

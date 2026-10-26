@@ -172,7 +172,11 @@ export type JournalPerformance = {
   bets: CohortSummary;
 };
 
-function profitFor(result: Settlement | "unresolved", stake: number, americanOdds: number): number | null {
+function profitFor(
+  result: Settlement | "unresolved",
+  stake: number,
+  americanOdds: number,
+): number | null {
   if (result !== "win" && result !== "loss" && result !== "push" && result !== "void") return null;
   return unitReturn({ result, stake, decimalOdds: americanToDecimal(americanOdds) });
 }
@@ -184,9 +188,7 @@ function closingFor(
 ): ClosingState {
   const comparable = closings.some(
     (closing) =>
-      closing.subject.kind === kind &&
-      closing.subject.id === id &&
-      closing.comparison.available,
+      closing.subject.kind === kind && closing.subject.id === id && closing.comparison.available,
   );
   return comparable ? "comparable" : "missing";
 }
@@ -218,9 +220,7 @@ export function journalSummaries(input: {
       stakeUnits: bet.stakeUnits,
       settlement: result,
       profit:
-        bet.market && bet.selection
-          ? profitFor(result, bet.stakeUnits, bet.americanOdds)
-          : null,
+        bet.market && bet.selection ? profitFor(result, bet.stakeUnits, bet.americanOdds) : null,
       closing: closingFor(input.closings, "bet", bet.id),
     };
   });

@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import {
-  JournalRepository,
-  type JournalExport,
-} from "../../src/lib/server/db/repository.ts";
+import { JournalRepository, type JournalExport } from "../../src/lib/server/db/repository.ts";
 import { isolatedDb } from "./isolated-db.ts";
 
 /** Export queries carry no order, so compare each table sorted by id. */
@@ -92,7 +89,11 @@ describe("journal backup download", () => {
             artifact: { checksum: `art-${stamp}`, version: 1 },
             features: { restDays: 7 },
             starters: {
-              home: { state: "assumed", identity: "starter-home", evidenceAt: "2026-11-07T12:00:00.000Z" },
+              home: {
+                state: "assumed",
+                identity: "starter-home",
+                evidenceAt: "2026-11-07T12:00:00.000Z",
+              },
               away: { state: "unknown", identity: null, evidenceAt: null },
             },
             marketEligibility: { market: "spread", eligible: false },

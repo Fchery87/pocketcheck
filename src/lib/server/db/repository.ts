@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Sql } from "postgres";
+import type { Sql, TransactionSql } from "postgres";
 import type { AttemptRequest } from "../analysis/attempt.ts";
 import type { SavedForecast } from "../analysis/forecast-record.ts";
 import type { ProviderRequestRecord } from "../providers/contracts.ts";
@@ -820,7 +820,7 @@ export class JournalRepository {
     } catch (error) {
       if (input.submissionId && isUniqueViolation(error)) {
         const existing = await this.findBetBySubmissionId(input.submissionId);
-        if (existing?.contractFingerprint === input.contractFingerprint) return existing;
+        if (existing && existing.contractFingerprint === input.contractFingerprint) return existing;
         throw new BetSubmissionConflict(
           "This submission identifier was already used with different inputs.",
         );
@@ -1031,14 +1031,15 @@ export class JournalRepository {
             ORDER BY created_at ASC
           `
         : [];
-    const closings = ids.length || betIds.length
-      ? await this.sql<ClosingRow[]>`
+    const closings =
+      ids.length || betIds.length
+        ? await this.sql<ClosingRow[]>`
           SELECT * FROM closing_observations
           WHERE analysis_id = ANY(${ids.length ? ids : [randomUUID()]}::uuid[])
              OR bet_id = ANY(${betIds.length ? betIds : [randomUUID()]}::uuid[])
           ORDER BY created_at ASC
         `
-      : [];
+        : [];
     const notices = ids.length
       ? await this.sql<SettlementNoticeRow[]>`
           SELECT * FROM settlement_notices
@@ -1175,8 +1176,7 @@ function stripAnalysisSecrets(analysis: AnalysisRecord): AnalysisRecord {
   };
 }
 
-const UUID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** Supported journal backup format. Version 1 is the only importable backup. */
 export const SUPPORTED_JOURNAL_BACKUP_VERSION = 1;
@@ -1218,7 +1218,11 @@ export function assertRestorable(snapshot: JournalExport): void {
 
   for (const offer of snapshot.offers) {
     requireReference(games, offer.gameId, `Offer ${offer.id} is missing its game.`);
-    requireShape(offer.market, ["moneyline", "spread", "total"], `Offer ${offer.id} has an unknown market.`);
+    requireShape(
+      offer.market,
+      ["moneyline", "spread", "total"],
+      `Offer ${offer.id} has an unknown market.`,
+    );
   }
   for (const analysis of snapshot.analyses) {
     requireReference(offers, analysis.offerId, `Analysis ${analysis.id} is missing its offer.`);
@@ -1239,14 +1243,22 @@ export function assertRestorable(snapshot: JournalExport): void {
     if (!analysis.snapshot || analysis.snapshot.version !== 1) {
       throw new Error(`Analysis ${analysis.id} has an unsupported snapshot version.`);
     }
-    if (analysis.snapshot.provenance !== "captured" && analysis.snapshot.provenance !== "legacy-unknown") {
+    if (
+      analysis.snapshot.provenance !== "captured" &&
+      analysis.snapshot.provenance !== "legacy-unknown"
+    ) {
       throw new Error(`Analysis ${analysis.id} has an unknown snapshot provenance.`);
     }
     for (const evidenceId of analysis.evidenceIds) {
       requireReference(evidence, evidenceId, `Analysis ${analysis.id} is missing linked evidence.`);
     }
-    if (analysis.status === "completed" && (analysis.conclusion === null || analysis.completedAt === null)) {
-      throw new Error(`Completed analysis ${analysis.id} is missing its conclusion or completion time.`);
+    if (
+      analysis.status === "completed" &&
+      (analysis.conclusion === null || analysis.completedAt === null)
+    ) {
+      throw new Error(
+        `Completed analysis ${analysis.id} is missing its conclusion or completion time.`,
+      );
     }
     if (!["pending", "running", "completed", "failed", "interrupted"].includes(analysis.status)) {
       throw new Error(`Analysis ${analysis.id} has an unknown status.`);
@@ -1278,7 +1290,11 @@ export function assertRestorable(snapshot: JournalExport): void {
       requireReference(bets, settlement.betId, `Settlement ${settlement.id} is missing its bet.`);
     }
     if (settlement.offerId) {
-      requireReference(offers, settlement.offerId, `Settlement ${settlement.id} is missing its offer.`);
+      requireReference(
+        offers,
+        settlement.offerId,
+        `Settlement ${settlement.id} is missing its offer.`,
+      );
     }
     if (settlement.correctsId) {
       requireReference(
@@ -1292,7 +1308,11 @@ export function assertRestorable(snapshot: JournalExport): void {
     throw new Error("Settlement correction relationships contain a cycle.");
   }
   for (const notice of snapshot.settlementNotices ?? []) {
-    requireReference(analyses, notice.analysisId, `Settlement notice ${notice.id} is missing its analysis.`);
+    requireReference(
+      analyses,
+      notice.analysisId,
+      `Settlement notice ${notice.id} is missing its analysis.`,
+    );
     if (notice.betId) {
       requireReference(bets, notice.betId, `Settlement notice ${notice.id} is missing its bet.`);
     }
@@ -1307,10 +1327,14 @@ export function assertRestorable(snapshot: JournalExport): void {
       throw new Error(`Settlement notice ${notice.id} is missing its event history.`);
     }
   }
-  if (hasSettlementCycle((snapshot.settlementNotices ?? []).map((row) => ({
-    id: row.id,
-    correctsId: row.correctsId,
-  })))) {
+  if (
+    hasSettlementCycle(
+      (snapshot.settlementNotices ?? []).map((row) => ({
+        id: row.id,
+        correctsId: row.correctsId,
+      })),
+    )
+  ) {
     throw new Error("Settlement notice correction relationships contain a cycle.");
   }
   for (const closing of snapshot.closings) {
@@ -1318,10 +1342,18 @@ export function assertRestorable(snapshot: JournalExport): void {
       throw new Error(`Closing observation ${closing.id} is missing the record it observes.`);
     }
     if (closing.analysisId) {
-      requireReference(analyses, closing.analysisId, `Closing observation ${closing.id} is missing its analysis.`);
+      requireReference(
+        analyses,
+        closing.analysisId,
+        `Closing observation ${closing.id} is missing its analysis.`,
+      );
     }
     if (closing.betId) {
-      requireReference(bets, closing.betId, `Closing observation ${closing.id} is missing its bet.`);
+      requireReference(
+        bets,
+        closing.betId,
+        `Closing observation ${closing.id} is missing its bet.`,
+      );
     }
   }
 }
@@ -1364,7 +1396,7 @@ function hasSettlementCycle(rows: Array<{ id: string; correctsId: string | null 
   return hasCycle(rows.map((row) => ({ id: row.id, parentId: row.correctsId })));
 }
 
-type RestoreTx = Sql;
+type RestoreTx = TransactionSql;
 
 function sameRecord(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
@@ -1559,9 +1591,12 @@ async function restoreBets(tx: RestoreTx, bets: BetRecord[]): Promise<void> {
 
 async function restoreSettlements(tx: RestoreTx, settlements: SettlementRecord[]): Promise<void> {
   for (const settlement of parentsFirst(settlements, (row) => row.correctsId)) {
-    const existing = await tx<SettlementRow[]>`SELECT * FROM settlements WHERE id = ${settlement.id}`;
+    const existing = await tx<
+      SettlementRow[]
+    >`SELECT * FROM settlements WHERE id = ${settlement.id}`;
     if (existing[0]) {
-      if (!sameRecord(mapSettlement(existing[0]), settlement)) conflict("settlement", settlement.id);
+      if (!sameRecord(mapSettlement(existing[0]), settlement))
+        conflict("settlement", settlement.id);
       continue;
     }
     await tx`
@@ -1586,7 +1621,8 @@ async function restoreSettlementNotices(
     `;
     if (existing[0]) {
       const stored = mapSettlementNotice(existing[0]);
-      if (stored.id !== notice.id || !sameRecord(stored, notice)) conflict("settlement notice", notice.id);
+      if (stored.id !== notice.id || !sameRecord(stored, notice))
+        conflict("settlement notice", notice.id);
       continue;
     }
     await tx`
@@ -1608,7 +1644,8 @@ async function restoreClosings(tx: RestoreTx, closings: ClosingRecord[]): Promis
       SELECT * FROM closing_observations WHERE id = ${closing.id}
     `;
     if (existing[0]) {
-      if (!sameRecord(mapClosing(existing[0]), closing)) conflict("closing observation", closing.id);
+      if (!sameRecord(mapClosing(existing[0]), closing))
+        conflict("closing observation", closing.id);
       continue;
     }
     await tx`
@@ -1639,18 +1676,7 @@ const NOT_COMPLETED_REASON = "This analysis did not complete before kickoff.";
 const AFTER_KICKOFF_REASON =
   "Decision cutoff is not before kickoff, so this analysis is not an eligible pregame assessment.";
 
-type RoleSql = {
-  unsafe: (
-    query: string,
-    values: unknown[],
-  ) => Promise<
-    Array<{
-      id: string;
-      completed_at: Date | string | null;
-      assessment_role: string | null;
-    }>
-  >;
-};
+type RoleSql = TransactionSql;
 
 /** Locks the game's classified rows. Never reads scores and never writes. */
 async function chooseAssessmentRole(

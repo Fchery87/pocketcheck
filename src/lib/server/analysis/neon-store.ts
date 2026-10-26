@@ -20,14 +20,12 @@ import {
   gradeFromNotices,
   settlementPayloadKey,
   type ActualBet,
-  type ArchivedClosing,
   type AssessmentRole,
   type ClosingObservation,
   type ClosingProvenance,
   type NewClosing,
   type NewRun,
   type ProgressStage,
-  type RecordBetResult,
   type RecordSettlementInput,
   type RecordSettlementResult,
   type ResearchRun,
@@ -244,9 +242,7 @@ export function createNeonStore(sql: Sql): ResearchStore {
         analyses.set(summary.id, await getRun(summary.id));
       }
       const betById = new Map(bets.map((bet) => [bet.id, bet]));
-      return records.map((record) =>
-        toClosing(record, analyses, betById),
-      );
+      return records.map((record) => toClosing(record, analyses, betById));
     },
     async recordArchivedClosing(input) {
       return persistClosing(
@@ -386,7 +382,14 @@ function toBet(record: Awaited<ReturnType<JournalRepository["listBets"]>>[number
 
 function betFingerprint(
   analysisId: string,
-  contract: { sportsbook: string; market: string; selection: string; pointLine: number | null; americanOdds: number; rules: BetContract["rules"] },
+  contract: {
+    sportsbook: string;
+    market: string;
+    selection: string;
+    pointLine: number | null;
+    americanOdds: number;
+    rules: BetContract["rules"];
+  },
   stakeUnits: number,
   placedAt: string,
 ): string {
@@ -609,10 +612,12 @@ async function recordNeonSettlement(
   if (input.betId) {
     const bets = await journal.listBets();
     const bet = bets.find((item) => item.id === input.betId);
-    if (!bet || bet.analysisId !== input.analysisId) throw new Error(`Bet not found: ${input.betId}`);
+    if (!bet || bet.analysisId !== input.analysisId)
+      throw new Error(`Bet not found: ${input.betId}`);
   }
   if (input.correctsNoticeId) {
-    if (!input.reason?.trim()) return { kind: "conflict", error: "A correction requires a reason." };
+    if (!input.reason?.trim())
+      return { kind: "conflict", error: "A correction requires a reason." };
     const prior = await journal.readSettlementNotice(input.correctsNoticeId);
     if (!prior || prior.analysisId !== input.analysisId) {
       throw new Error(`Settlement not found: ${input.correctsNoticeId}`);
