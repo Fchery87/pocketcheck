@@ -47,6 +47,14 @@
     <section data-testid="policy">
       <h2>Conclusion</h2>
       <p data-testid="conclusion">{run.policy.conclusion}</p>
+      {#if run.policy.reliesOnManualEvidence}
+        <p data-testid="manual-coverage">
+          This conclusion relies on your manual evidence for the
+          {run.policy.manualCoverage
+            .map((coverage) => (coverage.kind === "weather" ? "kickoff forecast" : "injury report"))
+            .join(" and ")}.
+        </p>
+      {/if}
       {#if run.policy.blockingReason}
         <p>{run.policy.blockingReason}</p>
       {/if}

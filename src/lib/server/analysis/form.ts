@@ -27,28 +27,47 @@ export function localInputValue(iso: string): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-export type ManualEvidenceRow = { text: string; url: string; time: string };
+export type ManualEvidenceRow = { text: string; url: string; time: string; covers: string };
 
 export type ManualEvidenceForm =
   | {
       ok: true;
       rows: ManualEvidenceRow[];
-      entries: Array<{ text: string; url: string; sourceTime: string }>;
+      entries: Array<{ text: string; url: string; sourceTime: string; covers?: "injury-report" | "weather" }>;
     }
   | { ok: false; rows: ManualEvidenceRow[]; error: string };
 
 /**
- * Reads the repeated manualText, manualUrl, and manualTime fields. Blank rows are skipped. A
- * blank source time means the source did not say when it was published.
+ * Reads the repeated manualText, manualUrl, manualTime, and manualCovers fields. Blank rows are
+ * skipped. A blank source time means the source did not say when it was published.
  */
 export function parseManualEvidence(data: FormData): ManualEvidenceForm {
   const all = (name: string) => data.getAll(name).map((value) => String(value).trim());
-  const [texts, urls, times] = [all("manualText"), all("manualUrl"), all("manualTime")];
+  const [texts, urls, times, covers] = [
+    all("manualText"),
+    all("manualUrl"),
+    all("manualTime"),
+    all("manualCovers"),
+  ];
   const rows = texts
-    .map((text, index) => ({ text, url: urls[index] ?? "", time: times[index] ?? "" }))
-    .filter((row) => row.text || row.url || row.time);
-  const entries = [];
+    .map((text, index) => ({
+      text,
+      url: urls[index] ?? "",
+      time: times[index] ?? "",
+      covers: covers[index] ?? "",
+    }))
+    .filter((row) => row.text || row.url || row.time || row.covers);
+  const entries: Array<{
+    text: string;
+    url: string;
+    sourceTime: string;
+    covers?: "injury-report" | "weather";
+  }> = [];
   for (const [index, row] of rows.entries()) {
+    if (row.covers && row.covers !== "injury-report" && row.covers !== "weather") {
+      return { ok: false, rows, error: `Manual evidence ${index + 1}: unknown source tag` };
+    }
+    const covers = row.covers === "injury-report" || row.covers === "weather" ? row.covers : undefined;
     const sourceTime = row.time ? parseObservedAt(row.time) : "unknown";
     if (!sourceTime) {
       return {
@@ -57,7 +76,12 @@ export function parseManualEvidence(data: FormData): ManualEvidenceForm {
         error: `Manual evidence ${index + 1}: the source time is not a date and time`,
       };
     }
-    entries.push({ text: row.text, url: row.url, sourceTime });
+    entries.push({
+      text: row.text,
+      url: row.url,
+      sourceTime,
+      ...(covers ? { covers } : {}),
+    });
   }
   return { ok: true, rows, entries };
 }

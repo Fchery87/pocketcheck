@@ -20,11 +20,17 @@ test("offer, report, refresh, and unchanged prior report", async ({ page }) => {
   await page.getByTestId("observed-at").fill("2026-10-25T11:30");
   await page.getByTestId("manual-text").fill("Beat reporter: Barkley practiced fully Friday.");
   await page.getByTestId("manual-url").fill("https://example.test/barkley-friday");
+  await page.getByRole("button", { name: "Add another" }).click();
+  const forecast = page.getByTestId("manual-evidence").locator("div").nth(1);
+  await forecast.getByTestId("manual-text").fill("Kickoff 52F, wind 8 mph");
+  await forecast.getByTestId("manual-time").fill("2026-10-25T11:30");
+  await forecast.getByTestId("manual-covers").selectOption("weather");
   await page.getByTestId("analyze").click();
 
   // One conclusion, owned by the policy.
   await expect(page.getByTestId("conclusion")).toHaveText("insufficient evidence");
-  await expect(page.getByTestId("policy")).toContainText("Material evidence is missing.");
+  await expect(page.getByTestId("manual-coverage")).toContainText("kickoff forecast");
+  await expect(page.getByTestId("policy")).toContainText("The model is off");
   await expect(page.getByTestId("policy")).toContainText("Expected value unavailable");
 
   // Price mathematics for the recorded offer.

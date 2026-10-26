@@ -88,6 +88,27 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
       expect(saved).toEqual(outcome.run);
     });
 
+    it("labels a journal entry that relies on manual evidence", async () => {
+      const store = makeStore();
+      const outcome = await runAnalysis(
+        request({
+          manualEvidence: [
+            { text: "Kickoff 52F", url: "", sourceTime: "2026-10-25T14:00:00.000Z", covers: "weather" },
+          ],
+        }),
+        {
+          store,
+          collect: async () => ({
+            items: [],
+            gaps: ["Weather was not collected."],
+            materialGaps: [{ kind: "weather", text: "Weather was not collected." }],
+          }),
+        },
+      );
+      const listed = (await store.listCompleted()).find((summary) => summary.id === outcome.run!.id);
+      expect(listed?.reliesOnManualEvidence).toBe(true);
+    });
+
     it("keeps the drafter's reported usage and cost", async () => {
       const store = makeStore();
       const outcome = await runAnalysis(request(), { store, drafter: meteredDrafter });

@@ -92,6 +92,7 @@ export type RunSummary = {
   conclusion: string;
   game: Pick<RunGame, "id" | "home" | "away" | "kickoff">;
   offer: Pick<Offer, "sportsbook" | "market" | "selection" | "pointLine" | "americanOdds">;
+  reliesOnManualEvidence: boolean;
 };
 
 export function summarize(run: ResearchRun): RunSummary {
@@ -108,6 +109,7 @@ export function summarize(run: ResearchRun): RunSummary {
       pointLine: run.offer.pointLine,
       americanOdds: run.offer.americanOdds,
     },
+    reliesOnManualEvidence: run.policy?.reliesOnManualEvidence ?? false,
   };
 }
 

@@ -73,4 +73,26 @@ describe("parseManualEvidence", () => {
     expect(parsed.error).toMatch(/evidence 2/i);
     expect(parsed.rows.map((row) => row.text)).toEqual(["First note.", "Second note."]);
   });
+
+  it("reads which missing source a manual entry stands in for", () => {
+    const data = new FormData();
+    data.append("manualText", "Kickoff 52F, light wind");
+    data.append("manualUrl", "");
+    data.append("manualTime", "2026-10-25T11:00");
+    data.append("manualCovers", "weather");
+    const parsed = parseManualEvidence(data);
+    expect(parsed.ok && parsed.entries[0]?.covers).toBe("weather");
+  });
+
+  it("refuses an unknown source tag", () => {
+    const data = new FormData();
+    data.append("manualText", "note");
+    data.append("manualUrl", "");
+    data.append("manualTime", "");
+    data.append("manualCovers", "odds");
+    expect(parseManualEvidence(data)).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/source tag/),
+    });
+  });
 });

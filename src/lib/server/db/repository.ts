@@ -348,11 +348,13 @@ export class JournalRepository {
         selection: Offer["selection"];
         point_line: string | null;
         american_odds: number;
+        relies_on_manual_evidence: boolean;
       }[]
     >`
       SELECT a.id, a.parent_id, a.created_at, a.conclusion,
              g.source_game_id, g.home_team, g.away_team, g.kickoff_at,
-             o.sportsbook, o.market, o.selection, o.point_line, o.american_odds
+             o.sportsbook, o.market, o.selection, o.point_line, o.american_odds,
+             COALESCE((a.policy->>'reliesOnManualEvidence')::boolean, false) AS relies_on_manual_evidence
       FROM analyses a
       JOIN offers o ON o.id = a.offer_id
       JOIN games g ON g.id = o.game_id
@@ -377,6 +379,7 @@ export class JournalRepository {
         pointLine: num(row.point_line),
         americanOdds: row.american_odds,
       },
+      reliesOnManualEvidence: row.relies_on_manual_evidence,
     }));
   }
 

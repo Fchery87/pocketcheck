@@ -18,6 +18,7 @@
         <span>{label(assessment)}</span>
         <span>at {assessment.offer.sportsbook}, analyzed {easternTime(assessment.createdAt)}</span>
         {#if assessment.parentId}<span>(refresh)</span>{/if}
+        {#if assessment.reliesOnManualEvidence}<span>(relies on manual evidence)</span>{/if}
       </li>
     {/each}
   </ul>
