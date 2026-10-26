@@ -152,6 +152,27 @@
         <p>Not used for the {run.offer.market} market: {run.probabilityModel.reason}</p>
         <p>Its probabilities are recorded with this run but are not shown or used.</p>
       {/if}
+      {#if run.forecast?.provenance === "captured"}
+        <p data-testid="forecast-provenance">
+          Forecast frozen at {easternTime(run.forecast.decisionCutoff)} with policy
+          {run.forecast.policyVersion}. Home starter {run.forecast.starters.home.state}
+          {run.forecast.starters.home.identity ?? "none"}
+          {run.forecast.starters.home.evidenceAt
+            ? `(evidence ${easternTime(run.forecast.starters.home.evidenceAt)})`
+            : "(no decision-time evidence)"}. Away starter {run.forecast.starters.away.state}
+          {run.forecast.starters.away.identity ?? "none"}
+          {run.forecast.starters.away.evidenceAt
+            ? `(evidence ${easternTime(run.forecast.starters.away.evidenceAt)})`
+            : "(no decision-time evidence)"}.
+          {#if !run.forecast.marketEligibility.eligible}
+            This does not make the {run.forecast.marketEligibility.market} market eligible.
+          {/if}
+        </p>
+      {:else if run.forecast === null}
+        <p data-testid="forecast-provenance">
+          Input provenance was not captured with this forecast. It is not an original prospective record.
+        </p>
+      {/if}
     {/if}
   </section>
 

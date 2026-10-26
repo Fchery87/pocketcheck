@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Sql } from "postgres";
 import type { AttemptRequest } from "../analysis/attempt.ts";
+import type { SavedForecast } from "../analysis/forecast-record.ts";
 import type { ProviderRequestRecord } from "../providers/contracts.ts";
 import { americanToDecimal } from "#lib/domain/odds.ts";
 import type { Offer } from "#lib/domain/offer.ts";
@@ -76,6 +77,7 @@ export type AnalysisSnapshot = {
   request?: AttemptRequest;
   providerRequests?: ProviderRequestRecord[];
   providerOutcomeAmbiguous?: boolean;
+  forecast?: SavedForecast | null;
 };
 
 export type ReportRecord = {
@@ -166,6 +168,7 @@ export type SaveAnalysisInput = {
     request?: AttemptRequest;
     providerRequests?: ProviderRequestRecord[];
     providerOutcomeAmbiguous?: boolean;
+    forecast?: SavedForecast | null;
   };
   report?: {
     claims: unknown;
@@ -269,6 +272,7 @@ export class JournalRepository {
           ...(input.analysis.request ? { request: input.analysis.request } : {}),
           providerRequests: input.analysis.providerRequests ?? [],
           providerOutcomeAmbiguous: input.analysis.providerOutcomeAmbiguous ?? false,
+          ...(input.analysis.forecast ? { forecast: input.analysis.forecast } : {}),
         };
 
         await tx`
@@ -390,6 +394,7 @@ export class JournalRepository {
           snapshot = snapshot || ${tx.json({
             providerRequests: input.analysis.providerRequests ?? [],
             providerOutcomeAmbiguous: input.analysis.providerOutcomeAmbiguous ?? false,
+            ...(input.analysis.forecast ? { forecast: input.analysis.forecast } : {}),
           } as never)}
         WHERE id = ${analysisId} AND completed_at IS NULL
       `;
@@ -438,6 +443,15 @@ export class JournalRepository {
 
     const completedAt = input.analysis.status === "completed" ? new Date().toISOString() : null;
     const evidenceIds = input.evidence.map((item) => item.id ?? randomUUID());
+    const snapshot = {
+      ...existing.snapshot,
+      providerRequests: input.analysis.providerRequests ?? existing.snapshot.providerRequests ?? [],
+      providerOutcomeAmbiguous:
+        input.analysis.providerOutcomeAmbiguous ??
+        existing.snapshot.providerOutcomeAmbiguous ??
+        false,
+      ...(input.analysis.forecast ? { forecast: input.analysis.forecast } : {}),
+    };
     await this.sql.begin(async (tx) => {
       const updated = await tx<{ id: string }[]>`
         UPDATE analyses SET
@@ -454,10 +468,7 @@ export class JournalRepository {
           gaps = ${jsonOrNull(tx, input.analysis.gaps)},
           usage = ${jsonOrNull(tx, input.analysis.usage)},
           probability_model = ${jsonOrNull(tx, input.analysis.probabilityModel)},
-          snapshot = snapshot || ${tx.json({
-            providerRequests: input.analysis.providerRequests ?? [],
-            providerOutcomeAmbiguous: input.analysis.providerOutcomeAmbiguous ?? false,
-          } as never)}
+          snapshot = ${tx.json(snapshot as never)}
         WHERE id = ${analysisId} AND completed_at IS NULL
         RETURNING id
       `;

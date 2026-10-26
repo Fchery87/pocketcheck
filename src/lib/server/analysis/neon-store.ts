@@ -9,6 +9,7 @@ import {
   type SaveAnalysisInput,
 } from "../db/repository.ts";
 import type { RunModel } from "./model.ts";
+import type { SavedForecast } from "./forecast-record.ts";
 import type { PolicyDecision } from "./policy.ts";
 import type {
   ActualBet,
@@ -112,6 +113,7 @@ export function createNeonStore(sql: Sql): ResearchStore {
       providerRequests: analysis.snapshot.providerRequests ?? [],
       providerOutcomeAmbiguous: analysis.snapshot.providerOutcomeAmbiguous ?? false,
       probabilityModel: (analysis.probabilityModel as RunModel | null) ?? null,
+      forecast: (analysis.snapshot.forecast as SavedForecast | null | undefined) ?? null,
       report: (report?.body as ThesisReport | null | undefined) ?? null,
       renderedText: report?.renderedText ?? "",
       failureReason: analysis.failureReason,
@@ -228,6 +230,7 @@ function journalInput(run: NewRun, includeUserResearch: boolean): SaveAnalysisIn
       gaps: run.gaps,
       usage: run.usage,
       probabilityModel: run.probabilityModel,
+      forecast: run.forecast,
       evidencePacketHash: run.evidencePacketHash,
       provider: run.provider,
       model: run.model,

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { ManualEvidenceInput } from "./attempt.ts";
 import { americanToDecimal, breakEven } from "#lib/domain/odds.ts";
-import { OfferError, parseOffer, type OfferInput, type TieRule } from "#lib/domain/offer.ts";
+import { OfferError, parseOffer, type Offer, type OfferInput, type TieRule } from "#lib/domain/offer.ts";
 import { buildThesisPacket, thesisRequestBody } from "./packet.ts";
 import { redactText } from "./redact.ts";
 import { validateThesisReport } from "./report-validation.ts";
@@ -23,6 +23,7 @@ import type {
 } from "../providers/contracts.ts";
 import type { RunUsage } from "./store.ts";
 import { noModel, type ModelSource, type RunModel } from "./model.ts";
+import type { SavedForecast } from "./forecast-record.ts";
 import { decidePolicy } from "./policy.ts";
 import { assembleEvidencePacket } from "../sources/packet.ts";
 import { createManualEvidence } from "../sources/manual.ts";
@@ -58,11 +59,19 @@ export type AnalysisRequest = {
 
 export type { ManualEvidenceInput } from "./attempt.ts";
 
+export type ForecastSource = (
+  game: ScheduledGame,
+  cutoffIso: string,
+  offer: Offer,
+  model: RunModel,
+) => Promise<SavedForecast | null>;
+
 export type AnalysisDependencies = {
   store: ResearchStore;
   drafter?: ThesisDrafter;
   collect?: EvidenceCollector;
   model?: ModelSource;
+  forecast?: ForecastSource;
 };
 
 export type AnalysisOutcome =
@@ -209,6 +218,7 @@ export async function runAnalysis(
     drafter = createFixtureDrafter(),
     collect = noSources,
     model = noModel,
+    forecast,
   }: AnalysisDependencies,
 ): Promise<AnalysisOutcome> {
   const requestId = request.requestId ?? randomUUID();
@@ -295,6 +305,7 @@ export async function runAnalysis(
     gaps: [],
     policy: null,
     probabilityModel: null,
+    forecast: null,
     provider: drafter.id,
     model: drafter.modelId,
     usage: null,
@@ -383,6 +394,9 @@ export async function runAnalysis(
       };
     }
     const eligible = probabilityModel.status === "computed" && probabilityModel.eligible;
+    const forecastRecord = forecast
+      ? await forecast(request.game, request.nowIso, offer, probabilityModel)
+      : null;
     const policy = decidePolicy({
       offerValid: true,
       gameStarted: false,
@@ -418,6 +432,7 @@ export async function runAnalysis(
       gaps,
       policy,
       probabilityModel,
+      forecast: forecastRecord,
       evidencePacketHash,
     });
     await advance("drafting");
@@ -443,6 +458,7 @@ export async function runAnalysis(
       gaps,
       policy,
       probabilityModel,
+      forecast: forecastRecord,
       provider: drafter.id,
       model: drafter.modelId,
       providerRequests,
