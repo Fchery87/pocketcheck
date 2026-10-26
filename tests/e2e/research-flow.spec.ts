@@ -280,6 +280,20 @@ test("a researched spread of -3 keeps its terms when the placed bet is -3.5", as
   await expect(page.getByTestId("bet-contract")).toContainText("-105");
   await expect(page.getByTestId("assessments")).toContainText("-3");
   await expect(page.getByTestId("assessments")).not.toContainText("-3.5");
+
+  await page.getByTestId("settle-analysis").selectOption({ index: 1 });
+  await page.getByTestId("settle-bet").selectOption({ index: 1 });
+  await page.getByTestId("settle-event").fill("browser-final-dal-phi");
+  await page.getByTestId("settle-home").fill("20");
+  await page.getByTestId("settle-away").fill("17");
+  await page.getByRole("button", { name: "Record settlement" }).click();
+  await expect(page.getByTestId("settlement-recorded")).toHaveText("Settlement recorded");
+  await expect(page.getByTestId("assessment-result")).toContainText("push");
+  await expect(page.getByTestId("bet-result")).toContainText("loss");
+  await page.reload();
+  await expect(page.getByTestId("assessment-result")).toContainText("push");
+  await expect(page.getByTestId("bet-result")).toContainText("loss");
+  await expect(page.getByTestId("settlement-notice")).toHaveCount(1);
 });
 
 test("a comparable close, a moved line, and a missing close stay distinct", async ({ page }) => {

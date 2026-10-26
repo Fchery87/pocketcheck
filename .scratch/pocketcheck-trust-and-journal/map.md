@@ -30,6 +30,8 @@ Type: task
 - [Ticket 08](issues/08-line-changing-refreshes.md) lets a refresh change the point line, sportsbook, odds, and observation time while keeping the parent market and selection. A different market or selection is a new analysis. Invalid contracts fail before external work and keep the entered values.
 - [Ticket 07](issues/07-evidence-coverage.md) tracks injury coverage per team and game week. Player rows and retrieval time do not establish the opponent's coverage or the source publication time. Only fresh manual evidence for that team clears the gap. Malformed weather JSON is a visible gap.
 - [Ticket 09](issues/09-actual-bet-contracts.md) stores the placed contract apart from the researched offer. Legacy bets without that contract keep a visible limit and are not backfilled from the research line.
+- [Ticket 12](issues/12-closing-offers.md) records later closing observations and compares decimal odds only when market, side, point line, sportsbook, and rules match. A moved line is not an odds change. A missing or untimestamped archive is unavailable, not zero.
+- [Ticket 11](issues/11-settlements-and-corrections.md) records append-only settlement notices and grades the researched offer and each actual bet from their own contracts. A postponement stays unresolved. A repeated event is ignored. A conflicting event identifier is rejected. A correction names the earlier notice, requires a reason, and leaves history in place.
 
 ## Fog
 

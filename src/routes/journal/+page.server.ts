@@ -1,6 +1,7 @@
 import { error, fail } from "@sveltejs/kit";
 import { parseOffer, type Market, type OfferRules, type SideSelection, type TieRule } from "#lib/domain/offer.ts";
 import { ConfigError, now, researchStore } from "#lib/server/config.ts";
+import type { SettlementNoticeKind } from "#lib/server/analysis/store.ts";
 import type { Actions, PageServerLoad } from "./$types";
 
 function store() {
@@ -12,6 +13,11 @@ function store() {
   }
 }
 
+const markets = new Set<Market>(["moneyline", "spread", "total"]);
+const selections = new Set<SideSelection>(["home", "away", "over", "under"]);
+const ties = new Set<TieRule>(["push", "loss", "win", "void"]);
+const kinds = new Set<SettlementNoticeKind>(["final", "postponed", "void", "unresolved"]);
+
 export const load: PageServerLoad = async () => {
   const journal = store();
   const [assessments, bets, closings] = await Promise.all([
@@ -19,12 +25,23 @@ export const load: PageServerLoad = async () => {
     journal.listBets(),
     journal.listClosings(),
   ]);
-  return { assessments, bets, closings };
+  const settlements = await Promise.all(
+    assessments.map(async (assessment) => {
+      const related = bets.filter((bet) => bet.analysisId === assessment.id);
+      const rows = [];
+      for (const bet of related) {
+        const read = await journal.readSettlement({ analysisId: assessment.id, betId: bet.id });
+        rows.push({ betId: bet.id, grade: read.bet });
+      }
+      const read = await journal.readSettlement({
+        analysisId: assessment.id,
+        betId: related[0]?.id ?? null,
+      });
+      return { analysisId: assessment.id, assessment: read.assessment, bets: rows };
+    }),
+  );
+  return { assessments, bets, settlements, closings };
 };
-
-const markets = new Set<Market>(["moneyline", "spread", "total"]);
-const selections = new Set<SideSelection>(["home", "away", "over", "under"]);
-const ties = new Set<TieRule>(["push", "loss", "win", "void"]);
 
 export const actions = {
   bet: async ({ request }) => {
@@ -105,7 +122,50 @@ export const actions = {
         error: cause instanceof Error ? cause.message : "Bet was not saved",
       });
     }
-    return { recorded: true, error: null };
+    return { recorded: true, settled: false, error: null };
+  },
+  settle: async ({ request }) => {
+    const data = await request.formData();
+    const analysisId = String(data.get("analysisId") ?? "").trim();
+    const betId = String(data.get("betId") ?? "").trim();
+    const eventId = String(data.get("eventId") ?? "").trim();
+    const kind = String(data.get("kind") ?? "").trim();
+    const homeText = String(data.get("homeScore") ?? "").trim();
+    const awayText = String(data.get("awayScore") ?? "").trim();
+    const reason = String(data.get("reason") ?? "").trim();
+    const correctsNoticeId = String(data.get("correctsNoticeId") ?? "").trim();
+    if (!analysisId) return fail(400, { settled: false, error: "Choose the analysis to settle" });
+    if (!eventId) return fail(400, { settled: false, error: "Enter a settlement event identifier" });
+    if (!kinds.has(kind as SettlementNoticeKind)) {
+      return fail(400, { settled: false, error: "Choose a settlement kind" });
+    }
+    const homeScore = homeText === "" ? null : Number(homeText);
+    const awayScore = awayText === "" ? null : Number(awayText);
+    if (kind === "final" && (!Number.isInteger(homeScore) || !Number.isInteger(awayScore))) {
+      return fail(400, { settled: false, error: "A final result needs whole-number scores" });
+    }
+    const journal = store();
+    try {
+      const result = await journal.recordSettlement({
+        eventId,
+        analysisId,
+        betId: betId || null,
+        kind: kind as SettlementNoticeKind,
+        homeScore,
+        awayScore,
+        recordedAt: now(),
+        source: "journal",
+        reason: reason || null,
+        correctsNoticeId: correctsNoticeId || null,
+      });
+      if (result.kind === "conflict") return fail(409, { settled: false, error: result.error });
+      return { recorded: false, settled: true, duplicate: result.kind === "duplicate", error: null };
+    } catch (cause) {
+      return fail(400, {
+        settled: false,
+        error: cause instanceof Error ? cause.message : "Settlement was not saved",
+      });
+    }
   },
   closing: async ({ request }) => {
     const data = await request.formData();

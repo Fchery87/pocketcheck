@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { americanToDecimal } from "#lib/domain/odds.ts";
+import { settleOffer, type Settlement } from "#lib/domain/settlement.ts";
 import { parseOffer, type Offer, type OfferRules, type SideSelection, type Market } from "#lib/domain/offer.ts";
 import { compareClosing, type ClosingComparison } from "./closing.ts";
 import type { ProviderRequestRecord, ThesisReport } from "../providers/contracts.ts";
@@ -291,6 +292,39 @@ export type ArchivedClosing = {
   source: string;
 };
 
+export type SettlementNoticeKind = "final" | "postponed" | "void" | "unresolved";
+
+export type RecordSettlementInput = {
+  eventId: string;
+  analysisId: string;
+  betId?: string | null;
+  kind: SettlementNoticeKind;
+  homeScore?: number | null;
+  awayScore?: number | null;
+  recordedAt: string;
+  source: string;
+  reason?: string | null;
+  correctsNoticeId?: string | null;
+};
+
+export type SettlementGrade = {
+  result: Settlement | "unresolved";
+  effective: Settlement | "unresolved";
+  history: Array<{
+    id: string;
+    eventId: string;
+    result: Settlement | "unresolved";
+    reason: string | null;
+    correctsId: string | null;
+    recordedAt: string;
+  }>;
+};
+
+export type RecordSettlementResult =
+  | { kind: "recorded"; noticeId: string }
+  | { kind: "duplicate"; noticeId: string }
+  | { kind: "conflict"; error: string };
+
 export type ResearchStore = {
   beginAttempt: (run: NewRun) => Promise<BeginAttemptResult>;
   updateAttempt: (run: NewRun) => Promise<ResearchRun>;
@@ -304,6 +338,11 @@ export type ResearchStore = {
   recordClosing: (closing: NewClosing) => Promise<RecordClosingResult>;
   /** Oldest first. Earlier observations stay when a later one is recorded. */
   listClosings: () => Promise<ClosingObservation[]>;
+  recordSettlement: (input: RecordSettlementInput) => Promise<RecordSettlementResult>;
+  readSettlement: (input: {
+    analysisId: string;
+    betId?: string | null;
+  }) => Promise<{ assessment: SettlementGrade; bet: SettlementGrade | null }>;
   /** Test seam: a completed row whose role was never frozen at completion. */
   recordUnclassifiedCompleted?: (run: ResearchRun) => Promise<void>;
   /** Test seam: an archived price with no observation time. */
@@ -315,6 +354,7 @@ export function createMemoryStore(): ResearchStore {
   const requests = new Map<string, string>();
   const bets: ActualBet[] = [];
   const closings: ClosingObservation[] = [];
+  const notices: StoredNotice[] = [];
   const submissions = new Map<string, string>();
   const fingerprints = new Map<string, string>();
   let betWrites: Promise<unknown> = Promise.resolve();
@@ -459,6 +499,17 @@ export function createMemoryStore(): ResearchStore {
     },
     async listClosings() {
       return closings.map((item) => structuredClone(item));
+    },
+    async recordSettlement(input) {
+      const write = betWrites.then(() => recordMemorySettlement({ runs, bets, notices }, input));
+      betWrites = write.then(
+        () => undefined,
+        () => undefined,
+      );
+      return write;
+    },
+    async readSettlement(input) {
+      return readMemorySettlement({ runs, bets, notices }, input);
     },
     async recordUnclassifiedCompleted(run) {
       runs.set(
@@ -668,4 +719,127 @@ function recordMemoryClosing(
   };
   state.closings.push(saved);
   return saved;
+}
+
+export function settlementPayloadKey(input: RecordSettlementInput): string {
+  return JSON.stringify({
+    eventId: input.eventId,
+    analysisId: input.analysisId,
+    betId: input.betId ?? null,
+    kind: input.kind,
+    homeScore: input.homeScore ?? null,
+    awayScore: input.awayScore ?? null,
+    source: input.source,
+    reason: input.reason ?? null,
+    correctsNoticeId: input.correctsNoticeId ?? null,
+  });
+}
+
+function recordMemorySettlement(
+  state: {
+    runs: Map<string, ResearchRun>;
+    bets: ActualBet[];
+    notices: StoredNotice[];
+  },
+  input: RecordSettlementInput,
+): RecordSettlementResult {
+  const run = state.runs.get(input.analysisId);
+  if (!run) throw new Error(`Analysis not found: ${input.analysisId}`);
+  if (input.betId) {
+    const bet = state.bets.find((item) => item.id === input.betId);
+    if (!bet || bet.analysisId !== input.analysisId) {
+      throw new Error(`Bet not found: ${input.betId}`);
+    }
+  }
+  if (input.correctsNoticeId) {
+    if (!input.reason?.trim()) {
+      return { kind: "conflict", error: "A correction requires a reason." };
+    }
+    const prior = state.notices.find((item) => item.id === input.correctsNoticeId);
+    if (!prior || prior.analysisId !== input.analysisId) {
+      throw new Error(`Settlement not found: ${input.correctsNoticeId}`);
+    }
+  }
+  const payloadKey = settlementPayloadKey(input);
+  const sameEvent = state.notices.filter((item) => item.eventId === input.eventId);
+  if (sameEvent.length > 0) {
+    const match = sameEvent.find((item) => item.payloadKey === payloadKey);
+    if (match) return { kind: "duplicate", noticeId: match.id };
+    return {
+      kind: "conflict",
+      error: "This settlement event identifier was already used with different inputs.",
+    };
+  }
+  const saved: StoredNotice = {
+    id: randomUUID(),
+    eventId: input.eventId,
+    analysisId: input.analysisId,
+    betId: input.betId ?? null,
+    kind: input.kind,
+    homeScore: input.homeScore ?? null,
+    awayScore: input.awayScore ?? null,
+    source: input.source,
+    reason: input.reason ?? null,
+    correctsId: input.correctsNoticeId ?? null,
+    recordedAt: input.recordedAt,
+    payloadKey,
+  };
+  state.notices.push(saved);
+  return { kind: "recorded", noticeId: saved.id };
+}
+
+export function gradeFromNotices(offer: Offer, notices: StoredNotice[]): SettlementGrade {
+  const ordered = [...notices].sort((left, right) => left.recordedAt.localeCompare(right.recordedAt));
+  const history = ordered.map((notice) => ({
+    id: notice.id,
+    eventId: notice.eventId,
+    result: gradeNotice(offer, notice),
+    reason: notice.reason,
+    correctsId: notice.correctsId,
+    recordedAt: notice.recordedAt,
+  }));
+  const latest = history.at(-1);
+  const effective = latest?.result ?? "unresolved";
+  return { result: effective, effective, history };
+}
+
+function gradeNotice(offer: Offer, notice: StoredNotice): Settlement {
+  if (notice.kind === "postponed" || notice.kind === "unresolved") return "unresolved";
+  if (notice.kind === "void") return "void";
+  return settleOffer(offer, {
+    homeScore: notice.homeScore ?? Number.NaN,
+    awayScore: notice.awayScore ?? Number.NaN,
+    voided: false,
+  });
+}
+
+function readMemorySettlement(
+  state: {
+    runs: Map<string, ResearchRun>;
+    bets: ActualBet[];
+    notices: StoredNotice[];
+  },
+  input: { analysisId: string; betId?: string | null },
+): { assessment: SettlementGrade; bet: SettlementGrade | null } {
+  const run = state.runs.get(input.analysisId);
+  if (!run) throw new Error(`Analysis not found: ${input.analysisId}`);
+  const forRun = state.notices.filter((item) => item.analysisId === input.analysisId);
+  const assessment = gradeFromNotices(run.offer, forRun);
+  if (!input.betId) return { assessment, bet: null };
+  const bet = state.bets.find((item) => item.id === input.betId);
+  if (!bet || bet.analysisId !== input.analysisId || !bet.market || !bet.selection || !bet.rules) {
+    return { assessment, bet: null };
+  }
+  const contract = parseOffer({
+    gameId: run.game.id,
+    sportsbook: bet.sportsbook,
+    market: bet.market,
+    selection: bet.selection,
+    pointLine: bet.pointLine ?? undefined,
+    americanOdds: bet.americanOdds,
+    observedAt: bet.placedAt,
+    kickoffAt: run.game.kickoff,
+    rules: bet.rules,
+  });
+  return { assessment, bet: gradeFromNotices(contract, forRun) };
 }

@@ -16,21 +16,27 @@ import type { RunModel } from "./model.ts";
 import type { SavedForecast } from "./forecast-record.ts";
 import type { PolicyDecision } from "./policy.ts";
 import { compareClosing } from "./closing.ts";
-import type {
-  ActualBet,
-  ArchivedClosing,
-  AssessmentRole,
-  ClosingObservation,
-  ClosingProvenance,
-  NewClosing,
-  NewRun,
-  ProgressStage,
-  RecordBetResult,
-  ResearchRun,
-  ResearchStore,
-  RunGame,
-  RunStatus,
-  RunUsage,
+import {
+  gradeFromNotices,
+  settlementPayloadKey,
+  type ActualBet,
+  type ArchivedClosing,
+  type AssessmentRole,
+  type ClosingObservation,
+  type ClosingProvenance,
+  type NewClosing,
+  type NewRun,
+  type ProgressStage,
+  type RecordBetResult,
+  type RecordSettlementInput,
+  type RecordSettlementResult,
+  type ResearchRun,
+  type ResearchStore,
+  type RunGame,
+  type RunStatus,
+  type RunUsage,
+  type SettlementGrade,
+  type StoredNotice,
 } from "./store.ts";
 
 /** What an evidence row's body holds, so the packet item comes back unchanged. */
@@ -217,6 +223,12 @@ export function createNeonStore(sql: Sql): ResearchStore {
     async listBets() {
       const records = await journal.listBets();
       return records.filter((record) => record.analysisId !== null).map(toBet);
+    },
+    async recordSettlement(input) {
+      return recordNeonSettlement(journal, input);
+    },
+    async readSettlement(input) {
+      return readNeonSettlement(journal, input);
     },
     async recordClosing(input) {
       return { kind: "created", closing: await persistClosing(journal, input, "observed") };
@@ -580,4 +592,93 @@ function toClosing(
     source: record.source,
     comparison,
   };
+}
+
+async function recordNeonSettlement(
+  journal: JournalRepository,
+  input: RecordSettlementInput,
+): Promise<RecordSettlementResult> {
+  const saved = await journal.findRun(input.analysisId);
+  if (!saved) throw new Error(`Analysis not found: ${input.analysisId}`);
+  if (input.betId) {
+    const bets = await journal.listBets();
+    const bet = bets.find((item) => item.id === input.betId);
+    if (!bet || bet.analysisId !== input.analysisId) throw new Error(`Bet not found: ${input.betId}`);
+  }
+  if (input.correctsNoticeId) {
+    if (!input.reason?.trim()) return { kind: "conflict", error: "A correction requires a reason." };
+    const prior = await journal.readSettlementNotice(input.correctsNoticeId);
+    if (!prior || prior.analysisId !== input.analysisId) {
+      throw new Error(`Settlement not found: ${input.correctsNoticeId}`);
+    }
+  }
+  const payloadKey = settlementPayloadKey(input);
+  const existing = await journal.findSettlementNoticeByEvent(input.eventId);
+  if (existing) {
+    if (existing.payloadKey === payloadKey) return { kind: "duplicate", noticeId: existing.id };
+    return {
+      kind: "conflict",
+      error: "This settlement event identifier was already used with different inputs.",
+    };
+  }
+  const id = randomUUID();
+  try {
+    await journal.insertSettlementNotice({
+      id,
+      eventId: input.eventId,
+      analysisId: input.analysisId,
+      betId: input.betId ?? null,
+      kind: input.kind,
+      homeScore: input.homeScore ?? null,
+      awayScore: input.awayScore ?? null,
+      source: input.source,
+      reason: input.reason ?? null,
+      correctsId: input.correctsNoticeId ?? null,
+      recordedAt: input.recordedAt,
+      payloadKey,
+    });
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      const raced = await journal.findSettlementNoticeByEvent(input.eventId);
+      if (raced?.payloadKey === payloadKey) return { kind: "duplicate", noticeId: raced.id };
+      return {
+        kind: "conflict",
+        error: "This settlement event identifier was already used with different inputs.",
+      };
+    }
+    throw error;
+  }
+  return { kind: "recorded", noticeId: id };
+}
+
+async function readNeonSettlement(
+  journal: JournalRepository,
+  input: { analysisId: string; betId?: string | null },
+): Promise<{ assessment: SettlementGrade; bet: SettlementGrade | null }> {
+  const saved = await journal.findRun(input.analysisId);
+  if (!saved) throw new Error(`Analysis not found: ${input.analysisId}`);
+  const notices = (await journal.listSettlementNotices(input.analysisId)).map(
+    (row): StoredNotice => ({ ...row, payloadKey: "" }),
+  );
+  const assessment = gradeFromNotices(saved.offer, notices);
+  if (!input.betId) return { assessment, bet: null };
+  const bets = await journal.listBets();
+  const bet = bets.find((item) => item.id === input.betId);
+  if (!bet?.contract || bet.analysisId !== input.analysisId) return { assessment, bet: null };
+  const contract = parseOffer({
+    gameId: saved.game.sourceGameId,
+    sportsbook: bet.sportsbook ?? saved.offer.sportsbook,
+    market: bet.contract.market,
+    selection: bet.contract.selection,
+    pointLine: bet.contract.pointLine ?? undefined,
+    americanOdds: bet.americanOdds,
+    observedAt: bet.placedAt,
+    kickoffAt: saved.game.kickoffAt,
+    rules: bet.contract.rules,
+  });
+  return { assessment, bet: gradeFromNotices(contract, notices) };
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "23505";
 }
