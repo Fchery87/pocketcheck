@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { OutcomeProbabilities } from "#lib/domain/odds.ts";
 import type { Offer } from "#lib/domain/offer.ts";
-import { artifactChecksum, valueEligibility, type ModelArtifact } from "../models/artifact.ts";
+import { valueEligibility, type ModelArtifact } from "../models/artifact.ts";
+import { parseArtifact } from "../models/inputs.ts";
 import { featureRowForGame } from "../models/features.ts";
 import type { Market } from "../models/games.ts";
 import { pricedGamesFromNflverseCsv, upcomingGameFromCsv } from "../models/history.ts";
@@ -43,8 +44,6 @@ export const noModel: ModelSource = async () => ({
   reason: "No model artifact is configured.",
 });
 
-const SUPPORTED_VERSION = 4;
-
 function unavailable(reason: string): RunModel {
   return { status: "unavailable", reason };
 }
@@ -58,20 +57,23 @@ export function createArtifactModel(input: {
     if (!existsSync(input.artifactPath)) {
       return unavailable(`No model artifact at ${input.artifactPath}. Run npm run model:fit.`);
     }
-    const artifact = JSON.parse(readFileSync(input.artifactPath, "utf8")) as ModelArtifact;
-    const { checksum, ...body } = artifact;
-    if (artifactChecksum(body) !== checksum) {
-      return unavailable("The model artifact's checksum does not match its contents.");
-    }
-    if (artifact.version !== SUPPORTED_VERSION) {
+    let artifact: ModelArtifact;
+    try {
+      const value: unknown = JSON.parse(readFileSync(input.artifactPath, "utf8"));
+      artifact = parseArtifact(value);
+    } catch (error) {
       return unavailable(
-        `Model artifact version ${artifact.version} is not supported. Refit with npm run model:fit.`,
+        `The model artifact is unavailable: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+    const { checksum } = artifact;
     if (Date.parse(game.kickoff) <= Date.parse(artifact.trainingCutoff)) {
       return unavailable(
         `The model artifact was trained on games through ${artifact.trainingCutoff}, which includes this game.`,
       );
+    }
+    if (Date.parse(artifact.trainingCutoff) > Date.parse(cutoffIso)) {
+      return unavailable("The model artifact was trained after this research decision cutoff.");
     }
     if (!existsSync(input.schedulePath)) {
       return unavailable(`No schedule at ${input.schedulePath}. Run npm run data:schedule.`);
