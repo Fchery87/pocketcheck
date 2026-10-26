@@ -110,6 +110,8 @@ export function createNeonStore(sql: Sql): ResearchStore {
       evidencePacketHash: analysis.evidencePacketHash ?? "",
       gaps: Array.isArray(analysis.gaps) ? (analysis.gaps as string[]) : [],
       usage: (analysis.usage as RunUsage | null) ?? null,
+      providerRequests: analysis.snapshot.providerRequests ?? [],
+      providerOutcomeAmbiguous: analysis.snapshot.providerOutcomeAmbiguous ?? false,
       probabilityModel: (analysis.probabilityModel as RunModel | null) ?? null,
       forecast: (analysis.snapshot.forecast as SavedForecast | null | undefined) ?? null,
       report: (report?.body as ThesisReport | null | undefined) ?? null,
@@ -235,6 +237,8 @@ function journalInput(run: NewRun, includeUserResearch: boolean): SaveAnalysisIn
       failureReason: run.failureReason,
       idempotencyKey: run.request?.id,
       request: run.request ?? undefined,
+      providerRequests: run.providerRequests,
+      providerOutcomeAmbiguous: run.providerOutcomeAmbiguous,
     },
     report: run.report
       ? {

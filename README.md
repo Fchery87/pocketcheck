@@ -6,7 +6,11 @@ Status (2026-10-25): the research workflow runs end to end on the real nflverse 
 
 Each analysis stores a versioned snapshot of its game and exact research offer, so reloading the schedule does not rewrite an existing report or journal entry. Legacy entries are frozen from the schedule available at migration time and marked with unknown original provenance; their original kickoff and venue cannot be confirmed. The private lean remains stored separately from the evidence packet and thesis.
 
-Theses are drafted by the model you choose in Settings (TheClawBay or DeepSeek), or by a deterministic fixture drafter that makes no AI call. Settings lists each provider's catalog with its retrieval time. A model can draft only when its catalog declares text output (DeepSeek) or it passes a one-request JSON test (TheClawBay declares nothing). There is no automatic fallback: a missing key or a removed model stops the analysis with the reason. Each report shows its token usage and provider-reported cost, or says none was reported.
+Theses are drafted by the model you choose in Settings (TheClawBay or DeepSeek), or by a deterministic fixture drafter that makes no AI call. Settings lists each provider's catalog with its retrieval time. A model can draft only when its catalog declares text output (DeepSeek) or it passes a one-request JSON test (TheClawBay declares nothing). There is no automatic fallback: a missing key or a removed model stops the analysis with the reason.
+
+Each provider request is saved with its identifier, outcome, response, and whatever accounting the provider returned, before the final report is published. Those records stay in the journal and contain no credentials. A later finalization failure reuses that saved response and does not send another provider request. Original and repair requests are both included in the token and cost totals. A field the provider did not report stays unknown, and the total is marked partial. Unknown cost is not shown as zero.
+
+If a request was sent and the process cannot tell whether the provider finished, the analysis says the outcome is ambiguous and requires a deliberate new attempt before another potentially charged request. That is not exactly-once execution. A provider that cannot confirm the earlier request may still charge a later attempt.
 
 Not yet wired into the app: the baseline model; settlement, closing-line comparison, and summaries.
 

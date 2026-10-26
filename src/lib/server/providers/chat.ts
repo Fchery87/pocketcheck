@@ -10,6 +10,7 @@ import {
   type ModelCatalog,
   type ModelCatalogEntry,
   type ProviderOptions,
+  type ProviderRequestRecord,
   type ThesisPacket,
   type ThesisProvider,
   type UsageRecord,
@@ -20,6 +21,36 @@ type CompletionPayload = {
   usage: UsageRecord | null;
   usageCost: number | null;
 };
+
+type Exchange =
+  | { ok: true; payload: CompletionPayload; requestId: string }
+  | { ok: false; status: number | null; kind: ProviderErrorKind; message: string; requestId: string };
+
+function requestRecord(
+  role: ProviderRequestRecord["role"],
+  exchange: Exchange,
+): ProviderRequestRecord {
+  const usage = exchange.ok ? exchange.payload.usage : null;
+  const usageCost = exchange.ok ? exchange.payload.usageCost : null;
+  return {
+    requestId: exchange.requestId,
+    role,
+    outcome: exchange.ok ? "completed" : exchange.kind === "timeout" ? "ambiguous" : "failed",
+    response: exchange.ok ? exchange.payload.content : null,
+    promptTokens: usage?.promptTokens ?? null,
+    completionTokens: usage?.completionTokens ?? null,
+    totalTokens: usage?.totalTokens ?? null,
+    costUsd: usageCost,
+    costKnown: usageCost !== null,
+  };
+}
+
+function readRequestId(body: unknown): string {
+  if (body && typeof body === "object" && typeof (body as { id?: unknown }).id === "string") {
+    return (body as { id: string }).id;
+  }
+  return "unreported";
+}
 
 function readUsage(body: unknown): { usage: UsageRecord | null; usageCost: number | null } {
   if (
@@ -195,10 +226,7 @@ export function createChatProvider(input: {
     modelId: string,
     packet: ThesisPacket,
     rejected?: string[],
-  ): Promise<
-    | { ok: true; payload: CompletionPayload }
-    | { ok: false; status: number | null; kind: ProviderErrorKind; message: string }
-  > {
+  ): Promise<Exchange> {
     let response;
     try {
       response = await request(
@@ -208,15 +236,23 @@ export function createChatProvider(input: {
       );
     } catch (error) {
       if (!(error instanceof ProviderError)) throw error;
-      return { ok: false, status: null, kind: error.kind, message: error.message };
+      return {
+        ok: false,
+        status: null,
+        kind: error.kind,
+        message: error.message,
+        requestId: "unreported",
+      };
     }
     if (!response.ok) {
       const kind = statusKind(response.status);
+      const parsed = tryParse(response.text);
       return {
         ok: false,
         status: response.status,
         kind,
         message: `${kind} (HTTP ${response.status})`,
+        requestId: parsed.ok ? readRequestId(parsed.value) : "unreported",
       };
     }
     const parsedBody = tryParse(response.text);
@@ -224,6 +260,7 @@ export function createChatProvider(input: {
     const usage = readUsage(body);
     return {
       ok: true,
+      requestId: readRequestId(body),
       payload: { content: readContent(body), ...usage },
     };
   }
@@ -249,9 +286,11 @@ export function createChatProvider(input: {
     }
 
     const first = await complete(draftInput.modelId, draftInput.packet);
+    const firstRecord = requestRecord("draft", first);
     if (!first.ok) {
       return failedDraft(draftInput.packet, draftInput.modelId, {
         error: { kind: first.kind, status: first.status, message: first.message },
+        providerRequests: [firstRecord],
       });
     }
 
@@ -267,6 +306,7 @@ export function createChatProvider(input: {
         packet: draftInput.packet,
         usage: first.payload.usage,
         usageCost: first.payload.usageCost,
+        providerRequests: [firstRecord],
         modelId: draftInput.modelId,
       };
     }
@@ -277,10 +317,12 @@ export function createChatProvider(input: {
         ? validated.reasons
         : ["malformed report"];
     const second = await complete(draftInput.modelId, draftInput.packet, rejected);
+    const secondRecord = requestRecord("repair", second);
     if (!second.ok) {
       return failedDraft(draftInput.packet, draftInput.modelId, {
         repairAttempted: true,
         error: { kind: second.kind, status: second.status, message: second.message },
+        providerRequests: [firstRecord, secondRecord],
       });
     }
     const repaired = tryParse(second.payload.content);
@@ -300,6 +342,7 @@ export function createChatProvider(input: {
         },
         usage: second.payload.usage,
         usageCost: second.payload.usageCost,
+        providerRequests: [firstRecord, secondRecord],
       });
     }
     return {
@@ -311,6 +354,7 @@ export function createChatProvider(input: {
       packet: draftInput.packet,
       usage: second.payload.usage,
       usageCost: second.payload.usageCost,
+      providerRequests: [firstRecord, secondRecord],
       modelId: draftInput.modelId,
     };
   }

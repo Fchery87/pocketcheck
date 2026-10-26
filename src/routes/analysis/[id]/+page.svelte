@@ -287,18 +287,42 @@
   {/if}
 
   {#if !fixture}
-    <p data-testid="usage">
-      {#if run.usage}
-        Drafting used {run.usage.totalTokens ?? "an unreported number of"} tokens
-        {#if run.usage.promptTokens !== null && run.usage.completionTokens !== null}
-          ({run.usage.promptTokens} prompt, {run.usage.completionTokens} completion)
-        {/if}. Cost {run.usage.costUsd === null
-          ? "not reported"
-          : `$${run.usage.costUsd.toFixed(4)}, as reported by ${run.provider}`}.
-      {:else}
-        {run.provider} reported no usage for this run.
+    <section data-testid="usage">
+      {#if run.providerOutcomeAmbiguous}
+        <p data-testid="provider-outcome">
+          Provider completion is ambiguous. This request may already have been charged. Start a new
+          attempt before sending another provider request. Completion is not exactly once.
+        </p>
       {/if}
-    </p>
+      {#if run.usage}
+        <p>
+          Known usage across {run.providerRequests.length === 1 ? "1 provider request" : `${run.providerRequests.length} provider requests`}
+          {#if run.usage.partial}(partial){/if}:
+          {run.usage.totalTokens === null ? "total tokens unknown" : `${run.usage.totalTokens} tokens`}
+          {#if run.usage.promptTokens !== null && run.usage.completionTokens !== null}
+            ({run.usage.promptTokens} prompt, {run.usage.completionTokens} completion)
+          {:else if run.usage.promptTokens === null || run.usage.completionTokens === null}
+            (some token fields unknown)
+          {/if}.
+          Cost {run.usage.costUsd === null
+            ? "unknown, not zero"
+            : `$${run.usage.costUsd.toFixed(4)}, as reported by ${run.provider}`}.
+        </p>
+      {:else}
+        <p>{run.provider} reported no usage for this run. Missing cost is unknown, not zero.</p>
+      {/if}
+      {#if run.providerRequests.length > 0}
+        <ul data-testid="provider-requests">
+          {#each run.providerRequests as item (item.requestId + item.role)}
+            <li>
+              {item.role} {item.requestId}: {item.outcome}.
+              {item.totalTokens === null ? "tokens unknown" : `${item.totalTokens} tokens`}.
+              Cost {item.costKnown && item.costUsd !== null ? `$${item.costUsd.toFixed(4)}` : "unknown"}.
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </section>
   {/if}
 
   <ol data-testid="progress">
