@@ -30,4 +30,3 @@ Verified on `implement/t14`:
 - `node_modules/.bin/vp test run tests/model/prospective-forecast.test.ts src/lib/server/analysis/store.test.ts src/lib/server/analysis/model.test.ts src/lib/server/analysis/run.test.ts` passed 61 tests.
 - The model test that records an unreleased market also asserts archived starters stay unknown and eligibility stays false.
 - Neon readback uses the same store contract. This session did not run the database job (`TEST_DATABASE_URL` was not set here).
-

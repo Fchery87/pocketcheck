@@ -7,8 +7,7 @@ export const FORECAST_PROVENANCE = {
   legacyMissing: "legacy-missing-inputs",
 } as const;
 
-export type ForecastProvenance =
-  (typeof FORECAST_PROVENANCE)[keyof typeof FORECAST_PROVENANCE];
+export type ForecastProvenance = (typeof FORECAST_PROVENANCE)[keyof typeof FORECAST_PROVENANCE];
 
 /** Forecast facts saved with an analysis. Legacy rows omit the captured record. */
 export type SavedForecast = {

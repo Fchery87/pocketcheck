@@ -553,7 +553,8 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
         inputAvailability: {
           version: "decision-time-starters-v1",
           results: "strictly-before-decision-cutoff",
-          starters: "known and assumed identities require evidence at or before the decision cutoff",
+          starters:
+            "known and assumed identities require evidence at or before the decision cutoff",
         },
         artifact: { checksum: "a".repeat(64), version: 4 as const },
         features: { home_qb_share: 1, away_qb_share: 0.5 },
@@ -567,7 +568,11 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
         policyVersion: "policy-2026-10-25.2",
       };
       const first = (
-        await runAnalysis(request(), { store, model: unreleasedModel, forecast: async () => forecast })
+        await runAnalysis(request(), {
+          store,
+          model: unreleasedModel,
+          forecast: async () => forecast,
+        })
       ).run!;
       expect(first.forecast).toEqual(forecast);
       const changed = (
@@ -587,7 +592,11 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
               probabilities: { win: 0.2, loss: 0.75, push: 0.05 },
               policyVersion: "policy-later",
               starters: {
-                home: { state: "known", identity: "backup", evidenceAt: "2026-10-26T15:00:00.000Z" },
+                home: {
+                  state: "known",
+                  identity: "backup",
+                  evidenceAt: "2026-10-26T15:00:00.000Z",
+                },
                 away: { state: "known", identity: "other", evidenceAt: "2026-10-26T15:00:00.000Z" },
               },
             }),
@@ -683,6 +692,129 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
       expect(await store.listBets()).toContainEqual(bet);
       expect(bet).toMatchObject({ sportsbook: "Other Book", americanOdds: -108, stakeUnits: 1.5 });
       expect((await store.getRun(run.id))?.status).toBe("completed");
+    });
+
+    it("freezes the earliest completed pregame analysis as primary and keeps later refreshes", async () => {
+      const store = makeStore();
+      const first = (await runAnalysis(request({ requestId: "primary-first" }), { store })).run!;
+      const refresh = (
+        await runAnalysis(
+          request({
+            requestId: "primary-refresh",
+            parentId: first.id,
+            americanOdds: -105,
+            observedAt: "2026-10-25T15:40:00.000Z",
+          }),
+          { store },
+        )
+      ).run!;
+      const failed = (
+        await runAnalysis(request({ requestId: "primary-failed" }), {
+          store,
+          drafter: overridingDrafter,
+        })
+      ).run!;
+
+      const listed = await store.listCompleted();
+      const roleOf = (id: string) => listed.find((item) => item.id === id)?.assessmentRole;
+      expect(roleOf(first.id)).toEqual({
+        role: "primary",
+        reason: "Earliest completed analysis before kickoff",
+      });
+      expect(roleOf(refresh.id)).toEqual({
+        role: "refresh",
+        primaryId: first.id,
+        reason: "Later completed analysis. The primary assessment is unchanged.",
+      });
+      expect(listed.map((item) => item.id)).toEqual(expect.arrayContaining([first.id, refresh.id]));
+      expect(listed.map((item) => item.id)).not.toContain(failed.id);
+      expect((await store.getRun(failed.id))?.status).toBe("failed");
+
+      const again = (
+        await runAnalysis(
+          request({
+            requestId: "primary-later",
+            parentId: refresh.id,
+            americanOdds: -102,
+            observedAt: "2026-10-25T15:45:00.000Z",
+          }),
+          { store },
+        )
+      ).run!;
+      const afterRefresh = await store.listCompleted();
+      expect(afterRefresh.find((item) => item.id === first.id)?.assessmentRole).toEqual({
+        role: "primary",
+        reason: "Earliest completed analysis before kickoff",
+      });
+      expect(afterRefresh.find((item) => item.id === again.id)?.assessmentRole.role).toBe(
+        "refresh",
+      );
+    });
+
+    it("keeps one primary when two eligible analyses finish together and ignores a later score", async () => {
+      const store = makeStore();
+      const [left, right] = await Promise.all([
+        runAnalysis(request({ requestId: "primary-tie-a", sportsbook: "Book A" }), { store }),
+        runAnalysis(request({ requestId: "primary-tie-b", sportsbook: "Book B" }), { store }),
+      ]);
+      expect(left.ok && right.ok).toBe(true);
+      if (!left.ok || !right.ok) return;
+      const roles = (await store.listCompleted())
+        .filter((item) => item.id === left.run.id || item.id === right.run.id)
+        .map((item) => item.assessmentRole.role)
+        .sort();
+      expect(roles).toEqual(["primary", "refresh"]);
+      const primaryId = (await store.listCompleted()).find(
+        (item) => item.assessmentRole.role === "primary",
+      )?.id;
+      await store.recordBet({
+        analysisId: left.run.id,
+        submissionId: "primary-tie-bet",
+        sportsbook: "Book",
+        market: "moneyline",
+        selection: "home",
+        americanOdds: -110,
+        stakeUnits: 1,
+        placedAt: NOW,
+        rules: { period: "full-game", overtime: "included", tie: "push" },
+      });
+      expect(
+        (await store.listCompleted()).find((item) => item.id === primaryId)?.assessmentRole.role,
+      ).toBe("primary");
+    });
+
+    it("refuses an analysis at or after kickoff before it can become primary", async () => {
+      const store = makeStore();
+      const primary = (await runAnalysis(request({ requestId: "before-kickoff" }), { store })).run!;
+      const lateOutcome = await runAnalysis(
+        request({
+          requestId: "after-cutoff",
+          parentId: primary.id,
+          nowIso: "2026-10-27T00:15:00.001Z",
+          observedAt: "2026-10-25T15:50:00.000Z",
+        }),
+        { store },
+      );
+      expect(lateOutcome.ok).toBe(false);
+      expect(lateOutcome.ok ? "" : lateOutcome.error).toMatch(/already started/i);
+      expect((await store.listCompleted()).map((item) => item.assessmentRole.role)).toEqual([
+        "primary",
+      ]);
+      expect((await store.getRun(primary.id))?.assessmentRole?.role).toBe("primary");
+    });
+
+    it("labels a completed analysis without a frozen role as unclassified", async () => {
+      const store = makeStore();
+      const saved = (await runAnalysis(request({ requestId: "legacy-role" }), { store })).run!;
+      if (!store.recordUnclassifiedCompleted) return;
+      await store.recordUnclassifiedCompleted(saved);
+      expect(
+        (await store.listCompleted()).find((item) => item.id === saved.id)?.assessmentRole,
+      ).toEqual({
+        role: "unclassified",
+        reason:
+          "Completion time was not recorded, so this analysis was not classified before outcomes.",
+      });
     });
 
     it("stores the placed contract independently of the researched offer", async () => {

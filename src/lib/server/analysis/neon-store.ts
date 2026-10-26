@@ -16,6 +16,7 @@ import type { SavedForecast } from "./forecast-record.ts";
 import type { PolicyDecision } from "./policy.ts";
 import type {
   ActualBet,
+  AssessmentRole,
   NewRun,
   ProgressStage,
   RecordBetResult,
@@ -125,6 +126,8 @@ export function createNeonStore(sql: Sql): ResearchStore {
       provider: analysis.provider ?? "unknown",
       model: analysis.model ?? "unknown",
       createdAt: analysis.createdAt,
+      completedAt: analysis.completedAt,
+      assessmentRole: storedAssessmentRole(analysis),
     };
   }
 
@@ -210,6 +213,26 @@ export function createNeonStore(sql: Sql): ResearchStore {
       return records.filter((record) => record.analysisId !== null).map(toBet);
     },
   };
+}
+
+function storedAssessmentRole(analysis: {
+  assessmentRole: "primary" | "refresh" | "ineligible" | null;
+  assessmentRoleReason: string | null;
+  primaryAnalysisId: string | null;
+  completedAt: string | null;
+}): AssessmentRole | null {
+  if (!analysis.assessmentRole || !analysis.completedAt) return null;
+  if (analysis.assessmentRole === "refresh" && analysis.primaryAnalysisId) {
+    return {
+      role: "refresh",
+      primaryId: analysis.primaryAnalysisId,
+      reason: analysis.assessmentRoleReason ?? "",
+    };
+  }
+  if (analysis.assessmentRole === "ineligible") {
+    return { role: "ineligible", reason: analysis.assessmentRoleReason ?? "" };
+  }
+  return { role: "primary", reason: analysis.assessmentRoleReason ?? "" };
 }
 
 function toRunGame(game: GameRecord): RunGame {

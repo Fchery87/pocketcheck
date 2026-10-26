@@ -6,6 +6,7 @@ import type { SavedForecast } from "./forecast-record.ts";
 import type { PolicyDecision } from "./policy.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
 import type { AttemptRequest } from "./attempt.ts";
+import { classifyPregameRuns, type PregameRun } from "./primary.ts";
 
 /**
  * Research store contract.
@@ -99,11 +100,18 @@ export type ResearchRun = {
   provider: string;
   model: string;
   createdAt: string;
+  /** Set when the attempt first reaches a terminal status. Null while pending or running. */
+  completedAt: string | null;
+  /**
+   * Frozen when the attempt reaches a terminal status. Null until then, and
+   * null for historical rows that were never classified at completion.
+   */
+  assessmentRole: AssessmentRole | null;
 };
 
 export type NewRun = Omit<
   ResearchRun,
-  "id" | "createdAt" | "snapshotVersion" | "snapshotProvenance"
+  "id" | "createdAt" | "completedAt" | "assessmentRole" | "snapshotVersion" | "snapshotProvenance"
 > & {
   id?: string;
 };
@@ -114,6 +122,13 @@ export type BeginAttemptResult =
   | { kind: "conflict"; error: string };
 
 /** One journal row. Listing never loads every full run. */
+/** Frozen before outcomes are used. Legacy rows were not classified at completion. */
+export type AssessmentRole =
+  | { role: "primary"; reason: string }
+  | { role: "refresh"; primaryId: string; reason: string }
+  | { role: "ineligible"; reason: string }
+  | { role: "unclassified"; reason: string };
+
 export type RunSummary = {
   id: string;
   parentId: string | null;
@@ -123,9 +138,11 @@ export type RunSummary = {
   game: Pick<RunGame, "id" | "home" | "away" | "kickoff">;
   offer: Pick<Offer, "sportsbook" | "market" | "selection" | "pointLine" | "americanOdds">;
   reliesOnManualEvidence: boolean;
+  /** Null only while a store has not yet attached a role. The journal always fills it. */
+  assessmentRole: AssessmentRole;
 };
 
-export function summarize(run: ResearchRun): RunSummary {
+export function summarize(run: ResearchRun): Omit<RunSummary, "assessmentRole"> {
   return {
     id: run.id,
     parentId: run.parentId,
@@ -142,6 +159,46 @@ export function summarize(run: ResearchRun): RunSummary {
     },
     reliesOnManualEvidence: run.policy?.reliesOnManualEvidence ?? false,
   };
+}
+
+const PRIMARY_REASON = "Earliest completed analysis before kickoff";
+const REFRESH_REASON = "Later completed analysis. The primary assessment is unchanged.";
+const AFTER_KICKOFF_REASON =
+  "Decision cutoff is not before kickoff, so this analysis is not an eligible pregame assessment.";
+const UNCLASSIFIED_REASON =
+  "Completion time was not recorded, so this analysis was not classified before outcomes.";
+
+export function assessmentRoleFor(
+  run: Pick<ResearchRun, "id" | "status" | "cutoffAt" | "game" | "createdAt"> & {
+    completedAt: string | null;
+  },
+  siblings: Array<
+    Pick<ResearchRun, "id" | "status" | "cutoffAt" | "game" | "createdAt"> & {
+      completedAt: string | null;
+    }
+  >,
+): AssessmentRole {
+  if (run.status === "completed" && run.completedAt === null) {
+    return { role: "unclassified", reason: UNCLASSIFIED_REASON };
+  }
+  const pregame: PregameRun[] = siblings.map((item) => ({
+    id: item.id,
+    gameId: item.game.id,
+    completedAt: item.status === "completed" ? item.completedAt : null,
+    cutoffAt: item.cutoffAt,
+    kickoffAt: item.game.kickoff,
+    status: item.status === "interrupted" ? "interrupted" : item.status,
+  }));
+  const choice = classifyPregameRuns(pregame).find((item) => item.id === run.id);
+  if (!choice || choice.role === "ineligible") {
+    const reason =
+      choice?.reason === "after-kickoff"
+        ? AFTER_KICKOFF_REASON
+        : "This analysis did not complete before kickoff.";
+    return { role: "ineligible", reason };
+  }
+  if (choice.role === "primary") return { role: "primary", reason: PRIMARY_REASON };
+  return { role: "refresh", primaryId: choice.primaryId, reason: REFRESH_REASON };
 }
 
 export type ContractProvenance = "captured" | "legacy-unknown";
@@ -194,6 +251,8 @@ export type ResearchStore = {
   markInterrupted: (id: string) => Promise<ResearchRun | null>;
   recordBet: (bet: NewActualBet) => Promise<RecordBetResult>;
   listBets: () => Promise<ActualBet[]>;
+  /** Test seam: a completed row whose role was never frozen at completion. */
+  recordUnclassifiedCompleted?: (run: ResearchRun) => Promise<void>;
 };
 
 export function createMemoryStore(): ResearchStore {
@@ -203,6 +262,26 @@ export function createMemoryStore(): ResearchStore {
   const submissions = new Map<string, string>();
   const fingerprints = new Map<string, string>();
   let betWrites: Promise<unknown> = Promise.resolve();
+
+  function freezeRole(saved: ResearchRun): AssessmentRole {
+    const completedAt = saved.completedAt ?? saved.createdAt;
+    const sameGame = [...runs.values()].filter((run) => run.game.id === saved.game.id);
+    const existingPrimary = sameGame.find((run) => run.assessmentRole?.role === "primary");
+    if (saved.status !== "completed" || completedAt === null) {
+      return assessmentRoleFor({ ...saved, completedAt: null }, [{ ...saved, completedAt: null }]);
+    }
+    if (!(Date.parse(saved.cutoffAt) < Date.parse(saved.game.kickoff))) {
+      return assessmentRoleFor({ ...saved, completedAt }, [{ ...saved, completedAt }]);
+    }
+    if (!existingPrimary || existingPrimary.id === saved.id) {
+      return { role: "primary", reason: "Earliest completed analysis before kickoff" };
+    }
+    return {
+      role: "refresh",
+      primaryId: existingPrimary.id,
+      reason: "Later completed analysis. The primary assessment is unchanged.",
+    };
+  }
 
   return {
     async beginAttempt(input) {
@@ -227,17 +306,23 @@ export function createMemoryStore(): ResearchStore {
         return { kind: "existing", run: structuredClone(existing) };
       }
       const id = input.id ?? randomUUID();
-      const saved: ResearchRun = structuredClone({
+      const createdAt = new Date().toISOString();
+      const terminal =
+        input.status === "completed" || input.status === "failed" || input.status === "interrupted";
+      const draft: ResearchRun = structuredClone({
         ...input,
         id,
         snapshotVersion: 1,
         snapshotProvenance: "captured",
         forecast: input.forecast ?? null,
-        createdAt: new Date().toISOString(),
+        createdAt,
+        completedAt: terminal ? createdAt : null,
+        assessmentRole: null,
       });
-      runs.set(id, saved);
+      draft.assessmentRole = terminal ? freezeRole(draft) : null;
+      runs.set(id, draft);
       requests.set(requestId, id);
-      return { kind: "created", run: structuredClone(saved) };
+      return { kind: "created", run: structuredClone(draft) };
     },
     async updateAttempt(input) {
       if (!input.id) throw new Error("An attempt update requires an analysis id.");
@@ -250,13 +335,20 @@ export function createMemoryStore(): ResearchStore {
       ) {
         throw new Error("An attempt update cannot change its request identity or inputs.");
       }
+      const terminal =
+        input.status === "completed" || input.status === "failed" || input.status === "interrupted";
+      const completedAt = existing.completedAt ?? (terminal ? new Date().toISOString() : null);
       const updated: ResearchRun = structuredClone({
         ...input,
         id: input.id,
+        forecast: input.forecast === undefined ? existing.forecast : input.forecast,
         createdAt: existing.createdAt,
+        completedAt,
         snapshotVersion: existing.snapshotVersion,
         snapshotProvenance: existing.snapshotProvenance,
+        assessmentRole: existing.assessmentRole,
       });
+      if (terminal && !updated.assessmentRole) updated.assessmentRole = freezeRole(updated);
       runs.set(updated.id, updated);
       return structuredClone(updated);
     },
@@ -270,14 +362,27 @@ export function createMemoryStore(): ResearchStore {
       return [...runs.values()]
         .filter((run) => run.status === "completed")
         .reverse()
-        .map(summarize);
+        .map((run) => ({
+          ...summarize(run),
+          assessmentRole: run.assessmentRole ?? {
+            role: "unclassified" as const,
+            reason:
+              "Completion time was not recorded, so this analysis was not classified before outcomes.",
+          },
+        }));
     },
     async markInterrupted(id) {
       const run = runs.get(id);
-      if (!run || run.status === "completed") return run ?? null;
-      const interrupted = { ...run, status: "interrupted" as const };
+      if (!run || run.status === "completed") return run ? structuredClone(run) : null;
+      const interrupted: ResearchRun = {
+        ...run,
+        status: "interrupted",
+        completedAt: run.completedAt ?? new Date().toISOString(),
+        assessmentRole: run.assessmentRole,
+      };
+      if (!interrupted.assessmentRole) interrupted.assessmentRole = freezeRole(interrupted);
       runs.set(id, interrupted);
-      return interrupted;
+      return structuredClone(interrupted);
     },
     async recordBet(bet) {
       const write = betWrites.then(() =>
@@ -291,6 +396,12 @@ export function createMemoryStore(): ResearchStore {
     },
     async listBets() {
       return [...bets];
+    },
+    async recordUnclassifiedCompleted(run) {
+      runs.set(
+        run.id,
+        structuredClone({ ...run, status: "completed", assessmentRole: null, completedAt: null }),
+      );
     },
   };
 }

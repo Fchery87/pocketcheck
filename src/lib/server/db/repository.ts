@@ -67,6 +67,9 @@ export type AnalysisRecord = {
   usage: unknown;
   probabilityModel: unknown;
   evidenceIds: string[];
+  assessmentRole: "primary" | "refresh" | "ineligible" | null;
+  assessmentRoleReason: string | null;
+  primaryAnalysisId: string | null;
 };
 
 export type AnalysisSnapshot = {
@@ -324,6 +327,19 @@ export class JournalRepository {
             ${jsonOrNull(tx, input.analysis.probabilityModel)}, ${tx.json(snapshot as never)}
           )
         `;
+        if (
+          input.analysis.status === "completed" ||
+          input.analysis.status === "failed" ||
+          input.analysis.status === "interrupted"
+        ) {
+          await assignAssessmentRole(tx, {
+            analysisId,
+            status: input.analysis.status,
+            cutoffAt: input.analysis.cutoffAt,
+            gameId: input.game.sourceGameId,
+            kickoffAt: input.game.kickoffAt,
+          });
+        }
 
         for (let index = 0; index < input.evidence.length; index += 1) {
           const item = input.evidence[index]!;
@@ -491,6 +507,13 @@ export class JournalRepository {
       if (completedAt) {
         await tx`UPDATE offers SET completed_at = ${completedAt} WHERE id = ${existing.offerId} AND completed_at IS NULL`;
       }
+      await assignAssessmentRole(tx, {
+        analysisId,
+        status: input.analysis.status,
+        cutoffAt: existing.cutoffAt,
+        gameId: existing.snapshot.game.sourceGameId,
+        kickoffAt: existing.snapshot.game.kickoffAt,
+      });
 
       const linked = await tx<{ id: string }[]>`
         SELECT evidence_id AS id FROM analysis_evidence WHERE analysis_id = ${analysisId} LIMIT 1
@@ -577,6 +600,10 @@ export class JournalRepository {
         american_odds: number;
         snapshot_provenance: "captured" | "legacy-unknown";
         relies_on_manual_evidence: boolean;
+        assessment_role: "primary" | "refresh" | "ineligible" | null;
+        assessment_role_reason: string | null;
+        primary_analysis_id: string | null;
+        completed_at: Date | null;
       }[]
     >`
       SELECT a.id, a.parent_id, a.created_at, a.conclusion,
@@ -586,7 +613,8 @@ export class JournalRepository {
              (a.snapshot->'game'->>'kickoffAt')::timestamptz AS kickoff_at,
              o.sportsbook, o.market, o.selection, o.point_line, o.american_odds,
              a.snapshot->>'provenance' AS snapshot_provenance,
-             COALESCE((a.policy->>'reliesOnManualEvidence')::boolean, false) AS relies_on_manual_evidence
+             COALESCE((a.policy->>'reliesOnManualEvidence')::boolean, false) AS relies_on_manual_evidence,
+             a.assessment_role, a.assessment_role_reason, a.primary_analysis_id, a.completed_at
       FROM analyses a
       JOIN offers o ON o.id = a.offer_id
       WHERE a.status = 'completed'
@@ -612,15 +640,30 @@ export class JournalRepository {
         americanOdds: row.american_odds,
       },
       reliesOnManualEvidence: row.relies_on_manual_evidence,
+      assessmentRole: listedAssessmentRole(row),
     }));
   }
 
   /** Only an unfinished analysis can be marked interrupted. Completed rows stay immutable. */
   async markInterrupted(analysisId: string): Promise<void> {
-    await this.sql`
-      UPDATE analyses SET status = 'interrupted'
-      WHERE id = ${analysisId} AND completed_at IS NULL AND status <> 'completed'
-    `;
+    await this.sql.begin(async (tx) => {
+      const updated = await tx<{ id: string }[]>`
+        UPDATE analyses SET status = 'interrupted', completed_at = COALESCE(completed_at, now())
+        WHERE id = ${analysisId} AND status NOT IN ('completed', 'interrupted', 'failed')
+        RETURNING id
+      `;
+      if (!updated[0]) return;
+      const rows = await tx<AnalysisRow[]>`SELECT * FROM analyses WHERE id = ${analysisId}`;
+      const row = rows[0];
+      if (!row) return;
+      await assignAssessmentRole(tx, {
+        analysisId,
+        status: "interrupted",
+        cutoffAt: iso(row.cutoff_at)!,
+        gameId: row.snapshot.game.sourceGameId,
+        kickoffAt: row.snapshot.game.kickoffAt,
+      });
+    });
   }
 
   async listBets(): Promise<BetRecord[]> {
@@ -1004,6 +1047,96 @@ function isUniqueViolation(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "23505";
 }
 
+const PRIMARY_REASON = "Earliest completed analysis before kickoff";
+const REFRESH_REASON = "Later completed analysis. The primary assessment is unchanged.";
+const NOT_COMPLETED_REASON = "This analysis did not complete before kickoff.";
+const AFTER_KICKOFF_REASON =
+  "Decision cutoff is not before kickoff, so this analysis is not an eligible pregame assessment.";
+
+type RoleSql = {
+  unsafe: (
+    query: string,
+    values: unknown[],
+  ) => Promise<
+    Array<{
+      id: string;
+      completed_at: Date | string | null;
+      assessment_role: string | null;
+    }>
+  >;
+};
+
+/** Locks the game's classified rows, then writes one frozen role. Never reads scores. */
+async function assignAssessmentRole(
+  tx: RoleSql,
+  input: {
+    analysisId: string;
+    status: string;
+    cutoffAt: string;
+    gameId: string;
+    kickoffAt: string;
+  },
+) {
+  const locked = await tx.unsafe(
+    `SELECT id, completed_at, assessment_role
+     FROM analyses
+     WHERE snapshot->'game'->>'sourceGameId' = $1
+       AND assessment_role IS NOT NULL
+     ORDER BY completed_at ASC NULLS LAST, id ASC
+     FOR UPDATE`,
+    [input.gameId],
+  );
+  const pregame =
+    input.status === "completed" && Date.parse(input.cutoffAt) < Date.parse(input.kickoffAt);
+  const primary = locked.find((row) => row.assessment_role === "primary");
+  let role: "primary" | "refresh" | "ineligible";
+  let reason: string;
+  let primaryId: string | null = null;
+  if (!pregame) {
+    role = "ineligible";
+    reason = input.status === "completed" ? AFTER_KICKOFF_REASON : NOT_COMPLETED_REASON;
+  } else if (!primary || primary.id === input.analysisId) {
+    role = "primary";
+    reason = PRIMARY_REASON;
+  } else {
+    role = "refresh";
+    reason = REFRESH_REASON;
+    primaryId = primary.id;
+  }
+  await tx.unsafe(
+    `UPDATE analyses
+     SET assessment_role = $2, assessment_role_reason = $3, primary_analysis_id = $4
+     WHERE id = $1 AND assessment_role IS NULL`,
+    [input.analysisId, role, reason, primaryId],
+  );
+}
+
+function listedAssessmentRole(row: {
+  assessment_role: "primary" | "refresh" | "ineligible" | null;
+  assessment_role_reason: string | null;
+  primary_analysis_id: string | null;
+  completed_at: Date | null;
+}): import("../analysis/store.ts").AssessmentRole {
+  if (!row.assessment_role || !row.completed_at) {
+    return {
+      role: "unclassified",
+      reason:
+        "Completion time was not recorded, so this analysis was not classified before outcomes.",
+    };
+  }
+  if (row.assessment_role === "refresh" && row.primary_analysis_id) {
+    return {
+      role: "refresh",
+      primaryId: row.primary_analysis_id,
+      reason: row.assessment_role_reason ?? "",
+    };
+  }
+  if (row.assessment_role === "ineligible") {
+    return { role: "ineligible", reason: row.assessment_role_reason ?? "" };
+  }
+  return { role: "primary", reason: row.assessment_role_reason ?? "" };
+}
+
 export class BetSubmissionConflict extends Error {
   constructor(message: string) {
     super(message);
@@ -1079,6 +1212,9 @@ type AnalysisRow = {
   gaps: unknown;
   usage: unknown;
   probability_model: unknown;
+  assessment_role: "primary" | "refresh" | "ineligible" | null;
+  assessment_role_reason: string | null;
+  primary_analysis_id: string | null;
 };
 
 type ReportRow = {
@@ -1201,6 +1337,9 @@ function mapAnalysis(row: AnalysisRow, evidenceIds: string[]): AnalysisRecord {
     usage: row.usage,
     probabilityModel: row.probability_model,
     evidenceIds,
+    assessmentRole: row.assessment_role,
+    assessmentRoleReason: row.assessment_role_reason,
+    primaryAnalysisId: row.primary_analysis_id,
   };
 }
 
