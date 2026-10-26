@@ -4,12 +4,16 @@ import type { Offer } from "#lib/domain/offer.ts";
 import { valueEligibility, type ModelArtifact } from "../models/artifact.ts";
 import { parseArtifact } from "../models/inputs.ts";
 import { featureRowForGame } from "../models/features.ts";
+import { freezeProspectiveForecast, INPUT_AVAILABILITY } from "../models/forecast.ts";
 import type { Market } from "../models/games.ts";
 import { pricedGamesFromNflverseCsv, upcomingGameFromCsv } from "../models/history.ts";
 import { offerProbabilities } from "../models/offer-probability.ts";
 import { predictGame } from "../models/predict.ts";
 import type { ScheduledGame } from "../sources/contracts.ts";
 import { conservativeProbabilities, type UncertaintyAssessment } from "../models/uncertainty.ts";
+import { POLICY_VERSION } from "./policy.ts";
+import type { SavedForecast } from "./forecast-record.ts";
+import type { ForecastSource } from "./run.ts";
 
 /**
  * What a run froze about the model. Probabilities are recorded even when the market is not
@@ -112,6 +116,62 @@ export function createArtifactModel(input: {
       eligible: eligibility.eligible,
       reason: eligibility.reason,
     };
+  };
+}
+
+/**
+ * Freezes the forecast beside the model result. Archived starters without decision-time
+ * evidence stay unknown. Returns null when the model did not compute a forecast.
+ */
+export function createArtifactForecast(input: {
+  artifactPath: string;
+  schedulePath: string;
+}): ForecastSource {
+  return async (game, cutoffIso, offer, model) => {
+    if (model.status !== "computed") return null;
+    if (!existsSync(input.artifactPath) || !existsSync(input.schedulePath)) return null;
+    let artifact: ModelArtifact;
+    try {
+      artifact = parseArtifact(JSON.parse(readFileSync(input.artifactPath, "utf8")) as unknown);
+    } catch {
+      return null;
+    }
+    if (artifact.checksum !== model.artifact.checksum) return null;
+    const csv = readFileSync(input.schedulePath, "utf8");
+    const cutoff = Date.parse(cutoffIso);
+    const history = pricedGamesFromNflverseCsv(csv).filter(
+      (past) => Date.parse(past.kickoff) < cutoff,
+    );
+    const upcoming = upcomingGameFromCsv(csv, game.id);
+    const frozen = freezeProspectiveForecast({
+      artifact,
+      history,
+      game: {
+        id: game.id,
+        season: game.season,
+        kickoff: game.kickoff,
+        home: game.home,
+        away: game.away,
+        neutral: upcoming?.neutral,
+      },
+      cutoff: cutoffIso,
+      offer,
+      policyVersion: POLICY_VERSION,
+    });
+    const saved: SavedForecast = {
+      version: 1,
+      provenance: "captured",
+      decisionCutoff: frozen.decisionCutoff,
+      inputAvailability: INPUT_AVAILABILITY,
+      artifact: frozen.artifact,
+      features: frozen.features,
+      starters: frozen.starters,
+      marketEligibility: frozen.marketEligibility,
+      probabilities: frozen.probabilities,
+      uncertainty: frozen.uncertainty,
+      policyVersion: frozen.policyVersion,
+    };
+    return saved;
   };
 }
 

@@ -13,7 +13,8 @@ import {
 } from "$app/env/private";
 import { createDb, type Db } from "./db/client.ts";
 import { createSourceCollector, type EvidenceCollector } from "./analysis/evidence.ts";
-import { createArtifactModel, type ModelSource } from "./analysis/model.ts";
+import { createArtifactForecast, createArtifactModel, type ModelSource } from "./analysis/model.ts";
+import type { ForecastSource } from "./analysis/run.ts";
 import { createNeonStore } from "./analysis/neon-store.ts";
 import { createMemoryStore, type ResearchStore } from "./analysis/store.ts";
 import type { ProviderId, ThesisDrafter, ThesisProvider } from "./providers/contracts.ts";
@@ -80,6 +81,15 @@ export function modelSource(): ModelSource {
     });
   }
   return createArtifactModel({
+    artifactPath: resolve(POCKETCHECK_MODEL_ARTIFACT || "data/artifacts/baseline.json"),
+    schedulePath: schedulePath(),
+  });
+}
+
+/** Decision-time forecast frozen with the same artifact and schedule as the model. */
+export function forecastSource(): ForecastSource | undefined {
+  if (POCKETCHECK_MODEL_ARTIFACT === "off") return undefined;
+  return createArtifactForecast({
     artifactPath: resolve(POCKETCHECK_MODEL_ARTIFACT || "data/artifacts/baseline.json"),
     schedulePath: schedulePath(),
   });

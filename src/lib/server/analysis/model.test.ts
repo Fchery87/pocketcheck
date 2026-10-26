@@ -8,7 +8,7 @@ import { withChecksum, type ModelArtifact } from "#lib/server/models/artifact.ts
 import { releaseArtifact } from "#lib/server/models/release.ts";
 import { fitArtifact } from "#lib/server/models/train.ts";
 import type { ScheduledGame } from "#lib/server/sources/contracts.ts";
-import { createArtifactModel, forDisplay, noModel } from "./model.ts";
+import { createArtifactForecast, createArtifactModel, forDisplay, noModel } from "./model.ts";
 
 const HEADER =
   "game_id,season,game_type,week,gameday,weekday,gametime,away_team,away_score,home_team,home_score,location,result,total,overtime,old_game_id,gsis,nfl_detail_id,pfr,pff,espn,ftn,away_rest,home_rest,away_moneyline,home_moneyline,spread_line,away_spread_odds,home_spread_odds,total_line,under_odds,over_odds,div_game,roof,surface,temp,wind,away_qb_id,home_qb_id,away_qb_name,home_qb_name,away_coach,home_coach,referee,stadium_id,stadium";
@@ -263,6 +263,17 @@ describe("the model a run uses", () => {
     expect(result.reason).toMatch(/Unreleased/);
     expect(result.uncertainty).toMatchObject({ available: false });
     expect(!result.uncertainty.available && result.uncertainty.reason).toMatch(/fewer than 60/);
+    const path = saved("plain.json", artifact);
+    const forecast = await createArtifactForecast({ artifactPath: path, schedulePath })(
+      game,
+      CUTOFF,
+      spreadOffer("home", -3),
+      result,
+    );
+    expect(forecast?.starters.home.state).toBe("unknown");
+    expect(forecast?.starters.away.state).toBe("unknown");
+    expect(forecast?.marketEligibility.eligible).toBe(false);
+    expect(forecast?.artifact.checksum).toBe(artifact.checksum);
   });
 
   it("is eligible only for a released market", async () => {

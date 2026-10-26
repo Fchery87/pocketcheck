@@ -294,6 +294,61 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
       expect(completed).toEqual(expect.arrayContaining([parent.id, child.run!.id]));
     });
 
+    it("keeps the frozen forecast after later inputs change", async () => {
+      const store = makeStore();
+      const forecast = {
+        version: 1 as const,
+        provenance: "captured" as const,
+        decisionCutoff: NOW,
+        inputAvailability: {
+          version: "decision-time-starters-v1",
+          results: "strictly-before-decision-cutoff",
+          starters: "known and assumed identities require evidence at or before the decision cutoff",
+        },
+        artifact: { checksum: "a".repeat(64), version: 4 as const },
+        features: { home_qb_share: 1, away_qb_share: 0.5 },
+        starters: {
+          home: { state: "assumed" as const, identity: "hurts", evidenceAt: NOW },
+          away: { state: "unknown" as const, identity: null, evidenceAt: null },
+        },
+        marketEligibility: { market: "moneyline" as const, eligible: false },
+        probabilities: { win: 0.55, loss: 0.43, push: 0.02 },
+        uncertainty: { available: false as const, reason: "Not assessed." },
+        policyVersion: "policy-2026-10-25.2",
+      };
+      const first = (
+        await runAnalysis(request(), { store, model: unreleasedModel, forecast: async () => forecast })
+      ).run!;
+      expect(first.forecast).toEqual(forecast);
+      const changed = (
+        await runAnalysis(
+          request({
+            game: { ...game, kickoff: "2026-10-26T17:00:00.000Z" },
+            nowIso: "2026-10-26T16:00:00.000Z",
+            parentId: first.id,
+            americanOdds: 120,
+          }),
+          {
+            store,
+            model: unreleasedModel,
+            forecast: async () => ({
+              ...forecast,
+              decisionCutoff: "2026-10-26T16:00:00.000Z",
+              probabilities: { win: 0.2, loss: 0.75, push: 0.05 },
+              policyVersion: "policy-later",
+              starters: {
+                home: { state: "known", identity: "backup", evidenceAt: "2026-10-26T15:00:00.000Z" },
+                away: { state: "known", identity: "other", evidenceAt: "2026-10-26T15:00:00.000Z" },
+              },
+            }),
+          },
+        )
+      ).run!;
+      expect(await store.getRun(first.id)).toMatchObject({ forecast });
+      expect(changed.forecast?.probabilities.win).toBe(0.2);
+      expect(changed.forecast?.starters.home.identity).toBe("backup");
+    });
+
     it("keeps a run's game and offer after the current schedule changes", async () => {
       const store = makeStore();
       const first = (await runAnalysis(request(), { store })).run!;
