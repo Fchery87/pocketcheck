@@ -293,7 +293,16 @@ test("a researched spread of -3 keeps its terms when the placed bet is -3.5", as
   await page.reload();
   await expect(page.getByTestId("assessment-result")).toContainText("push");
   await expect(page.getByTestId("bet-result")).toContainText("loss");
-  await expect(page.getByTestId("settlement-notice")).toHaveCount(1);
+  await expect(page.getByTestId("settlement-notice").last()).toContainText("push");
+  await expect(page.getByTestId("bet-result").last()).toContainText("loss");
+  const assessments = page.getByTestId("assessment-summary");
+  const bets = page.getByTestId("bet-summary");
+  await expect(assessments.getByTestId("assessment-counts")).toContainText("push");
+  await expect(assessments.getByTestId("assessment-counts")).not.toContainText("0 push");
+  await expect(bets.getByTestId("bet-counts")).toContainText("settled");
+  await expect(bets.getByTestId("bet-counts")).not.toContainText("0 settled");
+  await expect(bets.getByTestId("bet-roi")).not.toContainText("Return unavailable");
+  await expect(assessments.getByTestId("assessment-roi")).not.toContainText("Return -1");
 });
 
 test("a comparable close, a moved line, and a missing close stay distinct", async ({ page }) => {

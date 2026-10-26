@@ -35,6 +35,47 @@ describe("prospective summaries", () => {
     expect(bets.unavailable).toBe(1);
   });
 
+  it("counts a mixed primary and bet cohort without treating refunds, refreshes, or missing closes as zero", () => {
+    const assessments = summarizePrimary([
+      { id: "win", gameId: "g1", role: "primary", settlement: "win", unitProfit: 0.91, closing: "comparable" },
+      { id: "loss", gameId: "g2", role: "primary", settlement: "loss", unitProfit: -1, closing: "missing" },
+      { id: "push", gameId: "g3", role: "primary", settlement: "push", unitProfit: 0, closing: "comparable" },
+      { id: "void", gameId: "g4", role: "primary", settlement: "void", unitProfit: 0, closing: "missing" },
+      { id: "open", gameId: "g5", role: "primary", settlement: "unresolved", unitProfit: null, closing: "missing" },
+      { id: "later", gameId: "g1", role: "refresh", settlement: "win", unitProfit: 2, closing: "comparable" },
+    ]);
+    expect(assessments.sample).toBe("primary-only");
+    expect(assessments.counts).toEqual({
+      primary: 5,
+      refresh: 1,
+      settled: 2,
+      unresolved: 1,
+      push: 1,
+      void: 1,
+      missingClosing: 3,
+    });
+    expect(assessments.denominators).toEqual({ returnOnSettledStakes: 2, closingComparisons: 2 });
+    expect(assessments.roi).toEqual({ available: true, roi: expect.closeTo(-0.045, 10) });
+
+    const bets = summarizeBets([
+      { id: "placed-win", stakeUnits: 2, settlement: "win", profit: 1.82, closing: "comparable" },
+      { id: "placed-loss", stakeUnits: 1, settlement: "loss", profit: -1, closing: "missing" },
+      { id: "refund", stakeUnits: 3, settlement: "void", profit: 0, closing: "missing" },
+      { id: "still-open", stakeUnits: 4, settlement: "unresolved", profit: null, closing: "missing" },
+    ]);
+    expect(bets.sample).toBe("actual-bets");
+    expect(bets.counts).toEqual({
+      bets: 4,
+      settled: 2,
+      unresolved: 1,
+      push: 0,
+      void: 1,
+      missingClosing: 3,
+    });
+    expect(bets.denominators).toEqual({ returnOnSettledStakes: 3, closingComparisons: 1 });
+    expect(bets.roi).toEqual({ available: true, roi: expect.closeTo(0.2733333333, 10) });
+  });
+
   it("leaves ROI unavailable when every primary row is unresolved", () => {
     const summary = summarizePrimary([
       { id: "u", gameId: "g", role: "primary", settlement: "unresolved", unitProfit: null },
