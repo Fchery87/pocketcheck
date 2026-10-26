@@ -1,4 +1,5 @@
 import { FEATURE_DEFINITIONS, type FeatureName, type FeatureRow } from "./features.ts";
+import { kickoffMs, resultAvailableMs } from "./games.ts";
 
 export type FitParameters = {
   ridge: number;
@@ -128,7 +129,8 @@ export type WalkForwardPrediction = {
 
 /**
  * Out-of-sample predictions. Rows are split into chronological blocks. Each block after the
- * first is predicted by a model fit on every block before it. Rows must be in kickoff order.
+ * first is predicted by a model fit on earlier outcomes available before its first kickoff.
+ * Kickoff groups stay intact. Rows must be in kickoff order.
  */
 export function walkForwardPredictions(
   rows: readonly FeatureRow[],
@@ -137,14 +139,28 @@ export function walkForwardPredictions(
   folds: number,
 ): WalkForwardPrediction[] {
   if (folds < 2) throw new Error("Walk-forward residuals need at least two blocks");
-  const starts = Array.from({ length: folds + 1 }, (_, index) =>
-    Math.floor((index * rows.length) / folds),
+  const groups = rows.flatMap((row, index) =>
+    index === 0 || kickoffMs(row) !== kickoffMs(rows[index - 1]!) ? [index] : [],
+  );
+  const blockCount = Math.min(folds, groups.length);
+  const starts = Array.from(
+    { length: blockCount + 1 },
+    (_, index) => groups[Math.floor((index * groups.length) / blockCount)] ?? rows.length,
   );
   const predictions: WalkForwardPrediction[] = [];
-  for (let block = 1; block < folds; block += 1) {
+  for (let block = 1; block < blockCount; block += 1) {
     const from = starts[block] ?? 0;
     const to = starts[block + 1] ?? rows.length;
-    const model = fitRidge(rows.slice(0, from), targets.slice(0, from), ridge);
+    const cutoff = kickoffMs(rows[from]!);
+    const eligible = rows
+      .slice(0, from)
+      .flatMap((row, index) => (resultAvailableMs(row) < cutoff ? [index] : []));
+    if (eligible.length === 0) continue;
+    const model = fitRidge(
+      eligible.map((index) => rows[index]!),
+      eligible.map((index) => targets[index]!),
+      ridge,
+    );
     for (let index = from; index < to; index += 1) {
       const row = rows[index];
       if (!row) continue;

@@ -25,7 +25,14 @@ import {
   walkForwardPredictions,
   type WalkForwardPrediction,
 } from "./fit.ts";
-import { kickoffMs, marginHome, totalPoints, type PricedGame } from "./games.ts";
+import {
+  CHRONOLOGY,
+  kickoffMs,
+  resultAvailableMs,
+  marginHome,
+  totalPoints,
+  type PricedGame,
+} from "./games.ts";
 import { pricedGamesFromNflverseCsv } from "./history.ts";
 import { fitUncertainty, slateOf, type CalibrationSample } from "./uncertainty.ts";
 
@@ -58,17 +65,31 @@ function calibrationSamples(
     if (marginPrediction.block < 2) return;
     let pair = distributions.get(marginPrediction.block);
     if (!pair) {
+      const blockStart = margins.find((entry) => entry.block === marginPrediction.block)!.index;
+      const cutoff = kickoffMs(train[blockStart]!);
       const earlier = (list: readonly WalkForwardPrediction[]) =>
-        list.filter((entry) => entry.block < marginPrediction.block).map((entry) => entry.residual);
-      const blockStart = marginPrediction.index;
+        list
+          .filter(
+            (entry) =>
+              entry.block < marginPrediction.block &&
+              resultAvailableMs(train[entry.index]!) < cutoff,
+          )
+          .map((entry) => entry.residual);
+      const marginResiduals = earlier(margins);
+      const totalResiduals = earlier(totals);
+      if (marginResiduals.length === 0 || totalResiduals.length === 0) return;
       pair = {
         margin: fitResidualDistribution(
-          earlier(margins),
+          marginResiduals,
           DEFAULT_FIT.residualBandwidth,
           undefined,
-          keyNumberWeights(marginTargets.slice(0, blockStart)),
+          keyNumberWeights(
+            marginTargets
+              .slice(0, blockStart)
+              .filter((_, index) => resultAvailableMs(train[index]!) < cutoff),
+          ),
         ),
-        total: fitResidualDistribution(earlier(totals), DEFAULT_FIT.residualBandwidth),
+        total: fitResidualDistribution(totalResiduals, DEFAULT_FIT.residualBandwidth),
       };
       distributions.set(marginPrediction.block, pair);
     }
@@ -137,14 +158,16 @@ export function fitArtifact(
   cutoff?: string,
   features: FeatureParameters = DEFAULT_FEATURES,
 ): ModelArtifact {
-  const ordered = [...games].sort((a, b) => kickoffMs(a) - kickoffMs(b));
+  const ordered = [...games].sort(
+    (a, b) => kickoffMs(a) - kickoffMs(b) || a.id.localeCompare(b.id),
+  );
   const trainingCutoff =
     cutoff ?? ordered[Math.max(0, Math.floor(ordered.length * 0.7) - 1)]?.kickoff;
   if (!trainingCutoff) throw new Error("No games to fit");
   const rows = buildFeatureRows(ordered, features);
   const byId = new Map(ordered.map((game) => [game.id, game]));
   const train = rows.filter(
-    (row) => kickoffMs({ kickoff: row.kickoff }) <= kickoffMs({ kickoff: trainingCutoff }),
+    (row) => resultAvailableMs(row) < kickoffMs({ kickoff: trainingCutoff }),
   );
   if (train.length < 2) throw new Error("Training window needs at least two games");
   const marginTargets = train.map((row) => marginHome(byId.get(row.gameId)!));
@@ -153,13 +176,15 @@ export function fitArtifact(
   const ties = marginTargets.filter((margin) => margin === 0).length;
   const marginModel = fitRidge(train, marginTargets, DEFAULT_FIT.ridge);
   const totalModel = fitRidge(train, totalTargets, DEFAULT_FIT.ridge);
-  const walkForward = train.length >= MIN_WALK_FORWARD_GAMES;
-  const marginPredictions = walkForward
-    ? walkForwardPredictions(train, marginTargets, DEFAULT_FIT.ridge, DEFAULT_FIT.residualFolds)
-    : [];
-  const totalPredictions = walkForward
-    ? walkForwardPredictions(train, totalTargets, DEFAULT_FIT.ridge, DEFAULT_FIT.residualFolds)
-    : [];
+  const marginPredictions =
+    train.length >= MIN_WALK_FORWARD_GAMES
+      ? walkForwardPredictions(train, marginTargets, DEFAULT_FIT.ridge, DEFAULT_FIT.residualFolds)
+      : [];
+  const totalPredictions =
+    train.length >= MIN_WALK_FORWARD_GAMES
+      ? walkForwardPredictions(train, totalTargets, DEFAULT_FIT.ridge, DEFAULT_FIT.residualFolds)
+      : [];
+  const walkForward = marginPredictions.length > 0;
   const inSample = (targets: number[], model: typeof marginModel) =>
     train.map((row, index) => (targets[index] ?? 0) - predictMean(model, row));
   const marginResiduals = walkForward
@@ -185,6 +210,7 @@ export function fitArtifact(
       })),
     ),
     trainingCutoff,
+    chronology: CHRONOLOGY,
     featureDefinitions: FEATURE_DEFINITIONS,
     featureParameters: features,
     residualSource: walkForward ? "walk-forward" : "in-sample",
