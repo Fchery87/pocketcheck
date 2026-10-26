@@ -117,30 +117,50 @@ export function fitRidge(
   };
 }
 
+export type WalkForwardPrediction = {
+  /** Row index in the training rows. */
+  index: number;
+  /** Block number, from 1. Block 0 only trains. */
+  block: number;
+  mean: number;
+  residual: number;
+};
+
 /**
- * Residuals that the model did not see when it was fit. Rows are split into chronological
- * blocks. Each block after the first is scored by a model fit on every block before it.
- * Rows must already be in kickoff order.
+ * Out-of-sample predictions. Rows are split into chronological blocks. Each block after the
+ * first is predicted by a model fit on every block before it. Rows must be in kickoff order.
  */
-export function walkForwardResiduals(
+export function walkForwardPredictions(
   rows: readonly FeatureRow[],
   targets: readonly number[],
   ridge: number,
   folds: number,
-): number[] {
+): WalkForwardPrediction[] {
   if (folds < 2) throw new Error("Walk-forward residuals need at least two blocks");
   const starts = Array.from({ length: folds + 1 }, (_, index) =>
     Math.floor((index * rows.length) / folds),
   );
-  const residuals: number[] = [];
+  const predictions: WalkForwardPrediction[] = [];
   for (let block = 1; block < folds; block += 1) {
     const from = starts[block] ?? 0;
     const to = starts[block + 1] ?? rows.length;
     const model = fitRidge(rows.slice(0, from), targets.slice(0, from), ridge);
     for (let index = from; index < to; index += 1) {
       const row = rows[index];
-      if (row) residuals.push((targets[index] ?? 0) - predictMean(model, row));
+      if (!row) continue;
+      const mean = predictMean(model, row);
+      predictions.push({ index, block, mean, residual: (targets[index] ?? 0) - mean });
     }
   }
-  return residuals;
+  return predictions;
+}
+
+/** Residuals that the model did not see when it was fit. See walkForwardPredictions. */
+export function walkForwardResiduals(
+  rows: readonly FeatureRow[],
+  targets: readonly number[],
+  ridge: number,
+  folds: number,
+): number[] {
+  return walkForwardPredictions(rows, targets, ridge, folds).map((prediction) => prediction.residual);
 }

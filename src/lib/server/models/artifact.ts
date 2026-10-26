@@ -3,12 +3,13 @@ import type { ResidualDistribution, SideProbability } from "./distribution.ts";
 import { FEATURE_DEFINITIONS, type FeatureParameters } from "./features.ts";
 import type { FitParameters, LinearModel } from "./fit.ts";
 import type { Market } from "./games.ts";
+import type { ArtifactUncertainty } from "./uncertainty.ts";
 
 export type ReleaseStatus = "unreleased" | "released-experimental";
 
 export type ModelArtifact = {
   kind: "pocketcheck-baseline";
-  version: 3;
+  version: 4;
   releaseStatus: ReleaseStatus;
   /** Markets that passed the release gate. Empty while unreleased. */
   releasedMarkets: Market[];
@@ -21,6 +22,8 @@ export type ModelArtifact = {
   fitParameters: FitParameters;
   /** Outcome rates in the training window, for the base-rate baseline. */
   baseRates: { moneyline: SideProbability };
+  /** Walk-forward calibration per market, for the conservative probabilities the value policy needs. */
+  uncertainty: ArtifactUncertainty;
   margin: { model: LinearModel; residuals: ResidualDistribution };
   total: { model: LinearModel; residuals: ResidualDistribution };
   checksum: string;

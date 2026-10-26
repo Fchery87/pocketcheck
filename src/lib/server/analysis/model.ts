@@ -41,7 +41,7 @@ export const noModel: ModelSource = async () => ({
   reason: "No model artifact is configured.",
 });
 
-const SUPPORTED_VERSION = 3;
+const SUPPORTED_VERSION = 4;
 
 function unavailable(reason: string): RunModel {
   return { status: "unavailable", reason };

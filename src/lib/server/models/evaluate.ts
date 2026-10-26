@@ -62,14 +62,14 @@ export function multiclassLogLoss(probability: SideProbability, outcome: Outcome
   return -Math.log(Math.min(1 - EPS, Math.max(EPS, chosen)));
 }
 
-function settleMargin(margin: number, line = 0): Outcome {
+export function settleMargin(margin: number, line = 0): Outcome {
   const value = margin + line;
   if (value > 0) return "win";
   if (value < 0) return "loss";
   return "push";
 }
 
-function settleTotal(total: number, line: number): Outcome {
+export function settleTotal(total: number, line: number): Outcome {
   if (total > line) return "win";
   if (total < line) return "loss";
   return "push";

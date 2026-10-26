@@ -147,7 +147,7 @@ describe("the model a run uses", () => {
     expect(win + loss + push).toBeCloseTo(1, 10);
     expect(result.artifact).toEqual({
       checksum: artifact.checksum,
-      version: 3,
+      version: 4,
       trainingCutoff: artifact.trainingCutoff,
       releaseStatus: "unreleased",
       releasedMarkets: [],

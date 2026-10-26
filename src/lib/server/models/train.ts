@@ -1,18 +1,110 @@
 import { readFileSync } from "node:fs";
 import { datasetHash, withChecksum, type ModelArtifact } from "./artifact.ts";
-import { fitResidualDistribution, keyNumberWeights } from "./distribution.ts";
+import {
+  fitResidualDistribution,
+  integerMass,
+  keyNumberWeights,
+  moneylineFromMargin,
+  spreadFromMargin,
+  totalFromDistribution,
+  type ResidualDistribution,
+  type SideProbability,
+} from "./distribution.ts";
+import { settleMargin, settleTotal } from "./evaluate.ts";
 import {
   buildFeatureRows,
   DEFAULT_FEATURES,
   FEATURE_DEFINITIONS,
   type FeatureParameters,
+  type FeatureRow,
 } from "./features.ts";
-import { DEFAULT_FIT, fitRidge, predictMean, walkForwardResiduals } from "./fit.ts";
+import {
+  DEFAULT_FIT,
+  fitRidge,
+  predictMean,
+  walkForwardPredictions,
+  type WalkForwardPrediction,
+} from "./fit.ts";
 import { kickoffMs, marginHome, totalPoints, type PricedGame } from "./games.ts";
 import { pricedGamesFromNflverseCsv } from "./history.ts";
+import { fitUncertainty, slateOf, type CalibrationSample } from "./uncertainty.ts";
 
 /** Below this, walk-forward blocks are too small to fit, so residuals fall back to in-sample. */
 const MIN_WALK_FORWARD_GAMES = 40;
+
+function decisive(side: SideProbability): number {
+  const total = side.win + side.loss;
+  return total > 0 ? side.win / total : 0.5;
+}
+
+/**
+ * Walk-forward forecasts for calibration. Block 1 has no earlier out-of-sample residuals, so
+ * calibration starts at block 2. Every input to a block's forecast predates that block.
+ */
+function calibrationSamples(
+  train: readonly FeatureRow[],
+  byId: ReadonlyMap<string, PricedGame>,
+  margins: readonly WalkForwardPrediction[],
+  totals: readonly WalkForwardPrediction[],
+  marginTargets: readonly number[],
+): CalibrationSample[] {
+  const samples: CalibrationSample[] = [];
+  const distributions = new Map<number, { margin: ResidualDistribution; total: ResidualDistribution }>();
+  margins.forEach((marginPrediction, position) => {
+    const totalPrediction = totals[position]!;
+    if (marginPrediction.block < 2) return;
+    let pair = distributions.get(marginPrediction.block);
+    if (!pair) {
+      const earlier = (list: readonly WalkForwardPrediction[]) =>
+        list.filter((entry) => entry.block < marginPrediction.block).map((entry) => entry.residual);
+      const blockStart = marginPrediction.index;
+      pair = {
+        margin: fitResidualDistribution(
+          earlier(margins),
+          DEFAULT_FIT.residualBandwidth,
+          undefined,
+          keyNumberWeights(marginTargets.slice(0, blockStart)),
+        ),
+        total: fitResidualDistribution(earlier(totals), DEFAULT_FIT.residualBandwidth),
+      };
+      distributions.set(marginPrediction.block, pair);
+    }
+    const row = train[marginPrediction.index]!;
+    const game = byId.get(row.gameId)!;
+    const slate = slateOf(game.kickoff);
+    const marginBins = integerMass(pair.margin, marginPrediction.mean);
+    const margin = game.homeScore - game.awayScore;
+    const moneyline = moneylineFromMargin(marginBins);
+    samples.push(
+      { market: "moneyline", slate, decisiveWin: decisive(moneyline.home), outcome: settleMargin(margin) },
+      { market: "moneyline", slate, decisiveWin: decisive(moneyline.away), outcome: settleMargin(-margin) },
+    );
+    const spreadPrice = game.prices?.spread;
+    if (spreadPrice) {
+      const spread = spreadFromMargin(marginBins, spreadPrice.line);
+      samples.push(
+        { market: "spread", slate, decisiveWin: decisive(spread.home), outcome: settleMargin(margin, spreadPrice.line) },
+        { market: "spread", slate, decisiveWin: decisive(spread.away), outcome: settleMargin(-margin, -spreadPrice.line) },
+      );
+    }
+    const totalPrice = game.prices?.total;
+    if (totalPrice) {
+      const total = totalFromDistribution(integerMass(pair.total, totalPrediction.mean), totalPrice.line);
+      const points = game.homeScore + game.awayScore;
+      const over = settleTotal(points, totalPrice.line);
+      samples.push(
+        { market: "total", slate, decisiveWin: decisive(total.over), outcome: over },
+        {
+          market: "total",
+          slate,
+          decisiveWin: decisive(total.under),
+          outcome: over === "win" ? "loss" : over === "loss" ? "win" : "push",
+        },
+      );
+    }
+  });
+  return samples;
+}
 
 export function fitArtifact(
   games: readonly PricedGame[],
@@ -36,15 +128,26 @@ export function fitArtifact(
   const marginModel = fitRidge(train, marginTargets, DEFAULT_FIT.ridge);
   const totalModel = fitRidge(train, totalTargets, DEFAULT_FIT.ridge);
   const walkForward = train.length >= MIN_WALK_FORWARD_GAMES;
-  const residuals = (targets: number[], model: typeof marginModel) =>
-    walkForward
-      ? walkForwardResiduals(train, targets, DEFAULT_FIT.ridge, DEFAULT_FIT.residualFolds)
-      : train.map((row, index) => (targets[index] ?? 0) - predictMean(model, row));
-  const marginResiduals = residuals(marginTargets, marginModel);
-  const totalResiduals = residuals(totalTargets, totalModel);
+  const marginPredictions = walkForward
+    ? walkForwardPredictions(train, marginTargets, DEFAULT_FIT.ridge, DEFAULT_FIT.residualFolds)
+    : [];
+  const totalPredictions = walkForward
+    ? walkForwardPredictions(train, totalTargets, DEFAULT_FIT.ridge, DEFAULT_FIT.residualFolds)
+    : [];
+  const inSample = (targets: number[], model: typeof marginModel) =>
+    train.map((row, index) => (targets[index] ?? 0) - predictMean(model, row));
+  const marginResiduals = walkForward
+    ? marginPredictions.map((entry) => entry.residual)
+    : inSample(marginTargets, marginModel);
+  const totalResiduals = walkForward
+    ? totalPredictions.map((entry) => entry.residual)
+    : inSample(totalTargets, totalModel);
+  const uncertainty = fitUncertainty(
+    calibrationSamples(train, byId, marginPredictions, totalPredictions, marginTargets),
+  );
   return withChecksum({
     kind: "pocketcheck-baseline",
-    version: 3,
+    version: 4,
     releaseStatus: "unreleased",
     releasedMarkets: [],
     datasetHash: datasetHash(
@@ -67,6 +170,7 @@ export function fitArtifact(
         push: ties / train.length,
       },
     },
+    uncertainty,
     margin: {
       model: marginModel,
       // Totals have no comparable key numbers, so only margins are reweighted.
