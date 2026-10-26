@@ -51,6 +51,8 @@ export function pricedGamesFromNflverseCsv(csv: string): PricedGame[] {
       homeScore,
       awayScore,
       neutral: row.location === "Neutral",
+      ...(row.home_qb_id ? { homeQb: row.home_qb_id } : {}),
+      ...(row.away_qb_id ? { awayQb: row.away_qb_id } : {}),
       prices: pricesOf(row),
     });
   }

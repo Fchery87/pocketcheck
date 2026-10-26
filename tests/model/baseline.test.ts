@@ -69,7 +69,7 @@ describe("integer distributions", () => {
     expect(sameBins).toEqual(spread);
     expect(predicted.marginMean).not.toBe(spread.win);
     expect(artifact.releaseStatus).toBe("unreleased");
-    expect(valueEligibility(artifact).eligible).toBe(false);
+    expect(valueEligibility(artifact, "moneyline").eligible).toBe(false);
   });
 });
 

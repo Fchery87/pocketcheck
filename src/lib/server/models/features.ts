@@ -39,6 +39,15 @@ export const FEATURE_DEFINITIONS = [
       "Days since the away team's previous kickoff in the same season. 7 for its first game of a season.",
   },
   {
+    name: "home_qb_share",
+    description:
+      "Share of the home team's last 8 games started by this game's starting quarterback. When the starter is not known, the team's most frequent recent starter. 1 before a team's first game.",
+  },
+  {
+    name: "away_qb_share",
+    description: "The same quarterback share for the away team.",
+  },
+  {
     name: "home_indicator",
     description: "1 when the game is not neutral, otherwise 0.",
   },
@@ -77,10 +86,13 @@ type TeamState = {
   pointsFor: number;
   pointsAgainst: number;
   lastKickoffMs: number | null;
+  /** Starting quarterbacks of the team's most recent games, oldest first, across seasons. */
+  recentQbs: string[];
 };
 
 const MS_PER_DAY = 86_400_000;
 const DEFAULT_REST_DAYS = 7;
+const QB_WINDOW = 8;
 
 /** The NFL season a game belongs to. Games before March belong to the previous fall's season. */
 export function seasonOf(game: { kickoff: string; season?: number }): number {
@@ -97,7 +109,22 @@ function emptyState(): TeamState {
     pointsFor: 0,
     pointsAgainst: 0,
     lastKickoffMs: null,
+    recentQbs: [],
   };
+}
+
+function qbShare(state: TeamState, qb: string | undefined): number {
+  const starts = state.recentQbs;
+  if (starts.length === 0) return 1;
+  const count = (id: string) => starts.filter((start) => start === id).length;
+  if (qb !== undefined) return count(qb) / starts.length;
+  return Math.max(...starts.map(count)) / starts.length;
+}
+
+function recordStarter(state: TeamState, qb: string | undefined): void {
+  if (qb === undefined) return;
+  state.recentQbs.push(qb);
+  if (state.recentQbs.length > QB_WINDOW) state.recentQbs.shift();
 }
 
 function scale(state: TeamState, factor: number): void {
@@ -173,6 +200,8 @@ export function buildFeatureRows(
         away_prior_points_against: shrunk(away, away.pointsAgainst, league),
         home_rest_days: restDays(home, at),
         away_rest_days: restDays(away, at),
+        home_qb_share: qbShare(home, game.homeQb),
+        away_qb_share: qbShare(away, game.awayQb),
         home_indicator: game.neutral ? 0 : 1,
       },
     });
@@ -181,6 +210,8 @@ export function buildFeatureRows(
     teams.set(game.away, away);
     applyGame(home, game.homeScore, game.awayScore, at, params);
     applyGame(away, game.awayScore, game.homeScore, at, params);
+    recordStarter(home, game.homeQb);
+    recordStarter(away, game.awayQb);
     leaguePoints += game.homeScore + game.awayScore;
     leagueTeamGames += 2;
   }

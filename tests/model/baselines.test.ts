@@ -68,3 +68,21 @@ describe("baselines that are not constant", () => {
     expect(summary).not.toHaveProperty("baseline");
   });
 });
+
+describe("calibration counts", () => {
+  it("counts a probability a rounding error above 1 in the top bin", () => {
+    const summary = summarize([
+      {
+        gameId: "g",
+        market: "moneyline",
+        side: "home",
+        probability: { win: 1.0000000000000002, loss: 0, push: 0 },
+        marketBaseline: null,
+        baseRate: null,
+        outcome: "win",
+        priceState: "missing",
+      },
+    ]);
+    expect(summary.calibration.at(-1)?.count).toBe(1);
+  });
+});

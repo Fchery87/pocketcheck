@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { datasetHash, valueEligibility, withChecksum, type ModelArtifact } from "./artifact.ts";
+import { datasetHash, withChecksum, type ModelArtifact } from "./artifact.ts";
 import { fitResidualDistribution, keyNumberWeights } from "./distribution.ts";
 import {
   buildFeatureRows,
@@ -46,6 +46,7 @@ export function fitArtifact(
     kind: "pocketcheck-baseline",
     version: 2,
     releaseStatus: "unreleased",
+    releasedMarkets: [],
     datasetHash: datasetHash(
       ordered.map((game) => ({
         id: game.id,
@@ -93,8 +94,7 @@ export function readGames(path: string): PricedGame[] {
 }
 
 export function assertUnreleased(artifact: ModelArtifact): void {
-  const eligibility = valueEligibility(artifact);
-  if (eligibility.eligible) {
+  if (artifact.releaseStatus !== "unreleased" || artifact.releasedMarkets.length > 0) {
     throw new Error("Fit must default to an unreleased artifact");
   }
 }

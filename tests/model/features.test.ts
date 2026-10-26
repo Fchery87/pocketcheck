@@ -78,3 +78,40 @@ describe("recency-weighted team form", () => {
     expect(newcomer?.home_prior_margin).toBe(0);
   });
 });
+
+describe("starting quarterback", () => {
+  const start = (id: string, day: number, qb: string | undefined): CompletedGame => ({
+    ...game(id, `2024-09-${String(day).padStart(2, "0")}T17:00:00Z`, "A", `X${day}`, 20, 17),
+    ...(qb ? { homeQb: qb } : {}),
+  });
+  const games = [
+    start("w1", 1, "starter"),
+    start("w2", 8, "starter"),
+    start("w3", 15, "starter"),
+    start("w4", 22, "backup"),
+    start("w5", 29, undefined),
+  ];
+  const rows = new Map(buildFeatureRows(games).map((row) => [row.gameId, row.features]));
+
+  it("assumes a team's first game is started by its regular quarterback", () => {
+    expect(rows.get("w1")?.home_qb_share).toBe(1);
+  });
+
+  it("is the share of the team's recent games this quarterback started", () => {
+    expect(rows.get("w3")?.home_qb_share).toBe(1);
+    expect(rows.get("w4")?.home_qb_share).toBe(0);
+  });
+
+  it("assumes the most frequent recent starter when the starter is not known yet", () => {
+    expect(rows.get("w5")?.home_qb_share).toBe(0.75);
+  });
+
+  it("only looks at the last eight games", () => {
+    const long = Array.from({ length: 12 }, (_, week) =>
+      start(`g${week}`, week + 1, week < 3 ? "old" : "new"),
+    );
+    long.push(start("next", 20, "old"));
+    const next = buildFeatureRows(long).find((row) => row.gameId === "next");
+    expect(next?.features.home_qb_share).toBe(0);
+  });
+});

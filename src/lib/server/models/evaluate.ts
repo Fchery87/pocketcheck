@@ -1,14 +1,12 @@
 import { proportionalMargin } from "../../domain/odds.ts";
 import type { SideProbability } from "./distribution.ts";
 import type { FeatureRow } from "./features.ts";
-import type { PricedGame, PriceSide } from "./games.ts";
+import type { Market, PricedGame, PriceSide } from "./games.ts";
 import { marginHome, totalPoints } from "./games.ts";
 import { predictGame } from "./predict.ts";
 import type { ModelArtifact } from "./artifact.ts";
 
 export type Outcome = "win" | "loss" | "push";
-
-type Market = "moneyline" | "spread" | "total";
 
 export type ScoredForecast = {
   gameId: string;
@@ -44,6 +42,12 @@ export type EvaluationSummary = {
 };
 
 const EPS = 1e-12;
+
+/** What model:evaluate writes, and what model:release reads back. */
+export type EvaluationReport = {
+  artifactChecksum: string;
+  summary: EvaluationSummary;
+};
 
 export function multiclassBrier(probability: SideProbability, outcome: Outcome): number {
   const predicted = { win: probability.win, loss: probability.loss, push: probability.push };
@@ -178,10 +182,8 @@ export function summarize(forecasts: readonly ScoredForecast[]): EvaluationSumma
     const upper = bins[index + 1] ?? 1;
     const members = graded.filter((forecast) => {
       const probability = forecast.probability.win;
-      return (
-        probability >= lower &&
-        (index === bins.length - 2 ? probability <= upper : probability < upper)
-      );
+      // The top bin also takes values a rounding error above 1.
+      return probability >= lower && (index === bins.length - 2 || probability < upper);
     });
     return {
       lower,

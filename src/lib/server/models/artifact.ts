@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { ResidualDistribution, SideProbability } from "./distribution.ts";
 import { FEATURE_DEFINITIONS, type FeatureParameters } from "./features.ts";
 import type { FitParameters, LinearModel } from "./fit.ts";
+import type { Market } from "./games.ts";
 
 export type ReleaseStatus = "unreleased" | "released-experimental";
 
@@ -9,6 +10,8 @@ export type ModelArtifact = {
   kind: "pocketcheck-baseline";
   version: 2;
   releaseStatus: ReleaseStatus;
+  /** Markets that passed the release gate. Empty while unreleased. */
+  releasedMarkets: Market[];
   datasetHash: string;
   trainingCutoff: string;
   featureDefinitions: typeof FEATURE_DEFINITIONS;
@@ -40,15 +43,24 @@ export function withChecksum(artifact: Omit<ModelArtifact, "checksum">): ModelAr
   return { ...artifact, checksum: artifactChecksum(artifact) };
 }
 
-export function valueEligibility(artifact: Pick<ModelArtifact, "releaseStatus">): ValueEligibility {
+export function valueEligibility(
+  artifact: Pick<ModelArtifact, "releaseStatus" | "releasedMarkets">,
+  market: Market,
+): ValueEligibility {
   if (artifact.releaseStatus !== "released-experimental") {
     return {
       eligible: false,
       reason: "Unreleased artifacts are not eligible for a value recommendation.",
     };
   }
+  if (!artifact.releasedMarkets.includes(market)) {
+    return {
+      eligible: false,
+      reason: `The artifact did not pass the release gate for the ${market} market.`,
+    };
+  }
   return {
     eligible: true,
-    reason: "Released experimental artifact may be assessed by a later value policy.",
+    reason: `Released experimental artifact may be assessed for the ${market} market by the value policy.`,
   };
 }

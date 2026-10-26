@@ -12,6 +12,7 @@ export type KeyWeight = {
 export type ResidualDistribution = {
   residuals: number[];
   bandwidth: number;
+  /** Outcome range as offsets from the predicted mean, covering every residual plus padding. */
   support: { min: number; max: number };
   keyWeights: KeyWeight[];
 };
@@ -90,21 +91,69 @@ function kernel(distance: number, bandwidth: number): number {
   return Math.exp(-0.5 * z * z);
 }
 
-export function integerMass(distribution: ResidualDistribution, mean: number): MassBin[] {
-  const bins: MassBin[] = [];
-  const keyWeight = new Map(distribution.keyWeights.map((entry) => [entry.points, entry.weight]));
-  let total = 0;
-  for (let points = distribution.support.min; points <= distribution.support.max; points += 1) {
-    let weight = 0;
-    for (const residual of distribution.residuals) {
-      weight += kernel(points - (mean + residual), distribution.bandwidth);
+const GRID_STEP = 0.05;
+
+type DensityGrid = { start: number; values: Float64Array };
+
+// The residual kernel density depends only on the distribution, so it is sampled once per
+// distribution object. Reading it is then a lookup instead of a sum over every residual.
+const grids = new WeakMap<ResidualDistribution, DensityGrid>();
+
+function densityGrid(distribution: ResidualDistribution): DensityGrid {
+  const cached = grids.get(distribution);
+  if (cached) return cached;
+  const reach = 8 * distribution.bandwidth;
+  const start = Math.min(...distribution.residuals) - reach;
+  const end = Math.max(...distribution.residuals) + reach;
+  const values = new Float64Array(Math.ceil((end - start) / GRID_STEP) + 2);
+  const sorted = [...distribution.residuals].sort((a, b) => a - b);
+  for (let index = 0; index < values.length; index += 1) {
+    const x = start + index * GRID_STEP;
+    let sum = 0;
+    for (const residual of sorted) {
+      if (residual < x - reach) continue;
+      if (residual > x + reach) break;
+      sum += kernel(x - residual, distribution.bandwidth);
     }
-    weight *= keyWeight.get(points) ?? 1;
+    values[index] = sum;
+  }
+  const grid = { start, values };
+  grids.set(distribution, grid);
+  return grid;
+}
+
+function densityAt(grid: DensityGrid, x: number): number {
+  const position = (x - grid.start) / GRID_STEP;
+  const index = Math.floor(position);
+  if (index < 0 || index + 1 >= grid.values.length) return 0;
+  const fraction = position - index;
+  return (grid.values[index] ?? 0) * (1 - fraction) + (grid.values[index + 1] ?? 0) * fraction;
+}
+
+/** Integer outcome probabilities from the smoothed residuals alone, before key weights. */
+export function smoothMass(distribution: ResidualDistribution, mean: number): MassBin[] {
+  const grid = densityGrid(distribution);
+  const bins: MassBin[] = [];
+  let total = 0;
+  const first = Math.floor(mean + distribution.support.min);
+  const last = Math.ceil(mean + distribution.support.max);
+  for (let points = first; points <= last; points += 1) {
+    const weight = densityAt(grid, points - mean);
     bins.push({ points, probability: weight });
     total += weight;
   }
   if (total <= 0) throw new Error("Residual kernel produced no mass");
   return bins.map((bin) => ({ points: bin.points, probability: bin.probability / total }));
+}
+
+export function integerMass(distribution: ResidualDistribution, mean: number): MassBin[] {
+  const keyWeight = new Map(distribution.keyWeights.map((entry) => [entry.points, entry.weight]));
+  const weighted = smoothMass(distribution, mean).map((bin) => ({
+    points: bin.points,
+    probability: bin.probability * (keyWeight.get(bin.points) ?? 1),
+  }));
+  const total = weighted.reduce((sum, bin) => sum + bin.probability, 0);
+  return weighted.map((bin) => ({ points: bin.points, probability: bin.probability / total }));
 }
 
 export type SideProbability = {

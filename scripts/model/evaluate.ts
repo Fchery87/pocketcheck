@@ -4,6 +4,7 @@ import { artifactChecksum, type ModelArtifact } from "../../src/lib/server/model
 import { scoreHoldout, summarize } from "../../src/lib/server/models/evaluate.ts";
 import { buildFeatureRows } from "../../src/lib/server/models/features.ts";
 import { kickoffMs } from "../../src/lib/server/models/games.ts";
+import { releaseDecision } from "../../src/lib/server/models/release.ts";
 import { readGames } from "../../src/lib/server/models/train.ts";
 
 const artifactPath = resolve(process.argv[2] ?? "data/artifacts/baseline.json");
@@ -20,6 +21,7 @@ const rows = buildFeatureRows(games, stored.featureParameters).filter(
 );
 const forecasts = scoreHoldout(stored, rows, games);
 const summary = summarize(forecasts);
+const release = releaseDecision(summary);
 const report = {
   artifactChecksum: checksum,
   datasetHash: stored.datasetHash,
@@ -27,6 +29,7 @@ const report = {
   holdoutGames: rows.length,
   missingPriceNote: "Games without a recorded price stay missing and are not graded as losses.",
   summary,
+  release,
 };
 writeFileSync(output, `${JSON.stringify(report, null, 2)}\n`);
 console.log(
@@ -36,5 +39,6 @@ console.log(
     logLoss: summary.logLoss,
     coverage: summary.coverage,
     baselines: summary.baselines,
+    release,
   }),
 );

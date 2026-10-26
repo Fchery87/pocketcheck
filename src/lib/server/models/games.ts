@@ -8,7 +8,12 @@ export type CompletedGame = {
   homeScore: number;
   awayScore: number;
   neutral?: boolean;
+  /** Starting quarterbacks' player ids, when known. */
+  homeQb?: string;
+  awayQb?: string;
 };
+
+export type Market = "moneyline" | "spread" | "total";
 
 export type PriceSide = {
   american: number;

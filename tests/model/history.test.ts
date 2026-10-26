@@ -21,6 +21,8 @@ const csv = [
     away_score: "21",
     home_team: "KC",
     home_score: "20",
+    home_qb_id: "00-0033873",
+    away_qb_id: "00-0033106",
     location: "Home",
     away_moneyline: "164",
     home_moneyline: "-198",
@@ -69,6 +71,11 @@ describe("historical games from the nflverse schedule", () => {
       kickoff: "2023-09-08T00:20:00.000Z",
     });
     expect(games[1]?.neutral).toBe(true);
+  });
+
+  it("reads each side's starting quarterback when the schedule records one", () => {
+    expect(games[0]).toMatchObject({ homeQb: "00-0033873", awayQb: "00-0033106" });
+    expect(games[1]?.homeQb).toBeUndefined();
   });
 
   it("reads closing prices, with the spread from the home side", () => {

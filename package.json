@@ -21,6 +21,7 @@
     "data:injuries": "node --experimental-strip-types scripts/data/injuries.ts",
     "model:fit": "node --experimental-strip-types scripts/model/fit.ts",
     "model:evaluate": "node --experimental-strip-types scripts/model/evaluate.ts",
+    "model:release": "node --experimental-strip-types scripts/model/release.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {
