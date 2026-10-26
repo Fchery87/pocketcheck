@@ -41,7 +41,7 @@
     Record the contract you placed. It can differ from the researched offer, and saving it does not
     change that research.
   </p>
-  <form method="POST">
+  <form method="POST" action="?/bet">
     <label>
       Analysis
       <select name="analysisId" required data-testid="bet-analysis">
@@ -122,6 +122,87 @@
             placed {easternTime(bet.placedAt)}. The market, line, and rules of this placement were not recorded.
           </span>
         {/if}
+      </li>
+    {/each}
+  </ul>
+
+  <h2>Settlement</h2>
+  <p>
+    Record a final score, postponement, void, or unresolved notice. The research offer and each actual
+    bet are graded from their own contracts. A repeated event is ignored. A correction keeps the earlier
+    notice and needs a reason.
+  </p>
+  <form method="POST" action="?/settle">
+    <label>
+      Analysis
+      <select name="analysisId" required data-testid="settle-analysis">
+        <option value="">choose an analysis</option>
+        {#each data.assessments as assessment (assessment.id)}
+          <option value={assessment.id}>{label(assessment)}</option>
+        {/each}
+      </select>
+    </label>
+    <label>
+      Actual bet (optional, for the record reference)
+      <select name="betId" data-testid="settle-bet">
+        <option value="">research assessment only</option>
+        {#each data.bets as bet (bet.id)}
+          <option value={bet.id}>{bet.sportsbook} {bet.market} {signedLine(bet.pointLine)}</option>
+        {/each}
+      </select>
+    </label>
+    <label>
+      Event identifier
+      <input name="eventId" required data-testid="settle-event" />
+    </label>
+    <label>
+      Kind
+      <select name="kind" data-testid="settle-kind">
+        <option value="final">final score</option>
+        <option value="postponed">postponed</option>
+        <option value="void">void</option>
+        <option value="unresolved">unresolved</option>
+      </select>
+    </label>
+    <label>
+      Home score
+      <input name="homeScore" inputmode="numeric" data-testid="settle-home" />
+    </label>
+    <label>
+      Away score
+      <input name="awayScore" inputmode="numeric" data-testid="settle-away" />
+    </label>
+    <label>
+      Corrects notice
+      <input name="correctsNoticeId" data-testid="settle-corrects" />
+    </label>
+    <label>
+      Reason
+      <input name="reason" data-testid="settle-reason" />
+    </label>
+    <button type="submit">Record settlement</button>
+  </form>
+  {#if form?.settled}
+    <p data-testid="settlement-recorded">{form.duplicate ? "Settlement already recorded" : "Settlement recorded"}</p>
+  {/if}
+  <ul data-testid="settlements">
+    {#each data.settlements as row (row.analysisId)}
+      <li>
+        <span data-testid="assessment-result">assessment {row.assessment.effective}</span>
+        <ol>
+          {#each row.assessment.history as notice (notice.id)}
+            <li data-testid="settlement-notice">
+              {notice.result} {notice.recordedAt}
+              {#if notice.correctsId}corrects {notice.correctsId}{/if}
+              {#if notice.reason}{notice.reason}{/if}
+            </li>
+          {/each}
+        </ol>
+        {#each row.bets as bet (bet.betId)}
+          {#if bet.grade}
+            <span data-testid="bet-result">bet {bet.grade.effective}</span>
+          {/if}
+        {/each}
       </li>
     {/each}
   </ul>
