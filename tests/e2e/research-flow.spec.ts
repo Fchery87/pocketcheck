@@ -1,7 +1,33 @@
 import { expect, test } from "@playwright/test";
 
-// playwright.config.ts pins the fixture schedule and injury file, a memory journal, the
-// clock (2026-10-25T16:00Z), weather off, and TZ=America/New_York for the dev server.
+test.beforeAll(async ({ request }) => {
+  const response = await request.get("/__verification");
+  expect(response.ok()).toBe(true);
+  expect((await response.json()).analyses).toBe(0);
+});
+
+test.beforeEach(async ({ request }) => {
+  const response = await request.get("/__verification");
+  expect(response.ok()).toBe(true);
+  expect(await response.json()).toMatchObject({
+    mode: "fixture-browser",
+    now: "2026-10-25T16:00:00.000Z",
+    journal: { kind: "memory", identity: process.env.POCKETCHECK_EXPECTED_JOURNAL_ID },
+    schedule: "tests/fixtures/sources/games-minimized.csv",
+    injuries: "tests/fixtures/sources/injuries-2026-live-sample.csv",
+    weather: "off",
+    model: "off",
+    drafter: "fixture",
+  });
+});
+
+test("production rejects a mismatched form origin", async ({ request }) => {
+  const response = await request.post("/settings?/choose", {
+    headers: { origin: "https://unexpected.example" },
+    form: { drafter: "fixture" },
+  });
+  expect(response.status()).toBe(403);
+});
 
 test("offer, report, refresh, and unchanged prior report", async ({ page }) => {
   await page.goto("/");

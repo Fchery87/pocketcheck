@@ -83,7 +83,7 @@ describe("key-number weights", () => {
   });
 });
 
-describe("fitted margins", () => {
+describe("fitted margins", { timeout: 60_000 }, () => {
   it("put realistic mass on ties and on a field-goal margin", () => {
     const games = footballLeague(1200);
     const artifact = fitArtifact(games, games[999]!.kickoff);

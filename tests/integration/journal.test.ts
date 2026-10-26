@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { JournalRepository } from "../../src/lib/server/db/repository.ts";
-import { isolatedDb, testDatabaseUrl } from "./isolated-db.ts";
-
-const describeJournal = testDatabaseUrl ? describe : describe.skip;
+import { isolatedDb } from "./isolated-db.ts";
 
 /** Export queries carry no order, so compare each table sorted by id. */
 function sortedById<T extends Record<string, unknown>>(snapshot: T): T {
@@ -16,7 +14,7 @@ function sortedById<T extends Record<string, unknown>>(snapshot: T): T {
   ) as T;
 }
 
-describeJournal("immutable journal", () => {
+describe("immutable journal", () => {
   it("keeps versions, bets, settlements, and a secret-free export", async () => {
     const isolated = await isolatedDb();
     const db = isolated.db;
