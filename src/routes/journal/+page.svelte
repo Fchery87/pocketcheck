@@ -36,6 +36,58 @@
     {/each}
   </ul>
 
+  <h2>Performance</h2>
+  <p>
+    System assessments and actual bets are separate. A refresh stays in the history and is not another
+    independent assessment. Return uses only wins and losses. Push, void, unresolved, and missing closing
+    observations are not zero.
+  </p>
+  <section data-testid="assessment-summary">
+    <h3>Frozen primary assessments</h3>
+    <p data-testid="assessment-counts">
+      {data.performance.assessments.counts.primary} primary,
+      {data.performance.assessments.counts.refresh} refresh,
+      {data.performance.assessments.counts.settled} settled,
+      {data.performance.assessments.counts.unresolved} unresolved,
+      {data.performance.assessments.counts.push} push,
+      {data.performance.assessments.counts.void} void,
+      {data.performance.assessments.counts.missingClosing} missing closing
+    </p>
+    <p data-testid="assessment-denominators">
+      Return denominator {data.performance.assessments.denominators.returnOnSettledStakes} settled units.
+      Closing comparisons {data.performance.assessments.denominators.closingComparisons}.
+    </p>
+    <p data-testid="assessment-roi">
+      {#if data.performance.assessments.roi.available}
+        Return {data.performance.assessments.roi.roi}
+      {:else}
+        Return unavailable
+      {/if}
+    </p>
+  </section>
+  <section data-testid="bet-summary">
+    <h3>Actual bets</h3>
+    <p data-testid="bet-counts">
+      {data.performance.bets.counts.bets} bets,
+      {data.performance.bets.counts.settled} settled,
+      {data.performance.bets.counts.unresolved} unresolved,
+      {data.performance.bets.counts.push} push,
+      {data.performance.bets.counts.void} void,
+      {data.performance.bets.counts.missingClosing} missing closing
+    </p>
+    <p data-testid="bet-denominators">
+      Return denominator {data.performance.bets.denominators.returnOnSettledStakes} settled stake units.
+      Closing comparisons {data.performance.bets.denominators.closingComparisons}.
+    </p>
+    <p data-testid="bet-roi">
+      {#if data.performance.bets.roi.available}
+        Return {data.performance.bets.roi.roi}
+      {:else}
+        Return unavailable
+      {/if}
+    </p>
+  </section>
+
   <h2>Record an actual bet</h2>
   <p>
     Record the contract you placed. It can differ from the researched offer, and saving it does not

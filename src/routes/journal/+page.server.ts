@@ -1,6 +1,7 @@
 import { error, fail } from "@sveltejs/kit";
 import { parseOffer, type Market, type OfferRules, type SideSelection, type TieRule } from "#lib/domain/offer.ts";
 import { ConfigError, now, researchStore } from "#lib/server/config.ts";
+import { journalSummaries } from "#lib/server/analysis/summary.ts";
 import type { SettlementNoticeKind } from "#lib/server/analysis/store.ts";
 import type { Actions, PageServerLoad } from "./$types";
 
@@ -40,7 +41,23 @@ export const load: PageServerLoad = async () => {
       return { analysisId: assessment.id, assessment: read.assessment, bets: rows };
     }),
   );
-  return { assessments, bets, settlements, closings };
+  const performance = journalSummaries({
+    assessments: assessments.map((assessment) => ({
+      ...assessment,
+      americanOdds: assessment.offer.americanOdds,
+      grade: settlements.find((row) => row.analysisId === assessment.id)?.assessment ?? {
+        result: "unresolved",
+        effective: "unresolved",
+        history: [],
+      },
+    })),
+    bets: bets.map((bet) => ({
+      ...bet,
+      grade: settlements.flatMap((row) => row.bets).find((row) => row.betId === bet.id)?.grade ?? null,
+    })),
+    closings,
+  });
+  return { assessments, bets, settlements, closings, performance };
 };
 
 export const actions = {
