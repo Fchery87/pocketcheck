@@ -55,6 +55,25 @@
           ? "unavailable"
           : `${run.policy.expectedValuePerUnit.toFixed(4)} units per unit staked`}
       </p>
+      {#if run.policy.uncertainty}
+        {@const uncertainty = run.policy.uncertainty}
+        {#if uncertainty.available && run.policy.threshold}
+          <p data-testid="conservative-ev">
+            Conservative expected value at {Math.round(uncertainty.confidence * 100)}%
+            confidence: {run.policy.conservativeExpectedValuePerUnit === null
+              ? "unavailable"
+              : `${run.policy.conservativeExpectedValuePerUnit.toFixed(4)} units`}. Threshold
+            {run.policy.threshold.conservativeExpectedValue} ({run.policy.threshold.version}).
+          </p>
+        {:else if !uncertainty.available && uncertainty.reason !== "Not assessed."}
+          <p data-testid="conservative-ev">Uncertainty: {uncertainty.reason}</p>
+        {/if}
+      {/if}
+      {#if run.policy.priceCutoff.available}
+        <p>
+          The conclusion changes at decimal odds below {run.policy.priceCutoff.decimalMinimum.toFixed(3)}.
+        </p>
+      {/if}
       <p>{run.policy.label}</p>
       <p>Policy {run.policy.policyVersion}</p>
     </section>
