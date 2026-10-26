@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
+import { americanToDecimal } from "#lib/domain/odds.ts";
 import { parseOffer, type Offer, type OfferRules, type SideSelection, type Market } from "#lib/domain/offer.ts";
+import { compareClosing, type ClosingComparison } from "./closing.ts";
 import type { ProviderRequestRecord, ThesisReport } from "../providers/contracts.ts";
 import type { RunModel } from "./model.ts";
 import type { SavedForecast } from "./forecast-record.ts";
@@ -241,6 +243,54 @@ export type RecordBetResult =
   | { kind: "existing"; bet: ActualBet }
   | { kind: "conflict"; error: string };
 
+export type ClosingSubject = { kind: "analysis" | "bet"; id: string };
+
+export type ClosingProvenance = "observed" | "archived-untimestamped";
+
+/**
+ * A later look at a contract. `observed` was captured with a time and source.
+ * `archived-untimestamped` is a historical price with no observation time.
+ * It is not an executable offer and not a timestamped user observation.
+ */
+export type ClosingObservation = {
+  id: string;
+  subject: ClosingSubject;
+  provenance: ClosingProvenance;
+  sportsbook: string;
+  market: Market;
+  selection: SideSelection;
+  pointLine: number | null;
+  rules: Offer["rules"];
+  americanOdds: number;
+  observedAt: string | null;
+  source: string;
+  comparison: ClosingComparison;
+};
+
+export type NewClosing = {
+  subject: ClosingSubject;
+  sportsbook: string;
+  market: Market;
+  selection: SideSelection;
+  pointLine?: number;
+  rules: OfferRules;
+  americanOdds: number;
+  observedAt: string;
+  source: string;
+};
+
+export type RecordClosingResult = { kind: "created"; closing: ClosingObservation };
+
+export type ArchivedClosing = {
+  subject: ClosingSubject;
+  sportsbook: string;
+  market: Market;
+  selection: SideSelection;
+  pointLine?: number;
+  americanOdds: number;
+  source: string;
+};
+
 export type ResearchStore = {
   beginAttempt: (run: NewRun) => Promise<BeginAttemptResult>;
   updateAttempt: (run: NewRun) => Promise<ResearchRun>;
@@ -251,14 +301,20 @@ export type ResearchStore = {
   markInterrupted: (id: string) => Promise<ResearchRun | null>;
   recordBet: (bet: NewActualBet) => Promise<RecordBetResult>;
   listBets: () => Promise<ActualBet[]>;
+  recordClosing: (closing: NewClosing) => Promise<RecordClosingResult>;
+  /** Oldest first. Earlier observations stay when a later one is recorded. */
+  listClosings: () => Promise<ClosingObservation[]>;
   /** Test seam: a completed row whose role was never frozen at completion. */
   recordUnclassifiedCompleted?: (run: ResearchRun) => Promise<void>;
+  /** Test seam: an archived price with no observation time. */
+  recordArchivedClosing?: (closing: ArchivedClosing) => Promise<ClosingObservation>;
 };
 
 export function createMemoryStore(): ResearchStore {
   const runs = new Map<string, ResearchRun>();
   const requests = new Map<string, string>();
   const bets: ActualBet[] = [];
+  const closings: ClosingObservation[] = [];
   const submissions = new Map<string, string>();
   const fingerprints = new Map<string, string>();
   let betWrites: Promise<unknown> = Promise.resolve();
@@ -397,11 +453,26 @@ export function createMemoryStore(): ResearchStore {
     async listBets() {
       return [...bets];
     },
+    async recordClosing(input) {
+      const saved = recordMemoryClosing({ runs, bets, closings }, input);
+      return { kind: "created", closing: structuredClone(saved) };
+    },
+    async listClosings() {
+      return closings.map((item) => structuredClone(item));
+    },
     async recordUnclassifiedCompleted(run) {
       runs.set(
         run.id,
         structuredClone({ ...run, status: "completed", assessmentRole: null, completedAt: null }),
       );
+    },
+    async recordArchivedClosing(input) {
+      const saved = recordMemoryClosing(
+        { runs, bets, closings },
+        { ...input, rules: { period: "full-game", overtime: "included" }, observedAt: "", source: input.source },
+        "archived-untimestamped",
+      );
+      return structuredClone(saved);
     },
   };
 }
@@ -477,4 +548,124 @@ function recordMemoryBet(
   state.submissions.set(input.submissionId, saved.id);
   state.fingerprints.set(saved.id, fingerprint);
   return { kind: "created", bet: structuredClone(saved) };
+}
+
+type OpenSide = {
+  gameId: string;
+  kickoffAt: string;
+  market: Market;
+  selection: SideSelection;
+  pointLine: number | null;
+  sportsbook: string;
+  americanOdds: number;
+  rules: Offer["rules"];
+};
+
+function openSide(
+  state: { runs: Map<string, ResearchRun>; bets: ActualBet[] },
+  subject: ClosingSubject,
+): OpenSide {
+  if (subject.kind === "analysis") {
+    const run = state.runs.get(subject.id);
+    if (!run) throw new Error(`Analysis not found: ${subject.id}`);
+    return {
+      gameId: run.game.id,
+      kickoffAt: run.game.kickoff,
+      market: run.offer.market,
+      selection: run.offer.selection,
+      pointLine: run.offer.pointLine,
+      sportsbook: run.offer.sportsbook,
+      americanOdds: run.offer.americanOdds,
+      rules: run.offer.rules,
+    };
+  }
+  const bet = state.bets.find((item) => item.id === subject.id);
+  if (!bet) throw new Error(`Bet not found: ${subject.id}`);
+  const run = state.runs.get(bet.analysisId);
+  if (!run) throw new Error(`Analysis not found: ${bet.analysisId}`);
+  if (!bet.market || !bet.selection || !bet.rules) {
+    throw new Error("This bet has no recorded contract to compare.");
+  }
+  return {
+    gameId: run.game.id,
+    kickoffAt: run.game.kickoff,
+    market: bet.market,
+    selection: bet.selection,
+    pointLine: bet.pointLine,
+    sportsbook: bet.sportsbook,
+    americanOdds: bet.americanOdds,
+    rules: bet.rules,
+  };
+}
+
+function recordMemoryClosing(
+  state: { runs: Map<string, ResearchRun>; bets: ActualBet[]; closings: ClosingObservation[] },
+  input: NewClosing,
+  provenance: ClosingProvenance = "observed",
+): ClosingObservation {
+  if (!input.source.trim()) throw new Error("A closing observation requires a source.");
+  const open = openSide(state, input.subject);
+  if (provenance === "archived-untimestamped") {
+    const saved: ClosingObservation = {
+      id: randomUUID(),
+      subject: input.subject,
+      provenance,
+      sportsbook: input.sportsbook.trim(),
+      market: input.market,
+      selection: input.selection,
+      pointLine: input.pointLine ?? null,
+      rules: { period: "full-game", overtime: "included", tie: input.rules.tie ?? null },
+      americanOdds: input.americanOdds,
+      observedAt: null,
+      source: input.source.trim(),
+      comparison: { available: false, reason: "archived-untimestamped" },
+    };
+    state.closings.push(saved);
+    return saved;
+  }
+  const contract = parseOffer({
+    gameId: open.gameId,
+    sportsbook: input.sportsbook,
+    market: input.market,
+    selection: input.selection,
+    pointLine: input.pointLine,
+    americanOdds: input.americanOdds,
+    observedAt: input.observedAt,
+    kickoffAt: open.kickoffAt,
+    rules: input.rules,
+  });
+  const comparison = compareClosing(
+    {
+      market: open.market,
+      selection: open.selection,
+      pointLine: open.pointLine,
+      sportsbook: open.sportsbook,
+      rules: open.rules,
+      decimalOdds: americanToDecimal(open.americanOdds),
+    },
+    {
+      market: contract.market,
+      selection: contract.selection,
+      pointLine: contract.pointLine,
+      sportsbook: contract.sportsbook,
+      rules: contract.rules,
+      decimalOdds: contract.decimalOdds,
+    },
+  );
+  const saved: ClosingObservation = {
+    id: randomUUID(),
+    subject: input.subject,
+    provenance: "observed",
+    sportsbook: contract.sportsbook,
+    market: contract.market,
+    selection: contract.selection,
+    pointLine: contract.pointLine,
+    rules: contract.rules,
+    americanOdds: contract.americanOdds,
+    observedAt: input.observedAt,
+    source: input.source.trim(),
+    comparison,
+  };
+  state.closings.push(saved);
+  return saved;
 }

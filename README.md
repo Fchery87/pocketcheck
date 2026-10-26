@@ -18,7 +18,9 @@ If a request was sent and the process cannot tell whether the provider finished,
 
 An actual bet stores its own contract: market, selection, point line, settlement rules, sportsbook, American odds, placement time, positive stake units, and a submission identifier. That contract is validated on its own and can differ from the researched offer. Saving it does not change the research. Repeating one submission identifier returns the same bet. Reusing it with different terms is a conflict and does not overwrite the first record. Bets saved before this contract have no market, line, or rules of their own. The journal says those terms were not recorded. It does not copy the researched line in as if it were the line that was placed.
 
-Not yet wired into the app: the baseline model; settlement, closing-line comparison, and summaries.
+Not yet wired into the app: the baseline model. Settlement and performance summaries are separate from closing observations.
+
+A closing comparison measures the change in decimal odds for one contract: the same market, side, point line, sportsbook, and rules, observed later with a source and a time. A different point line is shown as line movement and is not an odds change. A missing or incompatible close is unavailable, never zero. An archived price with no observation time is not an executable offer and not a timestamped observation.
 
 ## Start here
 
