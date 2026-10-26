@@ -1,13 +1,54 @@
-## Agent skills
+# PocketCheck
 
-### Issue tracker
+Personal NFL pregame research journal. The record is the product: an analysis, a placed bet, and a model forecast stay distinguishable after kickoff.
 
-Issues live in `.scratch/<feature>/`. Read `docs/agents/issue-tracker.md` when creating or fetching issues and specs.
+## Reach first
 
-### Triage labels
+- Read `docs/agents/issue-tracker.md` before creating or fetching an issue or spec. Issues live in `.scratch/<feature>/`.
+- Read `docs/agents/triage-labels.md` before triaging an issue.
+- Read `docs/agents/domain.md` before exploring the codebase.
+- Read `README.md` before describing what the application does. Read `docs/testing.md` before running or changing verification. Read `.scratch/pocketcheck-trust-and-journal/spec.md` before changing the journal journey.
 
-Use the five default triage roles. Read `docs/agents/triage-labels.md` when triaging issues.
+## Journal
 
-### Domain docs
+Keep these records separate. Do not copy one into another to fill a gap.
 
-Use a single-context layout. Read `docs/agents/domain.md` before exploring the codebase.
+- The analysis snapshot freezes the game, research offer, decision cutoff, evidence, gaps, model identity, and policy result. A later schedule update changes discovery only.
+- A refresh links to its parent and may change the point line, sportsbook, odds, and observation time. It keeps the market and selection. A different market or selection is a new analysis.
+- The private lean stays outside the evidence packet and thesis.
+- The actual bet stores its own contract, placement time, stake units, and submission identifier. It can differ from the researched offer.
+- A settlement notice is append-only. A correction is a new notice that names the earlier one. Grades use the contract being graded.
+- A comparable close is the same market, side, point line, sportsbook, and rules, observed later. A different line is line movement, not an odds change.
+- Assessment performance counts frozen primary assessments. Actual-bet performance counts placed contracts. A refresh is not another primary observation.
+- The primary is the earliest completed analysis whose cutoff is strictly before kickoff, frozen when that attempt finishes. One game has one primary. Ties stay a single primary. Rows without a proven pre-outcome completion stay unclassified.
+- Legacy snapshots are `legacy-unknown`. Legacy bets without their own contract say the terms were not recorded. Do not backfill a kickoff, venue, line, starter, publication time, or any other fact the saved record cannot establish.
+- Unknown cost, an unresolved result, and a missing close stay unavailable. A push or void returns stake and leaves the return denominator. Do not render any of these as zero.
+- Provider accounting sums the original draft and every repair. A missing field stays unknown and the total is partial. An ambiguous provider outcome needs a deliberate new attempt before another paid request.
+- Export version 1 is the only restorable backup. Validate the whole file before writing, apply it atomically, and reject a conflicting identifier. Export omits credentials, settings, and bulk source caches.
+- Mathematics and policy run in code. A model may draft only from supplied evidence. It cannot choose eligibility, invent a probability, or switch providers.
+
+## Release
+
+No market is released. The inspected historical holdout is development evidence and cannot satisfy protocol `prospective-2026-10-26`.
+
+Release requires that frozen protocol: 500 priced games for the market, Brier and log loss no worse than the no-vig close, and a slate-clustered 90% log-loss difference interval whose upper end is at most zero. Missing prospective evidence blocks release. A released market is not a profitability claim.
+
+A prospective forecast stays frozen. Later evaluation uses later observations. It does not regenerate the prediction from a newer schedule, starter list, artifact, or score.
+
+## Verification
+
+`npm run verify` is the application check: format, lint, types, unit tests, production build, and isolated browser acceptance. `TEST_DATABASE_URL=... npm run verify:database` is the storage check. It never reads `.env` and never falls back to `DATABASE_URL`.
+
+A workflow is verified only after the command that exercises it has passed. A helper test does not verify the page, and a browser fixture does not verify Neon. Tests assert saved records, returned failures, exports, and outgoing requests.
+
+Browser verification uses the production server, `POCKETCHECK_TEST_MODE=fixture-browser`, a memory journal, and no provider credentials. `/__verification` exists only in that mode. Database tests migrate a generated `it_` schema and drop only that schema.
+
+Give each worktree its own `node_modules`. A shared install shares SvelteKit's generated route types.
+
+## Boundaries
+
+Stay on the NFL pregame journal: moneyline, spread, and total. New sports, live betting, automatic bet placement, bankroll advice, and a multi-user deployment are out of scope.
+
+Parse provider, weather, artifact, evaluation, and backup payloads at the edge. A malformed payload becomes a visible gap or a rejection, and the saved attempt stays readable.
+
+`DATABASE_URL` is the user's Neon journal. `npm run db:migrate` is the only migration path, and it applies pending files in `migrations/` in order. Do not point a test, a reset, or a destructive query at that database.
