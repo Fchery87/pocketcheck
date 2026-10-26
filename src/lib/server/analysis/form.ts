@@ -1,3 +1,103 @@
+import { americanToDecimal, PriceError } from "#lib/domain/odds.ts";
+import {
+  offerEntryGuidance,
+  type Market,
+  type SideSelection,
+  type TieRule,
+} from "#lib/domain/offer.ts";
+
+export { offerEntryGuidance };
+
+export type RefreshParent = {
+  market: Market;
+  selection: SideSelection;
+  pointLine: number | null;
+  sportsbook: string;
+  americanOdds: number;
+  tieRule: TieRule | null;
+};
+
+export type RefreshFields = {
+  sportsbook: string;
+  pointLine: string;
+  americanOdds: string;
+  observedAt: string;
+  market: string;
+  selection: string;
+};
+
+export type RefreshContract = {
+  market: Market;
+  selection: SideSelection;
+  pointLine: number | undefined;
+  sportsbook: string;
+  americanOdds: number;
+  observedAt: string;
+  tieRule: TieRule | undefined;
+};
+
+export type RefreshParse =
+  | { ok: true; contract: RefreshContract; values: RefreshFields }
+  | { ok: false; error: string; values: RefreshFields };
+
+/**
+ * A refresh may change the line, book, price, and observation time.
+ * Market and selection stay the parent's. A different pair is separate research.
+ */
+export function parseRefreshContract(fields: RefreshFields, parent: RefreshParent): RefreshParse {
+  const values = { ...fields };
+  if (fields.market !== parent.market || fields.selection !== parent.selection) {
+    return {
+      ok: false,
+      values,
+      error:
+        "A different market or selection is separate research. Start a new analysis instead of refreshing this one.",
+    };
+  }
+  const guidance = offerEntryGuidance(parent.market);
+  if (!guidance.selections.includes(parent.selection)) {
+    return { ok: false, values, error: "The saved selection does not belong to this market." };
+  }
+  const sportsbook = fields.sportsbook.trim();
+  if (!sportsbook) return { ok: false, values, error: "Enter the sportsbook" };
+
+  let pointLine: number | undefined;
+  if (guidance.line) {
+    if (!fields.pointLine.trim()) {
+      return { ok: false, values, error: `A ${parent.market} requires a point line` };
+    }
+    pointLine = Number(fields.pointLine);
+    if (!Number.isFinite(pointLine)) {
+      return { ok: false, values, error: "The point line is not a number" };
+    }
+  }
+
+  const americanOdds = Number(fields.americanOdds);
+  try {
+    americanToDecimal(americanOdds);
+  } catch (error) {
+    const message = error instanceof PriceError ? error.message : "Enter a valid American price";
+    return { ok: false, values, error: message };
+  }
+
+  const observedAt = parseObservedAt(fields.observedAt);
+  if (!observedAt) return { ok: false, values, error: "Enter when you observed the new price" };
+
+  return {
+    ok: true,
+    values,
+    contract: {
+      market: parent.market,
+      selection: parent.selection,
+      pointLine,
+      sportsbook,
+      americanOdds,
+      observedAt,
+      tieRule: parent.market === "moneyline" ? (parent.tieRule ?? undefined) : undefined,
+    },
+  };
+}
+
 const LOCAL_INPUT = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/;
 
 /**

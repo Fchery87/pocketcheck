@@ -39,6 +39,17 @@ test("offer, report, refresh, and unchanged prior report", async ({ page, reques
   await expect(page.getByTestId("venue")).toHaveText("Lincoln Financial Field");
 
   await page.getByLabel("Sportsbook").fill("Example Book");
+  await page.getByTestId("market").selectOption("spread");
+  await expect(page.getByTestId("selection").locator("option")).toHaveText(["home", "away"]);
+  await expect(page.getByTestId("line-guidance")).toContainText("side you selected");
+  await expect(page.getByTestId("tie-rule")).toHaveCount(0);
+  await page.getByTestId("market").selectOption("total");
+  await expect(page.getByTestId("selection").locator("option")).toHaveText(["over", "under"]);
+  await expect(page.getByTestId("line-guidance")).toContainText("44.5");
+  await page.getByTestId("market").selectOption("moneyline");
+  await expect(page.getByTestId("selection").locator("option")).toHaveText(["home", "away"]);
+  await expect(page.getByTestId("point-line")).toHaveCount(0);
+  await expect(page.getByTestId("tie-guidance")).toContainText("tie rule");
   // A lean that names a team must not break the run.
   await page.getByTestId("lean").fill("PHI");
   await page.getByTestId("rationale").fill("private rationale sentinel");
@@ -150,7 +161,9 @@ test("offer, report, refresh, and unchanged prior report", async ({ page, reques
   await page.unroute("**/*");
   await expect(page.getByTestId("price")).toContainText("-105");
   await expect(page.getByTestId("observed-at-display")).toContainText("11:50");
-  // The refresh keeps the evidence the user entered.
+  await expect(page.getByTestId("offer-contract")).toContainText("moneyline");
+  await expect(page.getByTestId("offer-contract")).toContainText("home");
+  await expect(page.getByTestId("parent-link")).toHaveAttribute("href", new URL(firstUrl).pathname);
   await expect(page.getByTestId("all-evidence")).toContainText(
     "Beat reporter: Barkley practiced fully Friday.",
   );
@@ -161,6 +174,8 @@ test("offer, report, refresh, and unchanged prior report", async ({ page, reques
   await expect(page.locator("main > p").first()).toContainText("Lincoln Financial Field");
   await expect(page.getByTestId("price")).toContainText("-110");
   await expect(page.getByTestId("observed-at-display")).toContainText("11:30");
+  await expect(page.getByTestId("offer-contract")).toContainText("Example Book");
+  await expect(page.getByTestId("offer-contract")).not.toContainText("-105");
 
   await page.goto("/journal");
   await expect(page.getByTestId("assessments").locator("li")).toHaveCount(2);
@@ -178,6 +193,42 @@ test("offer, report, refresh, and unchanged prior report", async ({ page, reques
   await page.goto("/handbook");
   await expect(page.getByTestId("decimal-example")).toHaveText("1.9090909");
   await expect(page.getByTestId("breakeven-example")).toHaveText("52.38095%");
+});
+
+test("a spread refresh changes the line and leaves the parent contract", async ({ page }) => {
+  await page.goto("/");
+  await page.waitForLoadState("networkidle");
+  await page.getByTestId("game-id").selectOption("2026_07_DAL_PHI");
+  await page.getByLabel("Sportsbook").fill("Example Book");
+  await page.getByTestId("market").selectOption("spread");
+  await page.getByTestId("selection").selectOption("home");
+  await page.getByTestId("point-line").fill("-3.5");
+  await page.getByTestId("american-odds").fill("-110");
+  await page.getByTestId("observed-at").fill("2026-10-25T11:30");
+  await page.getByTestId("analyze").click();
+  await expect(page.getByTestId("offer-contract")).toContainText("spread");
+  await expect(page.getByTestId("offer-contract")).toContainText("home");
+  await expect(page.getByTestId("offer-contract")).toContainText("-3.5");
+  const parentUrl = page.url();
+
+  await page.getByTestId("refresh-book").fill("Moved Book");
+  await page.getByTestId("refresh-line").fill("-2.5");
+  await page.getByTestId("refresh-odds").fill("-105");
+  await page.getByTestId("refresh-observed-at").fill("2026-10-25T11:50");
+  await page.getByTestId("refresh").click();
+  await expect(page).not.toHaveURL(parentUrl);
+  await expect(page.getByTestId("offer-contract")).toContainText("Moved Book");
+  await expect(page.getByTestId("offer-contract")).toContainText("spread, home");
+  await expect(page.getByTestId("offer-contract")).toContainText("-2.5");
+  await expect(page.getByTestId("price")).toContainText("-105");
+  await expect(page.getByTestId("parent-link")).toHaveAttribute("href", new URL(parentUrl).pathname);
+
+  await page.getByTestId("parent-link").click();
+  await expect(page).toHaveURL(parentUrl);
+  await expect(page.getByTestId("offer-contract")).toContainText("Example Book");
+  await expect(page.getByTestId("offer-contract")).toContainText("-3.5");
+  await expect(page.getByTestId("offer-contract")).not.toContainText("-2.5");
+  await expect(page.getByTestId("price")).toContainText("-110");
 });
 
 test("a researched spread of -3 keeps its terms when the placed bet is -3.5", async ({ page }) => {

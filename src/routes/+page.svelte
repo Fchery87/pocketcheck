@@ -1,11 +1,19 @@
 <script lang="ts">
   import type { PageProps } from "./$types";
 
+  import { offerEntryGuidance, type Market } from "#lib/domain/offer.ts";
+
   let { data, form }: PageProps = $props();
   let selectedId = $derived(form?.values?.gameId || data.games[0]?.id || "");
   const selected = $derived(data.games.find((game) => game.id === selectedId) ?? data.games[0]);
   const value = (name: string, fallback = "") =>
     (form?.values as Record<string, string> | undefined)?.[name] ?? fallback;
+  let market = $state<Market>("moneyline");
+  $effect(() => {
+    const entered = value("market", "moneyline");
+    if (entered === "moneyline" || entered === "spread" || entered === "total") market = entered;
+  });
+  const guidance = $derived(offerEntryGuidance(market));
   const blankRow = () => ({ text: "", url: "", time: "", covers: "", team: "" });
   let manualRows = $derived(form?.manual?.length ? form.manual : [blankRow()]);
 </script>
@@ -70,25 +78,30 @@
     </label>
     <label>
       Market
-      <select name="market" value={value("market", "moneyline")}>
+      <select name="market" data-testid="market" bind:value={market}>
         <option value="moneyline">moneyline</option>
         <option value="spread">spread</option>
         <option value="total">total</option>
       </select>
     </label>
+    <p data-testid="market-guidance">{guidance.explanation}</p>
     <label>
       Selection
-      <select name="selection" value={value("selection", "home")}>
-        <option value="home">home</option>
-        <option value="away">away</option>
-        <option value="over">over</option>
-        <option value="under">under</option>
+      <select name="selection" data-testid="selection" value={value("selection", guidance.selections[0])}>
+        {#each guidance.selections as option (option)}
+          <option value={option}>{option}</option>
+        {/each}
       </select>
     </label>
-    <label>
-      Line (selected side, spread or total only)
-      <input name="pointLine" value={value("pointLine")} inputmode="decimal" />
-    </label>
+    {#if guidance.line}
+      <label>
+        {market === "spread" ? "Selected-side line" : "Total line"}
+        <input name="pointLine" data-testid="point-line" value={value("pointLine")} inputmode="decimal" required />
+      </label>
+      <p data-testid="line-guidance">{guidance.line}</p>
+    {:else}
+      <input type="hidden" name="pointLine" value="" />
+    {/if}
     <label>
       American odds
       <input name="americanOdds" value={value("americanOdds", "-110")} required data-testid="american-odds" />
@@ -103,15 +116,20 @@
         data-testid="observed-at"
       />
     </label>
-    <label>
-      Moneyline tie rule
-      <select name="tieRule" value={value("tieRule", "push")}>
-        <option value="push">push</option>
-        <option value="loss">loss</option>
-        <option value="win">win</option>
-        <option value="void">void</option>
-      </select>
-    </label>
+    {#if guidance.tieRule}
+      <label>
+        Moneyline tie rule
+        <select name="tieRule" data-testid="tie-rule" value={value("tieRule", "push")}>
+          <option value="push">push</option>
+          <option value="loss">loss</option>
+          <option value="win">win</option>
+          <option value="void">void</option>
+        </select>
+      </label>
+      <p data-testid="tie-guidance">{guidance.tieRule}</p>
+    {:else}
+      <input type="hidden" name="tieRule" value="" />
+    {/if}
     <fieldset data-testid="manual-evidence">
       <legend>Your evidence (optional)</legend>
       <p>

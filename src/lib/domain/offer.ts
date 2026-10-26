@@ -48,6 +48,42 @@ export type Offer = {
   opposing: OpposingPrice | null;
 };
 
+export type OfferEntryGuidance = {
+  selections: readonly SideSelection[];
+  /** Null when this market has no point line. */
+  line: string | null;
+  /** Null when this market has no tie rule. */
+  tieRule: string | null;
+  explanation: string;
+};
+
+const GUIDANCE: Record<Market, OfferEntryGuidance> = {
+  moneyline: {
+    selections: ["home", "away"],
+    line: null,
+    tieRule: "A moneyline needs a tie rule: push, loss, win, or void.",
+    explanation:
+      "Home and away are the two sides. A tie is not a win or a loss until the tie rule says so.",
+  },
+  spread: {
+    selections: ["home", "away"],
+    line: "Enter the line for the side you selected. Home −3.5 is the home side. The other side is +3.5, not the same number.",
+    tieRule: null,
+    explanation:
+      "A positive line means that side is getting points. A negative line means that side is giving points.",
+  },
+  total: {
+    selections: ["over", "under"],
+    line: "Enter the total. Over 44.5 and under 44.5 share that number.",
+    tieRule: null,
+    explanation: "Over wins when the combined score is above the line. Under wins when it is below.",
+  },
+};
+
+export function offerEntryGuidance(market: Market): OfferEntryGuidance {
+  return GUIDANCE[market];
+}
+
 export class OfferError extends Error {
   constructor(message: string) {
     super(message);

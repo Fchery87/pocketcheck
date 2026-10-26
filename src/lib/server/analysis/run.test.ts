@@ -208,6 +208,58 @@ describe("research run evidence", () => {
     expect(outcome.run?.gaps.join(" ")).toMatch(/disagree on availability:PHI:Saquon Barkley/);
   });
 
+  it("saves a changed spread line on the child and leaves the parent contract", async () => {
+    const store = createMemoryStore();
+    const parent = (
+      await runAnalysis(
+        request({ market: "spread", selection: "home", pointLine: -3.5, tieRule: undefined }),
+        { store },
+      )
+    ).run!;
+    const child = await runAnalysis(
+      request({
+        market: "spread",
+        selection: "home",
+        pointLine: -2.5,
+        sportsbook: "Moved Book",
+        americanOdds: -105,
+        observedAt: "2026-10-25T15:50:00.000Z",
+        tieRule: undefined,
+        parentId: parent.id,
+        requestId: "refresh-line-1",
+      }),
+      { store },
+    );
+    expect(child.ok).toBe(true);
+    const savedChild = await store.getRun(child.run!.id);
+    const savedParent = await store.getRun(parent.id);
+    expect(savedChild?.offer).toMatchObject({
+      market: "spread",
+      selection: "home",
+      pointLine: -2.5,
+      sportsbook: "Moved Book",
+      americanOdds: -105,
+      observedAt: "2026-10-25T15:50:00.000Z",
+    });
+    expect(savedChild?.parentId).toBe(parent.id);
+    expect(savedChild?.request.id).toBe("refresh-line-1");
+    expect(savedParent).toEqual(parent);
+    expect(savedParent?.offer.pointLine).toBe(-3.5);
+  });
+
+  it("refuses an invalid refreshed line before drafting", async () => {
+    const drafter = capturingDrafter();
+    const outcome = await runAnalysis(
+      request({ market: "spread", selection: "home", pointLine: undefined, tieRule: undefined }),
+      { store: createMemoryStore(), drafter },
+    );
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.error).toMatch(/point line/i);
+    expect(outcome.run).toBeUndefined();
+    expect(drafter.packets).toHaveLength(0);
+  });
+
   it("carries earlier manual evidence into a refresh", async () => {
     const outcome = await runAnalysis(
       request({
