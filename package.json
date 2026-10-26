@@ -13,7 +13,7 @@
     "preview": "vp preview",
     "prepare": "svelte-kit sync || echo ''",
     "check": "vp check && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "test": "vp test run --exclude 'tests/integration/**'",
+    "test": "node --experimental-strip-types scripts/unit-test.ts",
     "test:integration": "vp test run tests/integration",
     "db:migrate": "node scripts/migrate.mjs",
     "data:import": "node --experimental-strip-types scripts/data/import.ts",
@@ -22,7 +22,9 @@
     "model:fit": "node --experimental-strip-types scripts/model/fit.ts",
     "model:evaluate": "node --experimental-strip-types scripts/model/evaluate.ts",
     "model:release": "node --experimental-strip-types scripts/model/release.ts",
-    "test:e2e": "playwright test"
+    "test:e2e": "node --experimental-strip-types scripts/browser-test.ts",
+    "verify": "node --experimental-strip-types scripts/verify.ts",
+    "verify:database": "node --experimental-strip-types scripts/verify.ts --database"
   },
   "dependencies": {
     "postgres": "^3.4.9"

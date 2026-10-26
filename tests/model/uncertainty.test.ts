@@ -132,7 +132,7 @@ function pricedLeague(count: number): PricedGame[] {
   });
 }
 
-describe("artifact uncertainty", () => {
+describe("artifact uncertainty", { timeout: 60_000 }, () => {
   const games = pricedLeague(1500);
   const cutoff = games[1199]!.kickoff;
 

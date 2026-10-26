@@ -51,14 +51,11 @@ npm run dev
 
 The app needs `DATABASE_URL`. It shows an error rather than silently keeping the journal in memory. Re-run `npm run data:schedule` to pick up schedule changes; each download records its retrieval time in a `.json` file beside it. Injury reports change Wednesday through game day; a report flags an injury file more than a day old. Weather is fetched from api.weather.gov at analysis time; set `NWS_USER_AGENT` to identify yourself with an email, as NWS asks. International venues have no NWS forecast and show that as a gap.
 
-Checks:
+Verification uses the same entry points locally and in CI. See [Verify a change](docs/testing.md) for isolation checks and database setup.
 
 ```sh
-npm run check             # format, lint, and Svelte/type checks
-npm test                  # unit tests, no database or network
-npm run test:integration  # throwaway schemas in TEST_DATABASE_URL, or DATABASE_URL
-npm run test:e2e          # browser suite: fixture schedule, memory journal, fixed clock
-npm run build
+npm run verify            # format, lint, types, unit tests, production build, browser acceptance
+TEST_DATABASE_URL=... npm run verify:database  # disposable storage only, all migrations and contracts
 ```
 
 Node production server:

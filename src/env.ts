@@ -4,6 +4,14 @@ const optional = (value: string | undefined) => (value === "" ? undefined : valu
 
 // Server-only. Read through $app/env/private in src/lib/server/config.ts.
 export const variables = defineEnvVars({
+  POCKETCHECK_TEST_MODE: {
+    schema: optional,
+    description: "fixture-browser enables strict offline acceptance verification.",
+  },
+  POCKETCHECK_TEST_JOURNAL_ID: {
+    schema: optional,
+    description: "Unique disposable memory journal identity for browser verification.",
+  },
   DATABASE_URL: {
     schema: optional,
     description: "Neon connection string for the research journal.",
