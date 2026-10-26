@@ -8,6 +8,7 @@ import { pricedGamesFromNflverseCsv, upcomingGameFromCsv } from "../models/histo
 import { offerProbabilities } from "../models/offer-probability.ts";
 import { predictGame } from "../models/predict.ts";
 import type { ScheduledGame } from "../sources/contracts.ts";
+import { conservativeProbabilities, type UncertaintyAssessment } from "../models/uncertainty.ts";
 
 /**
  * What a run froze about the model. Probabilities are recorded even when the market is not
@@ -26,6 +27,7 @@ export type RunModel =
         releasedMarkets: Market[];
       };
       probabilities: OutcomeProbabilities;
+      uncertainty: UncertaintyAssessment;
       eligible: boolean;
       reason: string;
     };
@@ -88,6 +90,7 @@ export function createArtifactModel(input: {
     };
     const row = featureRowForGame(history, upcoming, artifact.featureParameters);
     const probabilities = offerProbabilities(predictGame(artifact, row), offer);
+    const uncertainty = conservativeProbabilities(artifact.uncertainty, offer.market, probabilities);
     const eligibility = valueEligibility(artifact, offer.market);
     return {
       status: "computed",
@@ -99,6 +102,7 @@ export function createArtifactModel(input: {
         releasedMarkets: artifact.releasedMarkets,
       },
       probabilities,
+      uncertainty,
       eligible: eligibility.eligible,
       reason: eligibility.reason,
     };
@@ -110,9 +114,14 @@ export type DisplayedModel =
   | Extract<RunModel, { status: "unavailable" }>
   | (Omit<Extract<RunModel, { status: "computed" }>, "probabilities"> & {
       probabilities: OutcomeProbabilities | null;
+      uncertainty: UncertaintyAssessment;
     });
 
 export function forDisplay(model: RunModel | null): DisplayedModel | null {
   if (model === null || model.status === "unavailable" || model.eligible) return model;
-  return { ...model, probabilities: null };
+  return {
+    ...model,
+    probabilities: null,
+    uncertainty: { available: false, reason: "Not shown: the market is not eligible." },
+  };
 }

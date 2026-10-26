@@ -154,6 +154,8 @@ describe("the model a run uses", () => {
     });
     expect(result.eligible).toBe(false);
     expect(result.reason).toMatch(/Unreleased/);
+    expect(result.uncertainty).toMatchObject({ available: false });
+    expect(!result.uncertainty.available && result.uncertainty.reason).toMatch(/fewer than 60/);
   });
 
   it("is eligible only for a released market", async () => {
@@ -253,14 +255,25 @@ describe("what the report page receives", () => {
       releasedMarkets: [],
     },
     probabilities: { win: 0.406, loss: 0.511, push: 0.083 },
+    uncertainty: {
+      available: true as const,
+      confidence: 0.9,
+      probabilities: { win: 0.39, loss: 0.527, push: 0.083 },
+    },
     eligible: false,
     reason: "Unreleased artifacts are not eligible for a value recommendation.",
   };
 
   it("leaves out an ineligible model's probabilities", () => {
     const shown = forDisplay(recorded);
-    expect(shown).toEqual({ ...recorded, probabilities: null });
-    expect(JSON.stringify(shown)).not.toContain("0.406");
+    expect(shown).toEqual({
+      ...recorded,
+      probabilities: null,
+      uncertainty: { available: false, reason: "Not shown: the market is not eligible." },
+    });
+    const serialized = JSON.stringify(shown);
+    expect(serialized).not.toContain("0.406");
+    expect(serialized).not.toContain("0.39");
   });
 
   it("keeps an eligible model's probabilities and passes other states through", () => {

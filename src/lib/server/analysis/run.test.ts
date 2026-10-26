@@ -233,6 +233,7 @@ describe("research run model", () => {
         releasedMarkets: eligible ? ["moneyline"] : [],
       },
       probabilities,
+      uncertainty: { available: false, reason: "test" },
       eligible,
       reason: eligible ? "Released for moneyline." : "Unreleased artifacts are not eligible.",
     });

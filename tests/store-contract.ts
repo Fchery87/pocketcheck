@@ -65,6 +65,7 @@ const unreleasedModel: ModelSource = async () => ({
     releasedMarkets: [],
   },
   probabilities: { win: 0.55, loss: 0.43, push: 0.02 },
+  uncertainty: { available: false, reason: "test" },
   eligible: false,
   reason: "Unreleased artifacts are not eligible for a value recommendation.",
 });
