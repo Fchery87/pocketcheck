@@ -34,7 +34,7 @@ CI's separate `database` job provisions a PostgreSQL 16 service with a disposabl
 
 ## Journal backup
 
-The journal page downloads `/journal/export` as `pocketcheck-journal-v1.json`. Format version is `1`.
+The journal page downloads `/journal/export` as `pocketcheck-journal-v1.json`. Format version is `1`. Version 1 is the only backup restore accepts.
 
 The file contains games, offers, evidence used by analyses, analysis identifiers, original timestamps, parent links, immutable snapshots, gaps, manual coverage, and policy results. It also contains actual-bet contracts and stakes, primary classifications, closing observations, settlement and correction history, frozen forecasts, and provider attempt accounting. Failed, interrupted, and ambiguous attempts stay in the file with their durable responses.
 
@@ -42,7 +42,11 @@ Legacy records keep their saved provenance limits. Export does not fill in facts
 
 The file does not contain provider credentials, credential-bearing request headers, application settings, bulk source caches, or model training datasets. Forecast identity and the recorded inputs needed to recover a forecast stay in the snapshot.
 
-Ticket 16 validates and applies a restore. This download does not write.
+Restore checks the version, record shapes, identifiers, relationships, snapshots, and event histories before it writes. A valid file is applied atomically. Restoring the same file again keeps one copy of each identical record. A malformed record, a missing relationship, an unsupported version, or a conflicting identifier is rejected and leaves the destination unchanged. Conflicting identifiers are not replaced.
+
+A restored pending or ambiguous attempt stays readable. Restore does not call a source or a provider and does not replay that work.
+
+Reachable recovery is the journal page form, which posts a version 1 file to `?/restore`. The download itself does not write.
 
 ## Keep live experiments separate
 

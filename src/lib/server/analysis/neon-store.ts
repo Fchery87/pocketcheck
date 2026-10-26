@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { Sql } from "postgres";
 import { americanToDecimal } from "#lib/domain/odds.ts";
 import { parseOffer } from "#lib/domain/offer.ts";
@@ -258,6 +258,12 @@ export function createNeonStore(sql: Sql): ResearchStore {
         },
         "archived-untimestamped",
       );
+    },
+    async exportJournal() {
+      return journal.exportJournal();
+    },
+    async restoreJournal(backup) {
+      return journal.restoreJournal(backup);
     },
   };
 }

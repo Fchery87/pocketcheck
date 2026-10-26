@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
-import { JournalRepository } from "../../src/lib/server/db/repository.ts";
+import {
+  JournalRepository,
+  type JournalExport,
+} from "../../src/lib/server/db/repository.ts";
 import { isolatedDb } from "./isolated-db.ts";
 
 /** Export queries carry no order, so compare each table sorted by id. */
@@ -437,6 +440,217 @@ describe("immutable journal", () => {
       } finally {
         await target.drop();
       }
+    } finally {
+      await isolated.drop();
+    }
+  }, 120_000);
+});
+
+function emptyBackup(): JournalExport {
+  return {
+    version: 1,
+    games: [],
+    offers: [],
+    evidence: [],
+    analyses: [],
+    reports: [],
+    userResearch: [],
+    bets: [],
+    settlements: [],
+    closings: [],
+  };
+}
+
+describe("journal restore", () => {
+  it("rejects an unsupported version before writing any row", async () => {
+    const isolated = await isolatedDb();
+    const journal = new JournalRepository(isolated.db);
+    const gameId = "11111111-1111-4111-8111-111111111111";
+    const damaged = {
+      ...emptyBackup(),
+      version: 2 as never,
+      games: [
+        {
+          id: gameId,
+          sourceGameId: "rejected-version",
+          season: 2026,
+          week: 9,
+          awayTeam: "BUF",
+          homeTeam: "KC",
+          kickoffAt: "2026-11-08T21:20:00.000Z",
+          venue: null,
+          status: "scheduled",
+        },
+      ],
+    };
+    try {
+      await expect(journal.restoreJournal(damaged)).rejects.toThrow(/version/i);
+      const games = await isolated.db<{ count: number }[]>`
+        SELECT count(*)::int AS count FROM games
+      `;
+      expect(games[0]?.count).toBe(0);
+    } finally {
+      await isolated.drop();
+    }
+  }, 120_000);
+
+  it("rejects a missing parent before writing the child analysis", async () => {
+    const isolated = await isolatedDb();
+    const journal = new JournalRepository(isolated.db);
+    const gameId = "22222222-2222-4222-8222-222222222222";
+    const offerId = "33333333-3333-4333-8333-333333333333";
+    const analysisId = "44444444-4444-4444-8444-444444444444";
+    const missingParent = "55555555-5555-4555-8555-555555555555";
+    const damaged: JournalExport = {
+      ...emptyBackup(),
+      games: [
+        {
+          id: gameId,
+          sourceGameId: "missing-parent",
+          season: 2026,
+          week: 9,
+          awayTeam: "BUF",
+          homeTeam: "KC",
+          kickoffAt: "2026-11-08T21:20:00.000Z",
+          venue: null,
+          status: "scheduled",
+        },
+      ],
+      offers: [
+        {
+          id: offerId,
+          gameId,
+          sportsbook: "ExampleBook",
+          market: "spread",
+          selection: "home",
+          pointLine: -2.5,
+          americanOdds: -110,
+          decimalOdds: 1.91,
+          observedAt: "2026-11-07T18:00:00.000Z",
+          enteredAt: "2026-11-07T18:05:00.000Z",
+          kickoffAt: "2026-11-08T21:20:00.000Z",
+          rules: { period: "full-game", overtime: "included", tie: null },
+          opposing: null,
+          completedAt: "2026-11-07T18:05:00.000Z",
+        },
+      ],
+      analyses: [
+        {
+          id: analysisId,
+          offerId,
+          parentId: missingParent,
+          snapshot: {
+            version: 1,
+            provenance: "captured",
+            game: {
+              id: gameId,
+              sourceGameId: "missing-parent",
+              season: 2026,
+              week: 9,
+              awayTeam: "BUF",
+              homeTeam: "KC",
+              kickoffAt: "2026-11-08T21:20:00.000Z",
+              venue: null,
+              status: "scheduled",
+            },
+            offer: {
+              id: offerId,
+              gameId,
+              sportsbook: "ExampleBook",
+              market: "spread",
+              selection: "home",
+              pointLine: -2.5,
+              americanOdds: -110,
+              decimalOdds: 1.91,
+              observedAt: "2026-11-07T18:00:00.000Z",
+              enteredAt: "2026-11-07T18:05:00.000Z",
+              kickoffAt: "2026-11-08T21:20:00.000Z",
+              rules: { period: "full-game", overtime: "included", tie: null },
+              opposing: null,
+              completedAt: "2026-11-07T18:05:00.000Z",
+            },
+          },
+          cutoffAt: "2026-11-07T18:05:00.000Z",
+          status: "pending",
+          conclusion: null,
+          methodVersion: null,
+          policyVersion: null,
+          schemaVersion: null,
+          promptVersion: null,
+          evidencePacketHash: null,
+          provider: null,
+          model: null,
+          failureReason: null,
+          idempotencyKey: "pending-restore",
+          completedAt: null,
+          createdAt: "2026-11-07T18:05:00.000Z",
+          policy: null,
+          stages: null,
+          gaps: null,
+          usage: null,
+          probabilityModel: null,
+          evidenceIds: [],
+          assessmentRole: null,
+          assessmentRoleReason: null,
+          primaryAnalysisId: null,
+        },
+      ],
+    };
+    try {
+      await expect(journal.restoreJournal(damaged)).rejects.toThrow(/parent|relationship/i);
+      const counts = await isolated.db<{ games: number; analyses: number }[]>`
+        SELECT (SELECT count(*)::int FROM games) AS games,
+               (SELECT count(*)::int FROM analyses) AS analyses
+      `;
+      expect(counts[0]).toEqual({ games: 0, analyses: 0 });
+    } finally {
+      await isolated.drop();
+    }
+  }, 120_000);
+
+  it("rejects a conflicting identifier without replacing saved history", async () => {
+    const isolated = await isolatedDb();
+    const journal = new JournalRepository(isolated.db);
+    const stamp = `conflict-${Date.now()}`;
+    try {
+      const saved = await journal.saveCompletedAnalysis({
+        game: {
+          sourceGameId: stamp,
+          season: 2026,
+          week: 9,
+          awayTeam: "BUF",
+          homeTeam: "KC",
+          kickoffAt: "2026-11-08T21:20:00.000Z",
+          venue: "Arrowhead",
+          status: "scheduled",
+        },
+        offer: {
+          gameId: "pending",
+          sportsbook: "ExampleBook",
+          market: "spread",
+          selection: "home",
+          pointLine: -2.5,
+          americanOdds: -110,
+          observedAt: "2026-11-07T18:00:00.000Z",
+          enteredAt: "2026-11-07T18:05:00.000Z",
+          kickoffAt: "2026-11-08T21:20:00.000Z",
+          rules: { period: "full-game", overtime: "included", tie: null },
+          opposing: null,
+        },
+        evidence: [],
+        analysis: {
+          cutoffAt: "2026-11-07T18:05:00.000Z",
+          status: "completed",
+          conclusion: "pass",
+          idempotencyKey: stamp,
+        },
+      });
+      const original = await journal.exportJournal([saved.analysis.id]);
+      const conflicting = structuredClone(original);
+      conflicting.analyses[0]!.conclusion = "bet";
+      await expect(journal.restoreJournal(conflicting)).rejects.toThrow(/conflict/i);
+      const reread = await journal.exportJournal([saved.analysis.id]);
+      expect(sortedById(reread)).toEqual(sortedById(original));
     } finally {
       await isolated.drop();
     }

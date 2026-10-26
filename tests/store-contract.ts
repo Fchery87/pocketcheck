@@ -1298,5 +1298,129 @@ export function describeStoreContract(
         }),
       ).rejects.toThrow(/not found/i);
     });
+
+    it("recovers a researched journey through export and restore without replaying it", async () => {
+      const store = await makeStore();
+      const parent = await runAnalysis(
+        ask({ market: "spread", selection: "home", pointLine: -3, americanOdds: -110 }),
+        { store, drafter: createFixtureDrafter() },
+      );
+      expect(parent.ok).toBe(true);
+      if (!parent.run) throw new Error("expected the original analysis");
+      const refresh = await runAnalysis(
+        ask({
+          requestId: `${scopeOf()}:changed-line`,
+          market: "spread",
+          selection: "home",
+          pointLine: -2.5,
+          americanOdds: -105,
+          observedAt: "2026-10-25T15:50:00.000Z",
+          parentId: parent.run.id,
+        }),
+        { store, drafter: createFixtureDrafter() },
+      );
+      expect(refresh.run?.parentId).toBe(parent.run.id);
+      expect(refresh.run?.offer.pointLine).toBe(-2.5);
+      const placed = await store.recordBet({
+        analysisId: parent.run.id,
+        submissionId: submission("placed-different-line"),
+        sportsbook: "Placed Book",
+        market: "spread",
+        selection: "home",
+        pointLine: -3.5,
+        americanOdds: -108,
+        stakeUnits: 1.5,
+        placedAt: "2026-10-25T15:40:00.000Z",
+        rules: { period: "full-game", overtime: "included" },
+      });
+      expect(placed.kind).toBe("created");
+      if (placed.kind !== "created") throw new Error("expected a recorded bet");
+      const first = await store.recordSettlement({
+        eventId: submission("journey-final"),
+        analysisId: parent.run.id,
+        betId: placed.bet.id,
+        kind: "final",
+        homeScore: 24,
+        awayScore: 20,
+        recordedAt: "2026-10-27T03:00:00.000Z",
+        source: "official",
+      });
+      expect(first.kind).toBe("recorded");
+      if (first.kind !== "recorded") throw new Error("expected a settlement");
+      const corrected = await store.recordSettlement({
+        eventId: submission("journey-correction"),
+        analysisId: parent.run.id,
+        betId: placed.bet.id,
+        kind: "final",
+        homeScore: 23,
+        awayScore: 20,
+        recordedAt: "2026-10-27T16:00:00.000Z",
+        source: "official-correction",
+        reason: "official score correction",
+        correctsNoticeId: first.noticeId,
+      });
+      expect(corrected.kind).toBe("recorded");
+      const closing = await store.recordClosing({
+        subject: { kind: "bet", id: placed.bet.id },
+        sportsbook: "Placed Book",
+        market: "spread",
+        selection: "home",
+        pointLine: -3.5,
+        americanOdds: -112,
+        observedAt: "2026-10-25T20:00:00.000Z",
+        source: "closing board",
+        rules: { period: "full-game", overtime: "included" },
+      });
+      const backup = await store.exportJournal();
+      const empty = await makeStore();
+      await empty.restoreJournal(backup);
+      const again = await empty.restoreJournal(backup);
+      expect(again).toEqual(await empty.exportJournal());
+      const recovered = await empty.getRun(parent.run.id);
+      if (recovered) {
+        expect(recovered.createdAt).toBe(parent.run.createdAt);
+        expect(recovered.offer.pointLine).toBe(-3);
+        expect(recovered.assessmentRole).toEqual(parent.run.assessmentRole);
+      } else {
+        expect(JSON.stringify(await empty.exportJournal())).toContain(parent.run.id);
+      }
+      const bets = await empty.listBets();
+      expect(bets.map((bet) => bet.pointLine)).toContain(-3.5);
+      const closings = await empty.listClosings();
+      expect(closings.map((row) => row.id)).toContain(closing.closing.id);
+      const grade = await empty.readSettlement({
+        analysisId: parent.run.id,
+        betId: placed.bet.id,
+      });
+      expect(grade.assessment.history.map((row) => row.id)).toContain(first.noticeId);
+      expect(grade.assessment.history.some((row) => row.reason === "official score correction")).toBe(
+        true,
+      );
+    });
+
+    it("restores an identical backup once and leaves a bad version unread", async () => {
+      const store = await makeStore();
+      const outcome = await runAnalysis(ask({ requestId: `${scopeOf()}:restore-source` }), {
+        store,
+        drafter: createFixtureDrafter(),
+      });
+      expect(outcome.ok, outcome.ok ? "" : outcome.error).toBe(true);
+      if (!outcome.run) throw new Error("expected a saved analysis");
+      const backup = await store.exportJournal();
+      const empty = await makeStore();
+      const restored = await empty.restoreJournal(backup);
+      const again = await empty.restoreJournal(backup);
+      expect(again).toEqual(restored);
+      const reread = await empty.exportJournal();
+      const originalIds = JSON.stringify(backup).includes(outcome.run.id);
+      expect(originalIds).toBe(true);
+      expect(JSON.stringify(reread)).toContain(outcome.run.id);
+      expect(JSON.stringify(reread)).toContain(outcome.run.createdAt);
+      const before = await empty.listCompleted();
+      await expect(
+        empty.restoreJournal({ ...backup, version: 2 as never }),
+      ).rejects.toThrow(/version/i);
+      expect(await empty.listCompleted()).toEqual(before);
+    });
   });
 }
