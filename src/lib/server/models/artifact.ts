@@ -15,7 +15,7 @@ export type ModelArtifact = {
   releasedMarkets: Market[];
   datasetHash: string;
   trainingCutoff: string;
-  chronology?: typeof CHRONOLOGY;
+  chronology: typeof CHRONOLOGY;
   featureDefinitions: typeof FEATURE_DEFINITIONS;
   featureParameters: FeatureParameters;
   /** walk-forward when the training window is large enough, otherwise in-sample. */

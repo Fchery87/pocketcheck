@@ -1,6 +1,7 @@
 import { artifactChecksum, type ModelArtifact } from "./artifact.ts";
 import type { EvaluationReport } from "./evaluate.ts";
 import { FEATURE_DEFINITIONS } from "./features.ts";
+import { CHRONOLOGY } from "./games.ts";
 import { UNCERTAINTY_OPTIONS } from "./uncertainty.ts";
 
 const MARKETS = ["moneyline", "spread", "total"] as const;
@@ -142,21 +143,13 @@ function isModelArtifact(value: unknown): value is ModelArtifact {
   hash(artifact.checksum, "artifact.checksum");
   hash(artifact.datasetHash, "artifact.datasetHash");
   timestamp(artifact.trainingCutoff, "artifact.trainingCutoff");
-  if (artifact.chronology !== undefined) {
-    const chronology = record(artifact.chronology, "artifact.chronology");
-    const supported = {
-      version: "result-availability-v1",
-      fallback: "kickoff-plus-24-hours",
-      cutoff: "strictly-before",
-      kickoffGroups: "intact",
-    };
-    for (const [field, expected] of Object.entries(supported)) {
-      requireValue(
-        chronology[field] === expected,
-        `artifact.chronology.${field}`,
-        "unsupported chronology policy",
-      );
-    }
+  const chronology = record(artifact.chronology, "artifact.chronology");
+  for (const [field, expected] of Object.entries(CHRONOLOGY)) {
+    requireValue(
+      chronology[field] === expected,
+      `artifact.chronology.${field}`,
+      "unsupported chronology policy",
+    );
   }
   const released = array(artifact.releasedMarkets, "artifact.releasedMarkets");
   requireValue(

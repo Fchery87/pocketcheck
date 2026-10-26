@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, describe, expect, it } from "vite-plus/test";
+import { parseArtifact } from "../../src/lib/server/models/inputs.ts";
 import { fitArtifact, readGames } from "../../src/lib/server/models/train.ts";
 
 const directory = mkdtempSync(join(tmpdir(), "pocketcheck-inputs-"));
@@ -185,6 +186,24 @@ describe("public release input boundary", () => {
     const result = release({ ...value, summary });
     expect(result.status, result.stderr).toBe(1);
     expect(existsSync(result.output)).toBe(false);
+  });
+
+  it("rejects checksum-valid artifacts with missing chronology at parsing", () => {
+    const { chronology: _chronology, checksum: _checksum, ...body } = artifact;
+    expect(() => parseArtifact(signed(body))).toThrow(/chronology/);
+  });
+
+  it("rejects checksum-valid artifacts with missing chronology at public release", () => {
+    const { chronology: _chronology, checksum: _checksum, ...body } = artifact;
+    const malformed = signed(body);
+    const result = release(
+      { ...report(), artifactChecksum: malformed.checksum },
+      malformed,
+      "previous release",
+    );
+    expect(result.status, result.stderr).toBe(1);
+    expect(result.stderr).toMatch(/chronology/);
+    expect(readFileSync(result.output, "utf8")).toBe("previous release");
   });
 
   it("checks shape even when the artifact checksum matches", () => {
