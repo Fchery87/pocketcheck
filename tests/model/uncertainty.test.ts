@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
+import { VALUE_THRESHOLD } from "../../src/lib/domain/threshold.ts";
+import { scoreHoldout, summarize } from "../../src/lib/server/models/evaluate.ts";
+import { buildFeatureRows } from "../../src/lib/server/models/features.ts";
 import type { PricedGame } from "../../src/lib/server/models/games.ts";
 import { fitArtifact } from "../../src/lib/server/models/train.ts";
 import {
@@ -149,5 +152,35 @@ describe("artifact uncertainty", () => {
   it("has no calibration when the window is too small for walk-forward forecasts", () => {
     const tiny = fitArtifact(games.slice(0, 20), games[19]!.kickoff);
     expect(tiny.uncertainty.markets.moneyline.every((bin) => bin.sides === 0)).toBe(true);
+  });
+});
+
+describe("threshold evaluation", () => {
+  const games = pricedLeague(1500);
+  const artifact = fitArtifact(games, games[1199]!.kickoff);
+  const holdout = buildFeatureRows(games, artifact.featureParameters).filter(
+    (row) => row.kickoff > artifact.trainingCutoff,
+  );
+  const summary = summarize(scoreHoldout(artifact, holdout, games));
+
+  it("reports how the frozen threshold would have behaved, without choosing it", () => {
+    expect(summary.threshold.version).toBe(VALUE_THRESHOLD.version);
+    expect(summary.threshold.conservativeExpectedValue).toBe(VALUE_THRESHOLD.conservativeExpectedValue);
+    expect(summary.threshold.note).toMatch(/closing prices/i);
+    for (const market of ["moneyline", "spread", "total"] as const) {
+      const report = summary.threshold.markets[market];
+      expect(report.candidates).toBeLessThanOrEqual(report.assessed);
+      expect(report.wins).toBeLessThanOrEqual(report.decisive);
+    }
+  });
+
+  it("gives each baseline comparison a slate-clustered interval for the log-loss difference", () => {
+    for (const comparison of summary.baselines) {
+      const difference = comparison.model.logLoss - comparison.baseline.logLoss;
+      const interval = comparison.logLossDifferenceInterval;
+      expect(interval, `${comparison.market} ${comparison.name}`).not.toBeNull();
+      expect(interval![0]).toBeLessThanOrEqual(difference + 1e-9);
+      expect(interval![1]).toBeGreaterThanOrEqual(difference - 1e-9);
+    }
   });
 });

@@ -163,7 +163,17 @@ describe("the model a run uses", () => {
       count: 600,
       model: { brier: 0.4, logLoss: 0.6 },
       baseline: { brier: 0.5, logLoss: 0.7 },
+      logLossDifferenceInterval: null,
     });
+    const emptyMarket = {
+      assessed: 0,
+      candidates: 0,
+      decisive: 0,
+      wins: 0,
+      observedRate: null,
+      meanBreakEven: null,
+      interval: null,
+    };
     const releasedFor = (market: "moneyline" | "spread") =>
       releaseArtifact(artifact, {
         artifactChecksum: artifact.checksum,
@@ -175,6 +185,12 @@ describe("the model a run uses", () => {
           baselines: [comparison(market)],
           coverage: { priced: 0, missingPrices: 0 },
           byMarket: {},
+          threshold: {
+            version: "threshold-2026-10-25",
+            conservativeExpectedValue: 0,
+            note: "",
+            markets: { moneyline: emptyMarket, spread: emptyMarket, total: emptyMarket },
+          },
         },
       });
     const spread = await createArtifactModel({

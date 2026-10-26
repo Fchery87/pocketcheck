@@ -1,10 +1,12 @@
-import { proportionalMargin } from "../../domain/odds.ts";
+import { americanToDecimal, expectedValue, proportionalMargin } from "../../domain/odds.ts";
+import { VALUE_THRESHOLD } from "../../domain/threshold.ts";
+import type { ModelArtifact } from "./artifact.ts";
 import type { SideProbability } from "./distribution.ts";
 import type { FeatureRow } from "./features.ts";
 import type { Market, PricedGame, PriceSide } from "./games.ts";
 import { marginHome, totalPoints } from "./games.ts";
 import { predictGame } from "./predict.ts";
-import type { ModelArtifact } from "./artifact.ts";
+import { clusteredInterval, conservativeProbabilities, slateOf, UNCERTAINTY_OPTIONS } from "./uncertainty.ts";
 
 export type Outcome = "win" | "loss" | "push";
 
@@ -19,6 +21,11 @@ export type ScoredForecast = {
   baseRate: SideProbability | null;
   outcome: Outcome;
   priceState: "present" | "missing";
+  slate: string;
+  /** This side's closing price, when recorded. */
+  americanOdds: number | null;
+  /** Expected value per unit at the closing price from conservative probabilities. Null when unavailable. */
+  conservativeExpectedValue: number | null;
 };
 
 type Scores = { brier: number; logLoss: number };
@@ -29,6 +36,7 @@ export type BaselineComparison = {
   count: number;
   model: Scores;
   baseline: Scores;
+  logLossDifferenceInterval: [number, number] | null;
 };
 
 export type EvaluationSummary = {
@@ -39,6 +47,23 @@ export type EvaluationSummary = {
   baselines: BaselineComparison[];
   coverage: { priced: number; missingPrices: number };
   byMarket: Record<string, { count: number; brier: number }>;
+  threshold: {
+    version: string;
+    conservativeExpectedValue: number;
+    note: string;
+    markets: Record<
+      Market,
+      {
+        assessed: number;
+        candidates: number;
+        decisive: number;
+        wins: number;
+        observedRate: number | null;
+        meanBreakEven: number | null;
+        interval: [number, number] | null;
+      }
+    >;
+  };
 };
 
 const EPS = 1e-12;
@@ -86,6 +111,22 @@ function noVig(side: PriceSide, other: PriceSide, push: number): SideProbability
   return { win: win * (1 - push), loss: (1 - win) * (1 - push), push };
 }
 
+function conservativeValue(
+  artifact: ModelArtifact,
+  market: Market,
+  probability: SideProbability,
+  american: number | null,
+): number | null {
+  if (american === null) return null;
+  const assessed = conservativeProbabilities(artifact.uncertainty, market, probability);
+  if (!assessed.available) return null;
+  return expectedValue({
+    decimalOdds: americanToDecimal(american),
+    probabilities: assessed.probabilities,
+    illustrative: true,
+  }).perUnit;
+}
+
 export function scoreHoldout(
   artifact: ModelArtifact,
   rows: readonly FeatureRow[],
@@ -98,7 +139,9 @@ export function scoreHoldout(
     if (!game) continue;
     const predicted = predictGame(artifact, row);
     const prices = game.prices ?? null;
+    const slate = slateOf(game.kickoff);
     const moneyline = predicted.moneyline.home;
+    const moneylineOdds = prices?.moneyline?.home.american ?? null;
     forecasts.push({
       gameId: game.id,
       market: "moneyline",
@@ -110,6 +153,9 @@ export function scoreHoldout(
       baseRate: artifact.baseRates.moneyline,
       outcome: settleMargin(marginHome(game)),
       priceState: prices?.moneyline ? "present" : "missing",
+      slate,
+      americanOdds: moneylineOdds,
+      conservativeExpectedValue: conservativeValue(artifact, "moneyline", moneyline, moneylineOdds),
     });
     if (prices?.spread) {
       const spread = predicted.spread(prices.spread.line).home;
@@ -122,9 +168,17 @@ export function scoreHoldout(
         baseRate: null,
         outcome: settleMargin(marginHome(game), prices.spread.line),
         priceState: "present",
+        slate,
+        americanOdds: prices.spread.home.american,
+        conservativeExpectedValue: conservativeValue(
+          artifact,
+          "spread",
+          spread,
+          prices.spread.home.american,
+        ),
       });
     } else {
-      forecasts.push(missing("spread", game.id));
+      forecasts.push(missing("spread", game.id, slate));
     }
     if (prices?.total) {
       const total = predicted.total(prices.total.line).over;
@@ -137,15 +191,18 @@ export function scoreHoldout(
         baseRate: null,
         outcome: settleTotal(totalPoints(game), prices.total.line),
         priceState: "present",
+        slate,
+        americanOdds: prices.total.over.american,
+        conservativeExpectedValue: conservativeValue(artifact, "total", total, prices.total.over.american),
       });
     } else {
-      forecasts.push(missing("total", game.id));
+      forecasts.push(missing("total", game.id, slate));
     }
   }
   return forecasts;
 }
 
-function missing(market: "spread" | "total", gameId: string): ScoredForecast {
+function missing(market: "spread" | "total", gameId: string, slate: string): ScoredForecast {
   return {
     gameId,
     market,
@@ -155,6 +212,9 @@ function missing(market: "spread" | "total", gameId: string): ScoredForecast {
     baseRate: null,
     outcome: "push",
     priceState: "missing",
+    slate,
+    americanOdds: null,
+    conservativeExpectedValue: null,
   };
 }
 
@@ -169,6 +229,62 @@ function scores(
     logLoss: average(
       members.map((forecast) => multiclassLogLoss(probability(forecast), forecast.outcome)),
     ),
+  };
+}
+
+function differenceInterval(
+  members: readonly ScoredForecast[],
+  baseline: (forecast: ScoredForecast) => SideProbability,
+): [number, number] | null {
+  const bySlate = new Map<string, number[]>();
+  for (const forecast of members) {
+    const difference =
+      multiclassLogLoss(forecast.probability, forecast.outcome) -
+      multiclassLogLoss(baseline(forecast), forecast.outcome);
+    bySlate.set(forecast.slate, [...(bySlate.get(forecast.slate) ?? []), difference]);
+  }
+  return clusteredInterval(
+    [...bySlate.values()],
+    (sample) => {
+      const all = sample.flat();
+      return all.length === 0 ? null : all.reduce((sum, value) => sum + value, 0) / all.length;
+    },
+    UNCERTAINTY_OPTIONS,
+  );
+}
+
+function winRate(sample: readonly ScoredForecast[][]): number | null {
+  const forecasts = sample.flat().filter((forecast) => forecast.outcome !== "push");
+  if (forecasts.length === 0) return null;
+  return forecasts.filter((forecast) => forecast.outcome === "win").length / forecasts.length;
+}
+
+const THRESHOLD_NOTE =
+  "Descriptive only. Closing prices stand in for the offer here, and the spec forbids treating closing prices as executable; the threshold was frozen before this report and is not tuned on it.";
+
+function thresholdReport(members: readonly ScoredForecast[]): EvaluationSummary["threshold"]["markets"][Market] {
+  const assessed = members.filter((forecast) => forecast.conservativeExpectedValue !== null);
+  const candidates = assessed.filter(
+    (forecast) => forecast.conservativeExpectedValue! > VALUE_THRESHOLD.conservativeExpectedValue,
+  );
+  const decisive = candidates.filter((forecast) => forecast.outcome !== "push");
+  const wins = decisive.filter((forecast) => forecast.outcome === "win");
+  const breakEvens = candidates.flatMap((forecast) =>
+    forecast.americanOdds === null ? [] : [1 / americanToDecimal(forecast.americanOdds)],
+  );
+  const bySlate = new Map<string, ScoredForecast[]>();
+  for (const forecast of candidates) {
+    bySlate.set(forecast.slate, [...(bySlate.get(forecast.slate) ?? []), forecast]);
+  }
+  return {
+    assessed: assessed.length,
+    candidates: candidates.length,
+    decisive: decisive.length,
+    wins: wins.length,
+    observedRate: decisive.length === 0 ? null : wins.length / decisive.length,
+    meanBreakEven:
+      breakEvens.length === 0 ? null : breakEvens.reduce((sum, value) => sum + value, 0) / breakEvens.length,
+    interval: clusteredInterval([...bySlate.values()], winRate, UNCERTAINTY_OPTIONS),
   };
 }
 
@@ -214,6 +330,7 @@ export function summarize(forecasts: readonly ScoredForecast[]): EvaluationSumma
       count: rated.length,
       model: scores(rated, (forecast) => forecast.probability),
       baseline: scores(rated, (forecast) => forecast.baseRate!),
+      logLossDifferenceInterval: differenceInterval(rated, (forecast) => forecast.baseRate!),
     });
   }
   for (const market of markets) {
@@ -227,10 +344,15 @@ export function summarize(forecasts: readonly ScoredForecast[]): EvaluationSumma
       count: members.length,
       model: scores(members, (forecast) => forecast.probability),
       baseline: scores(members, (forecast) => forecast.marketBaseline!),
+      logLossDifferenceInterval: differenceInterval(members, (forecast) => forecast.marketBaseline!),
     });
   }
 
   const priced = forecasts.filter((forecast) => forecast.priceState === "present").length;
+  const thresholdMarkets = {} as EvaluationSummary["threshold"]["markets"];
+  for (const market of markets) {
+    thresholdMarkets[market] = thresholdReport(graded.filter((forecast) => forecast.market === market));
+  }
   return {
     count: graded.length,
     brier: overall.brier,
@@ -242,6 +364,12 @@ export function summarize(forecasts: readonly ScoredForecast[]): EvaluationSumma
       missingPrices: forecasts.filter((forecast) => forecast.priceState === "missing").length,
     },
     byMarket,
+    threshold: {
+      version: VALUE_THRESHOLD.version,
+      conservativeExpectedValue: VALUE_THRESHOLD.conservativeExpectedValue,
+      note: THRESHOLD_NOTE,
+      markets: thresholdMarkets,
+    },
   };
 }
 

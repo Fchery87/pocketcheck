@@ -40,5 +40,6 @@ console.log(
     coverage: summary.coverage,
     baselines: summary.baselines,
     release,
+    threshold: summary.threshold,
   }),
 );

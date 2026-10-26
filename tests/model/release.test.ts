@@ -25,6 +25,7 @@ function comparison(
     count,
     model: { brier: model[0], logLoss: model[1] },
     baseline: { brier: baseline[0], logLoss: baseline[1] },
+    logLossDifferenceInterval: null,
   };
 }
 
@@ -41,11 +42,22 @@ function summary(baselines: BaselineComparison[]): EvaluationSummary {
         count: 900,
         model: { brier: 0.1, logLoss: 0.1 },
         baseline: { brier: 0.9, logLoss: 0.9 },
+        logLossDifferenceInterval: null,
       },
       ...baselines,
     ],
     coverage: { priced: 0, missingPrices: 0 },
     byMarket: {},
+    threshold: {
+      version: "threshold-2026-10-25",
+      conservativeExpectedValue: 0,
+      note: "",
+      markets: {
+        moneyline: { assessed: 0, candidates: 0, decisive: 0, wins: 0, observedRate: null, meanBreakEven: null, interval: null },
+        spread: { assessed: 0, candidates: 0, decisive: 0, wins: 0, observedRate: null, meanBreakEven: null, interval: null },
+        total: { assessed: 0, candidates: 0, decisive: 0, wins: 0, observedRate: null, meanBreakEven: null, interval: null },
+      },
+    },
   };
 }
 
