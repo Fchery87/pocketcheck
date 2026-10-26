@@ -1,5 +1,6 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import type { Sql } from "postgres";
+import { americanToDecimal } from "#lib/domain/odds.ts";
 import { parseOffer } from "#lib/domain/offer.ts";
 import type { ThesisReport } from "../providers/contracts.ts";
 import type { EvidenceFacts, EvidenceItem } from "../sources/contracts.ts";
@@ -14,11 +15,16 @@ import {
 import type { RunModel } from "./model.ts";
 import type { SavedForecast } from "./forecast-record.ts";
 import type { PolicyDecision } from "./policy.ts";
+import { compareClosing } from "./closing.ts";
 import {
   gradeFromNotices,
   settlementPayloadKey,
   type ActualBet,
+  type ArchivedClosing,
   type AssessmentRole,
+  type ClosingObservation,
+  type ClosingProvenance,
+  type NewClosing,
   type NewRun,
   type ProgressStage,
   type RecordBetResult,
@@ -224,6 +230,35 @@ export function createNeonStore(sql: Sql): ResearchStore {
     async readSettlement(input) {
       return readNeonSettlement(journal, input);
     },
+    async recordClosing(input) {
+      return { kind: "created", closing: await persistClosing(journal, input, "observed") };
+    },
+    async listClosings() {
+      const [records, runs, bets] = await Promise.all([
+        journal.listClosings(),
+        journal.listCompletedSummaries(),
+        journal.listBets(),
+      ]);
+      const analyses = new Map<string, Awaited<ReturnType<typeof getRun>>>();
+      for (const summary of runs) {
+        analyses.set(summary.id, await getRun(summary.id));
+      }
+      const betById = new Map(bets.map((bet) => [bet.id, bet]));
+      return records.map((record) =>
+        toClosing(record, analyses, betById),
+      );
+    },
+    async recordArchivedClosing(input) {
+      return persistClosing(
+        journal,
+        {
+          ...input,
+          rules: { period: "full-game", overtime: "included" },
+          observedAt: "",
+        },
+        "archived-untimestamped",
+      );
+    },
   };
 }
 
@@ -364,6 +399,199 @@ function betFingerprint(
       }),
     )
     .digest("hex");
+}
+
+async function persistClosing(
+  journal: JournalRepository,
+  input: NewClosing,
+  provenance: ClosingProvenance,
+): Promise<ClosingObservation> {
+  if (!input.source.trim()) throw new Error("A closing observation requires a source.");
+  const open = await openSide(journal, input);
+  if (provenance === "archived-untimestamped") {
+    const record = await journal.recordClosing({
+      analysisId: input.subject.kind === "analysis" ? input.subject.id : null,
+      betId: input.subject.kind === "bet" ? input.subject.id : null,
+      provenance,
+      sportsbook: input.sportsbook.trim(),
+      market: input.market,
+      selection: input.selection,
+      pointLine: input.pointLine ?? null,
+      rules: { period: "full-game", overtime: "included", tie: input.rules.tie ?? null },
+      americanOdds: input.americanOdds,
+      observedAt: null,
+      source: input.source.trim(),
+    });
+    return {
+      id: record.id,
+      subject: input.subject,
+      provenance,
+      sportsbook: record.sportsbook,
+      market: record.market,
+      selection: record.selection,
+      pointLine: record.pointLine,
+      rules: record.rules,
+      americanOdds: record.americanOdds,
+      observedAt: null,
+      source: record.source,
+      comparison: { available: false, reason: "archived-untimestamped" },
+    };
+  }
+  const contract = parseOffer({
+    gameId: open.gameId,
+    sportsbook: input.sportsbook,
+    market: input.market,
+    selection: input.selection,
+    pointLine: input.pointLine,
+    americanOdds: input.americanOdds,
+    observedAt: input.observedAt,
+    kickoffAt: open.kickoffAt,
+    rules: input.rules,
+  });
+  const record = await journal.recordClosing({
+    analysisId: input.subject.kind === "analysis" ? input.subject.id : null,
+    betId: input.subject.kind === "bet" ? input.subject.id : null,
+    provenance: "observed",
+    sportsbook: contract.sportsbook,
+    market: contract.market,
+    selection: contract.selection,
+    pointLine: contract.pointLine,
+    rules: contract.rules,
+    americanOdds: contract.americanOdds,
+    observedAt: input.observedAt,
+    source: input.source.trim(),
+  });
+  return {
+    id: record.id,
+    subject: input.subject,
+    provenance: "observed",
+    sportsbook: contract.sportsbook,
+    market: contract.market,
+    selection: contract.selection,
+    pointLine: contract.pointLine,
+    rules: contract.rules,
+    americanOdds: contract.americanOdds,
+    observedAt: input.observedAt,
+    source: input.source.trim(),
+    comparison: compareClosing(
+      { ...open, decimalOdds: americanToDecimal(open.americanOdds) },
+      { ...contract, decimalOdds: contract.decimalOdds },
+    ),
+  };
+}
+
+async function openSide(journal: JournalRepository, input: NewClosing) {
+  if (input.subject.kind === "analysis") {
+    const saved = await journal.findRun(input.subject.id);
+    if (!saved) throw new Error(`Analysis not found: ${input.subject.id}`);
+    return {
+      gameId: saved.game.sourceGameId,
+      kickoffAt: saved.game.kickoffAt,
+      market: saved.offer.market,
+      selection: saved.offer.selection,
+      pointLine: saved.offer.pointLine,
+      sportsbook: saved.offer.sportsbook,
+      americanOdds: saved.offer.americanOdds,
+      rules: saved.offer.rules,
+    };
+  }
+  const bets = await journal.listBets();
+  const bet = bets.find((item) => item.id === input.subject.id);
+  if (!bet?.analysisId) throw new Error(`Bet not found: ${input.subject.id}`);
+  if (!bet.contract) throw new Error("This bet has no recorded contract to compare.");
+  const saved = await journal.findRun(bet.analysisId);
+  if (!saved) throw new Error(`Analysis not found: ${bet.analysisId}`);
+  return {
+    gameId: saved.game.sourceGameId,
+    kickoffAt: saved.game.kickoffAt,
+    market: bet.contract.market,
+    selection: bet.contract.selection,
+    pointLine: bet.contract.pointLine,
+    sportsbook: bet.sportsbook ?? "",
+    americanOdds: bet.americanOdds,
+    rules: bet.contract.rules,
+  };
+}
+
+function toClosing(
+  record: Awaited<ReturnType<JournalRepository["listClosings"]>>[number],
+  analyses: Map<string, ResearchRun | null>,
+  bets: Map<string, Awaited<ReturnType<JournalRepository["listBets"]>>[number]>,
+): ClosingObservation {
+  const subject = record.analysisId
+    ? { kind: "analysis" as const, id: record.analysisId }
+    : { kind: "bet" as const, id: record.betId! };
+  if (record.provenance === "archived-untimestamped" || record.observedAt === null) {
+    return {
+      id: record.id,
+      subject,
+      provenance: "archived-untimestamped",
+      sportsbook: record.sportsbook,
+      market: record.market,
+      selection: record.selection,
+      pointLine: record.pointLine,
+      rules: record.rules,
+      americanOdds: record.americanOdds,
+      observedAt: null,
+      source: record.source,
+      comparison: { available: false, reason: "archived-untimestamped" },
+    };
+  }
+  const openContract =
+    subject.kind === "bet"
+      ? (() => {
+          const bet = bets.get(subject.id);
+          return bet?.contract && bet.sportsbook
+            ? {
+                market: bet.contract.market,
+                selection: bet.contract.selection,
+                pointLine: bet.contract.pointLine,
+                sportsbook: bet.sportsbook,
+                rules: bet.contract.rules,
+                americanOdds: bet.americanOdds,
+              }
+            : null;
+        })()
+      : (() => {
+          const analysis = analyses.get(subject.id);
+          return analysis
+            ? {
+                market: analysis.offer.market,
+                selection: analysis.offer.selection,
+                pointLine: analysis.offer.pointLine,
+                sportsbook: analysis.offer.sportsbook,
+                rules: analysis.offer.rules,
+                americanOdds: analysis.offer.americanOdds,
+              }
+            : null;
+        })();
+  const comparison = openContract
+    ? compareClosing(
+        { ...openContract, decimalOdds: americanToDecimal(openContract.americanOdds) },
+        {
+          market: record.market,
+          selection: record.selection,
+          pointLine: record.pointLine,
+          sportsbook: record.sportsbook,
+          rules: record.rules,
+          decimalOdds: record.decimalOdds,
+        },
+      )
+    : { available: false as const, reason: "different-contract" as const };
+  return {
+    id: record.id,
+    subject,
+    provenance: "observed",
+    sportsbook: record.sportsbook,
+    market: record.market,
+    selection: record.selection,
+    pointLine: record.pointLine,
+    rules: record.rules,
+    americanOdds: record.americanOdds,
+    observedAt: record.observedAt,
+    source: record.source,
+    comparison,
+  };
 }
 
 async function recordNeonSettlement(

@@ -20,7 +20,9 @@ An actual bet stores its own contract: market, selection, point line, settlement
 
 Settlement is recorded from the journal as an append-only notice with a stable event identifier, timestamp, source, and the analysis it applies to. A final notice stores the score and grades the researched offer and each captured actual bet from their own market rules. A home spread of -3 pushes when the home team wins by 3. The same score loses a home spread of -3.5. Postponed and unresolved notices stay unresolved and are not losses. A void notice is a void. Repeating the same event returns the existing notice and does not add another grade. Reusing that event identifier with different scores, kinds, or reasons is rejected. A correction is a new notice that names the earlier one and requires a reason. The journal shows the full history and the latest effective result. Notices are not edited or deleted.
 
-Not yet wired into the app: the baseline model, closing-line comparison, and performance summaries. Earlier bet and assessment records remain as they were saved.
+Not yet wired into the app: the baseline model and performance summaries. Earlier bet and assessment records remain as they were saved.
+
+A closing comparison measures the change in decimal odds for one contract: the same market, side, point line, sportsbook, and rules, observed later with a source and a time. A different point line is shown as line movement and is not an odds change. A missing or incompatible close is unavailable, never zero. An archived price with no observation time is not an executable offer and not a timestamped observation.
 
 ## Start here
 

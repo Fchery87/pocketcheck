@@ -182,10 +182,10 @@ test("offer, report, refresh, and unchanged prior report", async ({ page, reques
   await expect(page.getByTestId("assessments")).toContainText("insufficient evidence");
   await page.getByTestId("bet-analysis").selectOption({ index: 1 });
   await page.getByTestId("bet-submission").fill("browser-placement-1");
-  await page.locator('input[name="sportsbook"]').fill("Example Book");
+  await page.getByTestId("bet-form").locator('input[name="sportsbook"]').fill("Example Book");
   await page.getByTestId("bet-tie").selectOption("push");
-  await page.locator('input[name="americanOdds"]').fill("-110");
-  await page.locator('input[name="stakeUnits"]').fill("1");
+  await page.getByTestId("bet-form").locator('input[name="americanOdds"]').fill("-110");
+  await page.getByTestId("bet-form").locator('input[name="stakeUnits"]').fill("1");
   await page.getByRole("button", { name: "Record bet" }).click();
   await expect(page.getByTestId("bet-recorded")).toBeVisible();
   await expect(page.getByTestId("bets")).toContainText("Example Book");
@@ -257,12 +257,12 @@ test("a researched spread of -3 keeps its terms when the placed bet is -3.5", as
   await expect(page.getByTestId("assessments")).toContainText("-110");
   await page.getByTestId("bet-analysis").selectOption({ index: 1 });
   await page.getByTestId("bet-submission").fill("spread-execution-1");
-  await page.locator('input[name="sportsbook"]').fill("Execution Book");
+  await page.getByTestId("bet-form").locator('input[name="sportsbook"]').fill("Execution Book");
   await page.getByTestId("bet-market").selectOption("spread");
   await page.getByTestId("bet-selection").selectOption("home");
   await page.getByTestId("bet-line").fill("-3.5");
-  await page.locator('input[name="americanOdds"]').fill("-105");
-  await page.locator('input[name="stakeUnits"]').fill("2");
+  await page.getByTestId("bet-form").locator('input[name="americanOdds"]').fill("-105");
+  await page.getByTestId("bet-form").locator('input[name="stakeUnits"]').fill("2");
   await page.getByRole("button", { name: "Record bet" }).click();
   await expect(page.getByTestId("bet-recorded")).toBeVisible();
   const placed = page.getByTestId("bet-contract");
@@ -294,6 +294,60 @@ test("a researched spread of -3 keeps its terms when the placed bet is -3.5", as
   await expect(page.getByTestId("assessment-result")).toContainText("push");
   await expect(page.getByTestId("bet-result")).toContainText("loss");
   await expect(page.getByTestId("settlement-notice")).toHaveCount(1);
+});
+
+test("a comparable close, a moved line, and a missing close stay distinct", async ({ page }) => {
+  await page.goto("/");
+  await page.waitForLoadState("networkidle");
+  await page.getByTestId("game-id").selectOption("2026_07_DAL_PHI");
+  await page.getByLabel("Sportsbook").fill("Research Book");
+  await page.locator('select[name="market"]').selectOption("spread");
+  await page.locator('select[name="selection"]').selectOption("home");
+  await page.locator('input[name="pointLine"]').fill("-3.5");
+  await page.getByTestId("american-odds").fill("-110");
+  await page.getByTestId("observed-at").fill("2026-10-25T11:30");
+  await page.getByTestId("manual-text").fill("Beat reporter: Barkley practiced fully Friday.");
+  await page.getByTestId("manual-url").fill("https://example.test/barkley-friday");
+  await page.getByRole("button", { name: "Add another" }).click();
+  const forecast = page.getByTestId("manual-evidence").locator("div").nth(1);
+  await forecast.getByTestId("manual-text").fill("Kickoff 52F, wind 8 mph");
+  await forecast.getByTestId("manual-time").fill("2026-10-25T11:30");
+  await forecast.getByTestId("manual-covers").selectOption("weather");
+  await page.getByTestId("analyze").click();
+  await expect(page.getByTestId("conclusion")).toBeVisible();
+
+  await page.goto("/journal");
+  await expect(page.getByTestId("closing-missing")).toContainText("unavailable, not zero");
+  await expect(page.getByTestId("closing-measure")).toContainText("same market, side, point line");
+  await page.getByTestId("closing-subject").selectOption({ index: 1 });
+  await page.getByTestId("closing-book").fill("Research Book");
+  await page.getByTestId("closing-market").selectOption("spread");
+  await page.getByTestId("closing-selection").selectOption("home");
+  await page.getByTestId("closing-line").fill("-3.5");
+  await page.getByTestId("closing-odds").fill("-120");
+  await page.getByTestId("closing-time").fill("2026-10-26T19:50");
+  await page.getByTestId("closing-source").fill("manual close");
+  await page.getByRole("button", { name: "Record closing observation" }).click();
+  await expect(page.getByTestId("closing-recorded")).toBeVisible();
+  await expect(page.getByTestId("closing-comparison")).toContainText("1.909");
+  await expect(page.getByTestId("closing-comparison")).toContainText("1.833");
+  await page.reload();
+  await expect(page.getByTestId("closing-comparison")).toContainText("1.833");
+
+  await page.getByTestId("closing-subject").selectOption({ index: 1 });
+  await page.getByTestId("closing-book").fill("Research Book");
+  await page.getByTestId("closing-market").selectOption("spread");
+  await page.getByTestId("closing-selection").selectOption("home");
+  await page.getByTestId("closing-line").fill("-3");
+  await page.getByTestId("closing-odds").fill("-110");
+  await page.getByTestId("closing-time").fill("2026-10-26T19:55");
+  await page.getByTestId("closing-source").fill("later board");
+  await page.getByRole("button", { name: "Record closing observation" }).click();
+  const rows = page.getByTestId("closing-row");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(1).getByTestId("closing-unavailable")).toContainText("different-contract");
+  await expect(rows.nth(1).getByTestId("closing-unavailable")).toContainText("not an odds change");
+  await expect(rows.nth(0).getByTestId("closing-comparison")).toBeVisible();
 });
 
 test("a started game cannot be selected", async ({ page }) => {

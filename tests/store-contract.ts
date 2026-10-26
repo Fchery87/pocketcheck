@@ -937,6 +937,186 @@ export function describeStoreContract(
       expect((await store.listBets())[0]).toMatchObject({ pointLine: -3.5, americanOdds: -105 });
     });
 
+    it("records a closing observation and reads the price comparison back", async () => {
+      const store = await makeStore();
+      const run = (
+        await runAnalysis(
+          ask({ market: "spread", selection: "home", pointLine: -3.5, americanOdds: -110 }),
+          { store },
+        )
+      ).run!;
+      const recorded = await store.recordClosing({
+        subject: { kind: "analysis", id: run.id },
+        sportsbook: "Example Book",
+        market: "spread",
+        selection: "home",
+        pointLine: -3.5,
+        americanOdds: -120,
+        observedAt: "2026-10-26T23:50:00.000Z",
+        source: "manual-close",
+        rules: { period: "full-game", overtime: "included" },
+      });
+      expect(recorded.kind).toBe("created");
+      const listed = await store.listClosings();
+      expect(listed).toHaveLength(1);
+      expect(listed[0]).toMatchObject({
+        subject: { kind: "analysis", id: run.id },
+        sportsbook: "Example Book",
+        market: "spread",
+        selection: "home",
+        pointLine: -3.5,
+        americanOdds: -120,
+        observedAt: "2026-10-26T23:50:00.000Z",
+        source: "manual-close",
+        provenance: "observed",
+        rules: { period: "full-game", overtime: "included", tie: null },
+      });
+      expect(listed[0]?.comparison).toMatchObject({ available: true });
+      if (listed[0]?.comparison.available) {
+        expect(listed[0].comparison.openDecimal).toBeCloseTo(1.909090909, 6);
+        expect(listed[0].comparison.closeDecimal).toBeCloseTo(1.833333333, 6);
+        expect(listed[0].comparison.difference).toBeCloseTo(1.833333333 - 1.909090909, 6);
+      }
+    });
+
+    it("keeps an earlier closing when a later one is recorded for the same subject", async () => {
+      const store = await makeStore();
+      const run = (await runAnalysis(ask(), { store })).run!;
+      const first = await store.recordClosing({
+        subject: { kind: "analysis", id: run.id },
+        sportsbook: "Example Book",
+        market: "moneyline",
+        selection: "home",
+        americanOdds: -115,
+        observedAt: "2026-10-26T23:40:00.000Z",
+        source: "manual-close",
+        rules: { period: "full-game", overtime: "included", tie: "push" },
+      });
+      const second = await store.recordClosing({
+        subject: { kind: "analysis", id: run.id },
+        sportsbook: "Example Book",
+        market: "moneyline",
+        selection: "home",
+        americanOdds: -120,
+        observedAt: "2026-10-26T23:50:00.000Z",
+        source: "manual-close",
+        rules: { period: "full-game", overtime: "included", tie: "push" },
+      });
+      expect(first.kind).toBe("created");
+      expect(second.kind).toBe("created");
+      const odds = (await store.listClosings()).map((item) => item.americanOdds);
+      expect(odds).toEqual([-115, -120]);
+    });
+
+    it("shows a moved point line separately and does not call it an odds change", async () => {
+      const store = await makeStore();
+      const run = (
+        await runAnalysis(
+          ask({ market: "spread", selection: "home", pointLine: -3.5, americanOdds: -110 }),
+          { store },
+        )
+      ).run!;
+      await store.recordClosing({
+        subject: { kind: "analysis", id: run.id },
+        sportsbook: "Example Book",
+        market: "spread",
+        selection: "home",
+        pointLine: -3,
+        americanOdds: -110,
+        observedAt: "2026-10-26T23:50:00.000Z",
+        source: "manual-close",
+        rules: { period: "full-game", overtime: "included" },
+      });
+      const closing = (await store.listClosings())[0];
+      expect(closing?.comparison).toEqual({
+        available: false,
+        reason: "different-contract",
+        lineMovement: { openPointLine: -3.5, closePointLine: -3 },
+      });
+      expect(closing?.comparison).not.toEqual(expect.objectContaining({ difference: 0 }));
+    });
+
+    it("marks a missing comparable closing unavailable instead of zero", async () => {
+      const store = await makeStore();
+      const run = (await runAnalysis(ask(), { store })).run!;
+      const views = await store.listClosings();
+      expect(views.filter((item) => item.subject.id === run.id)).toEqual([]);
+      const recorded = await store.recordBet({
+        analysisId: run.id,
+        submissionId: "closing-missing-bet",
+        sportsbook: "Other Book",
+        market: "moneyline",
+        selection: "home",
+        americanOdds: -108,
+        stakeUnits: 1,
+        placedAt: NOW,
+        rules: { period: "full-game", overtime: "included", tie: "push" },
+      });
+      if (recorded.kind === "conflict") throw new Error(recorded.error);
+      const after = await store.listClosings();
+      expect(after.find((item) => item.subject.id === recorded.bet.id)).toBeUndefined();
+    });
+
+    it("compares an actual bet against its own contract, not the researched offer", async () => {
+      const store = await makeStore();
+      const run = (
+        await runAnalysis(
+          ask({ market: "spread", selection: "home", pointLine: -3, americanOdds: -110 }),
+          { store },
+        )
+      ).run!;
+      const recorded = await store.recordBet({
+        analysisId: run.id,
+        submissionId: "closing-bet-contract",
+        sportsbook: "Execution Book",
+        market: "spread",
+        selection: "home",
+        pointLine: -3.5,
+        americanOdds: -105,
+        stakeUnits: 1,
+        placedAt: NOW,
+        rules: { period: "full-game", overtime: "included" },
+      });
+      if (recorded.kind === "conflict") throw new Error(recorded.error);
+      await store.recordClosing({
+        subject: { kind: "bet", id: recorded.bet.id },
+        sportsbook: "Execution Book",
+        market: "spread",
+        selection: "home",
+        pointLine: -3.5,
+        americanOdds: -115,
+        observedAt: "2026-10-26T23:50:00.000Z",
+        source: "manual-close",
+        rules: { period: "full-game", overtime: "included" },
+      });
+      const closing = (await store.listClosings()).find((item) => item.subject.id === recorded.bet.id);
+      expect(closing?.comparison.available).toBe(true);
+      if (closing?.comparison.available) {
+        expect(closing.comparison.openDecimal).toBeCloseTo(1.952380952, 6);
+        expect(closing.comparison.closeDecimal).toBeCloseTo(1.869565217, 6);
+      }
+    });
+
+    it("does not treat an untimestamped archived close as an observed offer", async () => {
+      const store = await makeStore();
+      if (!store.recordArchivedClosing) return;
+      const run = (await runAnalysis(ask(), { store })).run!;
+      await store.recordArchivedClosing({
+        subject: { kind: "analysis", id: run.id },
+        sportsbook: "Archived Book",
+        market: "moneyline",
+        selection: "home",
+        americanOdds: -110,
+        source: "nflverse-close",
+      });
+      const archived = (await store.listClosings())[0];
+      expect(archived).toMatchObject({
+        provenance: "archived-untimestamped",
+        observedAt: null,
+        comparison: { available: false, reason: "archived-untimestamped" },
+      });
+    });
+
     it("grades the researched line and the placed line from one score without mixing them", async () => {
       const store = await makeStore();
       const run = (

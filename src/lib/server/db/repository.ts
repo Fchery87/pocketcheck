@@ -127,6 +127,25 @@ export type BetRecord = {
   sportsbook: string | null;
 };
 
+export type ClosingProvenance = "observed" | "archived-untimestamped";
+
+/** A later observation. Null observedAt means an untimestamped archive, not a captured offer. */
+export type ClosingRecord = {
+  id: string;
+  analysisId: string | null;
+  betId: string | null;
+  provenance: ClosingProvenance;
+  sportsbook: string;
+  market: BetContract["market"];
+  selection: BetContract["selection"];
+  pointLine: number | null;
+  rules: BetContract["rules"];
+  americanOdds: number;
+  decimalOdds: number;
+  observedAt: string | null;
+  source: string;
+};
+
 export type SettlementRecord = {
   id: string;
   betId: string | null;
@@ -692,6 +711,49 @@ export class JournalRepository {
   async listBets(): Promise<BetRecord[]> {
     const rows = await this.sql<BetRow[]>`SELECT * FROM bets ORDER BY created_at ASC`;
     return rows.map(mapBet);
+  }
+
+  async recordClosing(input: {
+    analysisId?: string | null;
+    betId?: string | null;
+    provenance?: ClosingProvenance;
+    sportsbook: string;
+    market: BetContract["market"];
+    selection: BetContract["selection"];
+    pointLine: number | null;
+    rules: BetContract["rules"];
+    americanOdds: number;
+    observedAt: string | null;
+    source: string;
+  }): Promise<ClosingRecord> {
+    const provenance = input.provenance ?? "observed";
+    const id = randomUUID();
+    await this.sql`
+      INSERT INTO closing_observations (
+        id, analysis_id, bet_id, provenance, sportsbook, market, selection, point_line,
+        rules, american_odds, decimal_odds, observed_at, source
+      ) VALUES (
+        ${id}, ${input.analysisId ?? null}, ${input.betId ?? null}, ${provenance},
+        ${input.sportsbook}, ${input.market}, ${input.selection}, ${input.pointLine},
+        ${this.sql.json(input.rules as never)}, ${input.americanOdds},
+        ${americanToDecimal(input.americanOdds)}, ${input.observedAt}, ${input.source}
+      )
+    `;
+    const row = await this.readClosing(id);
+    if (!row) throw new Error("Closing observation was not persisted");
+    return row;
+  }
+
+  async listClosings(): Promise<ClosingRecord[]> {
+    const rows = await this.sql<ClosingRow[]>`
+      SELECT * FROM closing_observations ORDER BY created_at ASC
+    `;
+    return rows.map(mapClosing);
+  }
+
+  async readClosing(id: string): Promise<ClosingRecord | null> {
+    const rows = await this.sql<ClosingRow[]>`SELECT * FROM closing_observations WHERE id = ${id}`;
+    return rows[0] ? mapClosing(rows[0]) : null;
   }
 
   async findAnalysisByIdempotencyKey(key: string): Promise<AnalysisRecord | null> {
@@ -1359,6 +1421,22 @@ type BetRow = {
   sportsbook: string | null;
 };
 
+type ClosingRow = {
+  id: string;
+  analysis_id: string | null;
+  bet_id: string | null;
+  provenance: ClosingProvenance;
+  sportsbook: string;
+  market: BetContract["market"];
+  selection: BetContract["selection"];
+  point_line: string | null;
+  rules: BetContract["rules"];
+  american_odds: number;
+  decimal_odds: string;
+  observed_at: Date | null;
+  source: string;
+};
+
 type SettlementRow = {
   id: string;
   bet_id: string | null;
@@ -1491,6 +1569,24 @@ function mapBet(row: BetRow): BetRecord {
     placedAt: iso(row.placed_at)!,
     stakeUnits: num(row.stake_units)!,
     sportsbook: row.sportsbook,
+  };
+}
+
+function mapClosing(row: ClosingRow): ClosingRecord {
+  return {
+    id: row.id,
+    analysisId: row.analysis_id,
+    betId: row.bet_id,
+    provenance: row.provenance,
+    sportsbook: row.sportsbook,
+    market: row.market,
+    selection: row.selection,
+    pointLine: num(row.point_line),
+    rules: row.rules,
+    americanOdds: row.american_odds,
+    decimalOdds: num(row.decimal_odds)!,
+    observedAt: iso(row.observed_at),
+    source: row.source,
   };
 }
 

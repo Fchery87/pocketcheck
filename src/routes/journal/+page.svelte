@@ -41,7 +41,7 @@
     Record the contract you placed. It can differ from the researched offer, and saving it does not
     change that research.
   </p>
-  <form method="POST" action="?/bet">
+  <form method="POST" action="?/bet" data-testid="bet-form">
     <label>
       Analysis
       <select name="analysisId" required data-testid="bet-analysis">
@@ -100,9 +100,9 @@
     </label>
     <button type="submit">Record bet</button>
   </form>
-  {#if form?.recorded}
+  {#if form?.recorded && !form?.closingId}
     <p data-testid="bet-recorded">Bet recorded</p>
-  {:else if form?.error}
+  {:else if form?.error && !form?.closingId}
     <p data-testid="form-error">{form.error}</p>
   {/if}
   <ul data-testid="bets">
@@ -125,7 +125,6 @@
       </li>
     {/each}
   </ul>
-
   <h2>Settlement</h2>
   <p>
     Record a final score, postponement, void, or unresolved notice. The research offer and each actual
@@ -206,4 +205,123 @@
       </li>
     {/each}
   </ul>
+  <h2>Closing observations</h2>
+  <p data-testid="closing-measure">
+    A direct comparison is the change in decimal odds for the same market, side, point line, sportsbook,
+    and rules. A different point line is line movement, not a change in odds. A missing observation is
+    unavailable. It is not zero closing performance. An archived price without an observation time is not
+    an executable offer and not a timestamped observation.
+  </p>
+  <form method="POST" action="?/closing" data-testid="closing-form">
+    <label>
+      This close belongs to
+      <select name="subjectKind" data-testid="closing-subject-kind">
+        <option value="analysis">researched offer</option>
+        <option value="bet">actual bet</option>
+      </select>
+    </label>
+    <label>
+      Record
+      <select name="subjectId" required data-testid="closing-subject">
+        <option value="">choose a record</option>
+        {#each data.assessments as assessment (assessment.id)}
+          <option value={assessment.id}>research: {label(assessment)}</option>
+        {/each}
+        {#each data.bets as bet (bet.id)}
+          <option value={bet.id}>
+            bet: {bet.sportsbook} {bet.market} {bet.selection} {signedLine(bet.pointLine)}
+          </option>
+        {/each}
+      </select>
+    </label>
+    <label>
+      Sportsbook
+      <input name="sportsbook" required data-testid="closing-book" />
+    </label>
+    <label>
+      Market
+      <select name="market" data-testid="closing-market">
+        <option value="moneyline">moneyline</option>
+        <option value="spread">spread</option>
+        <option value="total">total</option>
+      </select>
+    </label>
+    <label>
+      Selection
+      <select name="selection" data-testid="closing-selection">
+        <option value="home">home</option>
+        <option value="away">away</option>
+        <option value="over">over</option>
+        <option value="under">under</option>
+      </select>
+    </label>
+    <label>
+      Point line
+      <input name="pointLine" inputmode="decimal" data-testid="closing-line" />
+    </label>
+    <label>
+      Tie rule (moneyline)
+      <select name="tie" data-testid="closing-tie">
+        <option value="">not a moneyline</option>
+        <option value="push">push</option>
+        <option value="loss">loss</option>
+        <option value="win">win</option>
+        <option value="void">void</option>
+      </select>
+    </label>
+    <label>
+      American odds
+      <input name="americanOdds" required data-testid="closing-odds" />
+    </label>
+    <label>
+      Observed at
+      <input name="observedAt" type="datetime-local" required data-testid="closing-time" />
+    </label>
+    <label>
+      Source
+      <input name="source" required data-testid="closing-source" />
+    </label>
+    <button type="submit">Record closing observation</button>
+  </form>
+  {#if form?.recorded}
+    <p data-testid="closing-recorded">Closing observation recorded</p>
+  {:else if form?.error}
+    <p data-testid="form-error">{form.error}</p>
+  {/if}
+  <ul data-testid="closings">
+    {#each data.closings as closing (closing.id)}
+      <li data-testid="closing-row">
+        {#if closing.provenance === "archived-untimestamped"}
+          <span data-testid="closing-archive">
+            Archived price without an observation time: {closing.sportsbook} {closing.market}
+            {closing.selection} {signedLine(closing.pointLine)} {closing.americanOdds}, source
+            {closing.source}. Not an executable offer and not a timestamped observation.
+          </span>
+        {:else}
+          <span data-testid="closing-observed">
+            Observed {easternTime(closing.observedAt ?? "")} from {closing.source}: {closing.sportsbook}
+            {closing.market} {closing.selection} {signedLine(closing.pointLine)} {closing.americanOdds}
+          </span>
+        {/if}
+        {#if closing.comparison.available}
+          <span data-testid="closing-comparison">
+            Comparable odds change: {closing.comparison.openDecimal.toFixed(3)} to
+            {closing.comparison.closeDecimal.toFixed(3)}
+            ({closing.comparison.difference.toFixed(3)})
+          </span>
+        {:else}
+          <span data-testid="closing-unavailable">
+            Direct price comparison unavailable ({closing.comparison.reason}).
+            {#if closing.comparison.lineMovement}
+              Line moved from {signedLine(closing.comparison.lineMovement.openPointLine)} to
+              {signedLine(closing.comparison.lineMovement.closePointLine)}. This is not an odds change.
+            {/if}
+          </span>
+        {/if}
+      </li>
+    {/each}
+  </ul>
+  {#if data.closings.length === 0}
+    <p data-testid="closing-missing">No closing observation. Closing performance is unavailable, not zero.</p>
+  {/if}
 </main>

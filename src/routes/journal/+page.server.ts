@@ -20,7 +20,11 @@ const kinds = new Set<SettlementNoticeKind>(["final", "postponed", "void", "unre
 
 export const load: PageServerLoad = async () => {
   const journal = store();
-  const [assessments, bets] = await Promise.all([journal.listCompleted(), journal.listBets()]);
+  const [assessments, bets, closings] = await Promise.all([
+    journal.listCompleted(),
+    journal.listBets(),
+    journal.listClosings(),
+  ]);
   const settlements = await Promise.all(
     assessments.map(async (assessment) => {
       const related = bets.filter((bet) => bet.analysisId === assessment.id);
@@ -36,7 +40,7 @@ export const load: PageServerLoad = async () => {
       return { analysisId: assessment.id, assessment: read.assessment, bets: rows };
     }),
   );
-  return { assessments, bets, settlements };
+  return { assessments, bets, settlements, closings };
 };
 
 export const actions = {
@@ -160,6 +164,64 @@ export const actions = {
       return fail(400, {
         settled: false,
         error: cause instanceof Error ? cause.message : "Settlement was not saved",
+      });
+    }
+  },
+  closing: async ({ request }) => {
+    const data = await request.formData();
+    const subjectKind = String(data.get("subjectKind") ?? "").trim();
+    const subjectId = String(data.get("subjectId") ?? "").trim();
+    const sportsbook = String(data.get("sportsbook") ?? "").trim();
+    const market = String(data.get("market") ?? "").trim();
+    const selection = String(data.get("selection") ?? "").trim();
+    const pointLineText = String(data.get("pointLine") ?? "").trim();
+    const americanOdds = Number(data.get("americanOdds"));
+    const observedAt = String(data.get("observedAt") ?? "").trim();
+    const source = String(data.get("source") ?? "").trim();
+    const tie = String(data.get("tie") ?? "").trim();
+    if (subjectKind !== "analysis" && subjectKind !== "bet") {
+      return fail(400, { recorded: false, error: "Choose the research or bet this close belongs to" });
+    }
+    if (!subjectId) {
+      return fail(400, { recorded: false, error: "Choose the research or bet this close belongs to" });
+    }
+    if (!source) return fail(400, { recorded: false, error: "Name the source of this closing observation" });
+    if (!observedAt) {
+      return fail(400, { recorded: false, error: "Enter when you observed this closing offer" });
+    }
+    if (!markets.has(market as Market) || !selections.has(selection as SideSelection)) {
+      return fail(400, { recorded: false, error: "Choose the closing market and selection" });
+    }
+    const pointLine = pointLineText === "" ? undefined : Number(pointLineText);
+    if (pointLine !== undefined && !Number.isFinite(pointLine)) {
+      return fail(400, { recorded: false, error: "Enter the closing line" });
+    }
+    if (market === "moneyline" && !ties.has(tie as TieRule)) {
+      return fail(400, { recorded: false, error: "A moneyline requires a tie rule" });
+    }
+    const journal = store();
+    const rules: OfferRules = {
+      period: "full-game",
+      overtime: "included",
+      ...(market === "moneyline" ? { tie: tie as TieRule } : {}),
+    };
+    try {
+      const result = await journal.recordClosing({
+        subject: { kind: subjectKind, id: subjectId },
+        sportsbook,
+        market: market as Market,
+        selection: selection as SideSelection,
+        pointLine,
+        rules,
+        americanOdds,
+        observedAt: new Date(observedAt).toISOString(),
+        source,
+      });
+      return { recorded: true, error: null, closingId: result.closing.id };
+    } catch (cause) {
+      return fail(400, {
+        recorded: false,
+        error: cause instanceof Error ? cause.message : "Closing observation was not saved",
       });
     }
   },
