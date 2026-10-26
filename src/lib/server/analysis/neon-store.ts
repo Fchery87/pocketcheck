@@ -1,12 +1,18 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import type { Sql } from "postgres";
 import type { ThesisReport } from "../providers/contracts.ts";
 import type { EvidenceFacts, EvidenceItem } from "../sources/contracts.ts";
-import { JournalRepository, type EvidenceRecord, type GameRecord } from "../db/repository.ts";
+import {
+  JournalRepository,
+  type EvidenceRecord,
+  type GameRecord,
+  type SaveAnalysisInput,
+} from "../db/repository.ts";
 import type { RunModel } from "./model.ts";
 import type { PolicyDecision } from "./policy.ts";
 import type {
   ActualBet,
+  NewRun,
   ProgressStage,
   ResearchRun,
   ResearchStore,
@@ -75,6 +81,7 @@ export function createNeonStore(sql: Sql): ResearchStore {
     const { game, offer, analysis, report, userResearch, evidence } = saved;
     return {
       id: analysis.id,
+      request: analysis.snapshot.request ?? null,
       parentId: analysis.parentId,
       snapshotVersion: analysis.snapshot.version,
       snapshotProvenance: analysis.snapshot.provenance,
@@ -114,64 +121,28 @@ export function createNeonStore(sql: Sql): ResearchStore {
   }
 
   return {
+    async beginAttempt(run) {
+      const saved = await journal.saveCompletedAnalysis(journalInput(run, true));
+      if (saved.analysis.snapshot.request?.hash !== run.request?.hash) {
+        return {
+          kind: "conflict",
+          error: "This request identifier was already used with different inputs.",
+        };
+      }
+      const existing = await getRun(saved.analysis.id);
+      if (!existing) throw new Error(`Analysis was not persisted: ${saved.analysis.id}`);
+      return { kind: saved.created ? "created" : "existing", run: existing };
+    },
+    async updateAttempt(run) {
+      await journal.updateAnalysisProgress(journalInput(run, false));
+      const saved = await getRun(run.id!);
+      if (!saved) throw new Error(`Analysis was not persisted: ${run.id}`);
+      return saved;
+    },
     async saveRun(run) {
-      const id = run.id ?? randomUUID();
-      await journal.saveCompletedAnalysis({
-        game: {
-          sourceGameId: run.game.id,
-          season: run.game.season,
-          week: run.game.week,
-          awayTeam: run.game.away,
-          homeTeam: run.game.home,
-          kickoffAt: run.game.kickoff,
-          venue: run.game.venue,
-          status: "scheduled",
-        },
-        offer: {
-          gameId: run.offer.gameId,
-          sportsbook: run.offer.sportsbook,
-          market: run.offer.market,
-          selection: run.offer.selection,
-          pointLine: run.offer.pointLine,
-          americanOdds: run.offer.americanOdds,
-          decimalOdds: run.offer.decimalOdds,
-          observedAt: run.offer.observedAt,
-          enteredAt: new Date().toISOString(),
-          kickoffAt: run.offer.kickoffAt,
-          rules: run.offer.rules,
-          opposing: run.offer.opposing,
-        },
-        evidence: run.evidence.map(evidenceRow),
-        analysis: {
-          id,
-          parentId: run.parentId,
-          cutoffAt: run.cutoffAt,
-          status: run.status,
-          conclusion: run.policy?.conclusion ?? run.report?.conclusion ?? null,
-          policyVersion: run.policy?.policyVersion ?? null,
-          policy: run.policy,
-          stages: run.stages,
-          gaps: run.gaps,
-          usage: run.usage,
-          probabilityModel: run.probabilityModel,
-          evidencePacketHash: run.evidencePacketHash,
-          provider: run.provider,
-          model: run.model,
-          failureReason: run.failureReason,
-          idempotencyKey: `run:${id}`,
-        },
-        report: run.report
-          ? {
-              claims: run.report.claims,
-              thesis: run.report.summary,
-              renderedText: run.renderedText,
-              body: run.report,
-            }
-          : undefined,
-        userResearch: run.lean ? { lean: run.lean.text, rationale: run.lean.rationale } : undefined,
-      });
-      const saved = await getRun(id);
-      if (!saved) throw new Error(`Analysis was not persisted: ${id}`);
+      await journal.completeAnalysisAttempt(journalInput(run, false));
+      const saved = await getRun(run.id!);
+      if (!saved) throw new Error(`Analysis was not persisted: ${run.id}`);
       return saved;
     },
     getRun,
@@ -214,6 +185,66 @@ function toRunGame(game: GameRecord): RunGame {
 
 function isoTimestamp(value: string): string {
   return new Date(value).toISOString();
+}
+
+function journalInput(run: NewRun, includeUserResearch: boolean): SaveAnalysisInput {
+  return {
+    game: {
+      sourceGameId: run.game.id,
+      season: run.game.season,
+      week: run.game.week,
+      awayTeam: run.game.away,
+      homeTeam: run.game.home,
+      kickoffAt: run.game.kickoff,
+      venue: run.game.venue,
+      status: "scheduled",
+    },
+    offer: {
+      gameId: run.offer.gameId,
+      sportsbook: run.offer.sportsbook,
+      market: run.offer.market,
+      selection: run.offer.selection,
+      pointLine: run.offer.pointLine,
+      americanOdds: run.offer.americanOdds,
+      decimalOdds: run.offer.decimalOdds,
+      observedAt: run.offer.observedAt,
+      enteredAt: run.cutoffAt,
+      kickoffAt: run.offer.kickoffAt,
+      rules: run.offer.rules,
+      opposing: run.offer.opposing,
+    },
+    evidence: run.evidence.map(evidenceRow),
+    analysis: {
+      id: run.id,
+      parentId: run.parentId,
+      cutoffAt: run.cutoffAt,
+      status: run.status,
+      conclusion: run.policy?.conclusion ?? run.report?.conclusion ?? null,
+      policyVersion: run.policy?.policyVersion ?? null,
+      policy: run.policy,
+      stages: run.stages,
+      gaps: run.gaps,
+      usage: run.usage,
+      probabilityModel: run.probabilityModel,
+      evidencePacketHash: run.evidencePacketHash,
+      provider: run.provider,
+      model: run.model,
+      failureReason: run.failureReason,
+      idempotencyKey: run.request?.id,
+      request: run.request ?? undefined,
+    },
+    report: run.report
+      ? {
+          claims: run.report.claims,
+          thesis: run.report.summary,
+          renderedText: run.renderedText,
+          body: run.report,
+        }
+      : undefined,
+    ...(includeUserResearch && run.lean
+      ? { userResearch: { lean: run.lean.text, rationale: run.lean.rationale } }
+      : {}),
+  };
 }
 
 function toBet(record: Awaited<ReturnType<JournalRepository["listBets"]>>[number]): ActualBet {

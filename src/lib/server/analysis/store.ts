@@ -4,6 +4,7 @@ import type { ThesisReport } from "../providers/contracts.ts";
 import type { RunModel } from "./model.ts";
 import type { PolicyDecision } from "./policy.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
+import type { AttemptRequest } from "./attempt.ts";
 
 /**
  * Research store contract.
@@ -37,7 +38,7 @@ export type RunUsage = {
   costUsd: number | null;
 };
 
-export type RunStatus = "completed" | "interrupted" | "failed";
+export type RunStatus = "pending" | "running" | "completed" | "interrupted" | "failed";
 
 export type PrivateLean = {
   text: string;
@@ -59,6 +60,7 @@ export type RunGame = {
 
 export type ResearchRun = {
   id: string;
+  request: AttemptRequest | null;
   parentId: string | null;
   snapshotVersion: 1;
   snapshotProvenance: SnapshotProvenance;
@@ -92,6 +94,11 @@ export type NewRun = Omit<
 > & {
   id?: string;
 };
+
+export type BeginAttemptResult =
+  | { kind: "created"; run: ResearchRun }
+  | { kind: "existing"; run: ResearchRun }
+  | { kind: "conflict"; error: string };
 
 /** One journal row. Listing never loads every full run. */
 export type RunSummary = {
@@ -134,6 +141,8 @@ export type ActualBet = {
 };
 
 export type ResearchStore = {
+  beginAttempt: (run: NewRun) => Promise<BeginAttemptResult>;
+  updateAttempt: (run: NewRun) => Promise<ResearchRun>;
   saveRun: (run: NewRun) => Promise<ResearchRun>;
   getRun: (id: string) => Promise<ResearchRun | null>;
   /** Newest first. */
@@ -145,15 +154,32 @@ export type ResearchStore = {
 
 export function createMemoryStore(): ResearchStore {
   const runs = new Map<string, ResearchRun>();
+  const requests = new Map<string, string>();
   const bets: ActualBet[] = [];
 
   return {
-    async saveRun(input) {
-      const id = input.id ?? randomUUID();
-      const existing = runs.get(id);
-      if (existing && existing.status === "completed") {
-        return existing;
+    async beginAttempt(input) {
+      const requestId = input.request?.id;
+      const requestHash = input.request?.hash;
+      if (!requestId || !requestHash) {
+        return {
+          kind: "conflict",
+          error: "An attempt requires a request identifier and input hash.",
+        };
       }
+      const existingId = requests.get(requestId);
+      if (existingId) {
+        const existing = runs.get(existingId);
+        if (!existing) throw new Error(`Attempt index is inconsistent: ${requestId}`);
+        if (existing.request?.hash !== requestHash) {
+          return {
+            kind: "conflict",
+            error: "This request identifier was already used with different inputs.",
+          };
+        }
+        return { kind: "existing", run: structuredClone(existing) };
+      }
+      const id = input.id ?? randomUUID();
       const saved: ResearchRun = structuredClone({
         ...input,
         id,
@@ -162,7 +188,32 @@ export function createMemoryStore(): ResearchStore {
         createdAt: new Date().toISOString(),
       });
       runs.set(id, saved);
-      return saved;
+      requests.set(requestId, id);
+      return { kind: "created", run: structuredClone(saved) };
+    },
+    async updateAttempt(input) {
+      if (!input.id) throw new Error("An attempt update requires an analysis id.");
+      const existing = runs.get(input.id);
+      if (!existing) throw new Error(`Analysis not found: ${input.id}`);
+      if (existing.status === "completed") return structuredClone(existing);
+      if (
+        existing.request?.id !== input.request?.id ||
+        existing.request?.hash !== input.request?.hash
+      ) {
+        throw new Error("An attempt update cannot change its request identity or inputs.");
+      }
+      const updated: ResearchRun = structuredClone({
+        ...input,
+        id: input.id,
+        createdAt: existing.createdAt,
+        snapshotVersion: existing.snapshotVersion,
+        snapshotProvenance: existing.snapshotProvenance,
+      });
+      runs.set(updated.id, updated);
+      return structuredClone(updated);
+    },
+    async saveRun(input) {
+      return this.updateAttempt(input);
     },
     async getRun(id) {
       return runs.get(id) ?? null;
