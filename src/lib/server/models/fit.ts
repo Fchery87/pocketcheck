@@ -162,5 +162,7 @@ export function walkForwardResiduals(
   ridge: number,
   folds: number,
 ): number[] {
-  return walkForwardPredictions(rows, targets, ridge, folds).map((prediction) => prediction.residual);
+  return walkForwardPredictions(rows, targets, ridge, folds).map(
+    (prediction) => prediction.residual,
+  );
 }

@@ -67,7 +67,11 @@ function priceCutoff(uncertainty: UncertaintyAssessment): PolicyDecision["priceC
     };
   }
   const target = VALUE_THRESHOLD.conservativeExpectedValue;
-  return { available: true, decimalMinimum: 1 + (loss + target) / win, conservativeExpectedValue: target };
+  return {
+    available: true,
+    decimalMinimum: 1 + (loss + target) / win,
+    conservativeExpectedValue: target,
+  };
 }
 
 export function decidePolicy(input: PolicyInput): PolicyDecision {
@@ -147,7 +151,8 @@ export function decidePolicy(input: PolicyInput): PolicyDecision {
     return {
       ...base,
       conclusion: "pass",
-      blockingReason: "The released artifact does not show positive expected value at the recorded price.",
+      blockingReason:
+        "The released artifact does not show positive expected value at the recorded price.",
       expectedValuePerUnit: value.perUnit,
     };
   }

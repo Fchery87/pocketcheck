@@ -50,7 +50,9 @@ describe("source evidence collector", () => {
     expect(injuries[0]?.url).toContain("injuries_2026.csv");
     // Unknown publication time is a caveat, not missing evidence.
     expect(collected.gaps.join(" ")).toMatch(/publication time/);
-    expect(collected.materialGaps.map((gap) => gap.text).join(" ")).not.toMatch(/publication time|injur/i);
+    expect(collected.materialGaps.map((gap) => gap.text).join(" ")).not.toMatch(
+      /publication time|injur/i,
+    );
   });
 
   it("treats a missing injury file as missing material evidence", async () => {
@@ -59,7 +61,9 @@ describe("source evidence collector", () => {
       weather: noForecast,
     });
     const collected = await collect(phi, nowIso);
-    expect(collected.materialGaps.map((gap) => gap.text).join(" ")).toMatch(/npm run data:injuries/);
+    expect(collected.materialGaps.map((gap) => gap.text).join(" ")).toMatch(
+      /npm run data:injuries/,
+    );
   });
 
   it("treats a file with no rows for the game week as missing material evidence", async () => {

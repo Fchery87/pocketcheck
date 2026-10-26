@@ -49,7 +49,10 @@ function calibrationSamples(
   marginTargets: readonly number[],
 ): CalibrationSample[] {
   const samples: CalibrationSample[] = [];
-  const distributions = new Map<number, { margin: ResidualDistribution; total: ResidualDistribution }>();
+  const distributions = new Map<
+    number,
+    { margin: ResidualDistribution; total: ResidualDistribution }
+  >();
   margins.forEach((marginPrediction, position) => {
     const totalPrediction = totals[position]!;
     if (marginPrediction.block < 2) return;
@@ -76,20 +79,43 @@ function calibrationSamples(
     const margin = game.homeScore - game.awayScore;
     const moneyline = moneylineFromMargin(marginBins);
     samples.push(
-      { market: "moneyline", slate, decisiveWin: decisive(moneyline.home), outcome: settleMargin(margin) },
-      { market: "moneyline", slate, decisiveWin: decisive(moneyline.away), outcome: settleMargin(-margin) },
+      {
+        market: "moneyline",
+        slate,
+        decisiveWin: decisive(moneyline.home),
+        outcome: settleMargin(margin),
+      },
+      {
+        market: "moneyline",
+        slate,
+        decisiveWin: decisive(moneyline.away),
+        outcome: settleMargin(-margin),
+      },
     );
     const spreadPrice = game.prices?.spread;
     if (spreadPrice) {
       const spread = spreadFromMargin(marginBins, spreadPrice.line);
       samples.push(
-        { market: "spread", slate, decisiveWin: decisive(spread.home), outcome: settleMargin(margin, spreadPrice.line) },
-        { market: "spread", slate, decisiveWin: decisive(spread.away), outcome: settleMargin(-margin, -spreadPrice.line) },
+        {
+          market: "spread",
+          slate,
+          decisiveWin: decisive(spread.home),
+          outcome: settleMargin(margin, spreadPrice.line),
+        },
+        {
+          market: "spread",
+          slate,
+          decisiveWin: decisive(spread.away),
+          outcome: settleMargin(-margin, -spreadPrice.line),
+        },
       );
     }
     const totalPrice = game.prices?.total;
     if (totalPrice) {
-      const total = totalFromDistribution(integerMass(pair.total, totalPrediction.mean), totalPrice.line);
+      const total = totalFromDistribution(
+        integerMass(pair.total, totalPrediction.mean),
+        totalPrice.line,
+      );
       const points = game.homeScore + game.awayScore;
       const over = settleTotal(points, totalPrice.line);
       samples.push(

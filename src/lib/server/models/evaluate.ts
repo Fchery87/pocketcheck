@@ -6,7 +6,12 @@ import type { FeatureRow } from "./features.ts";
 import type { Market, PricedGame, PriceSide } from "./games.ts";
 import { marginHome, totalPoints } from "./games.ts";
 import { predictGame } from "./predict.ts";
-import { clusteredInterval, conservativeProbabilities, slateOf, UNCERTAINTY_OPTIONS } from "./uncertainty.ts";
+import {
+  clusteredInterval,
+  conservativeProbabilities,
+  slateOf,
+  UNCERTAINTY_OPTIONS,
+} from "./uncertainty.ts";
 
 export type Outcome = "win" | "loss" | "push";
 
@@ -193,7 +198,12 @@ export function scoreHoldout(
         priceState: "present",
         slate,
         americanOdds: prices.total.over.american,
-        conservativeExpectedValue: conservativeValue(artifact, "total", total, prices.total.over.american),
+        conservativeExpectedValue: conservativeValue(
+          artifact,
+          "total",
+          total,
+          prices.total.over.american,
+        ),
       });
     } else {
       forecasts.push(missing("total", game.id, slate));
@@ -262,7 +272,9 @@ function winRate(sample: readonly ScoredForecast[][]): number | null {
 const THRESHOLD_NOTE =
   "Descriptive only. Closing prices stand in for the offer here, and the spec forbids treating closing prices as executable; the threshold was frozen before this report and is not tuned on it.";
 
-function thresholdReport(members: readonly ScoredForecast[]): EvaluationSummary["threshold"]["markets"][Market] {
+function thresholdReport(
+  members: readonly ScoredForecast[],
+): EvaluationSummary["threshold"]["markets"][Market] {
   const assessed = members.filter((forecast) => forecast.conservativeExpectedValue !== null);
   const candidates = assessed.filter(
     (forecast) => forecast.conservativeExpectedValue! > VALUE_THRESHOLD.conservativeExpectedValue,
@@ -283,7 +295,9 @@ function thresholdReport(members: readonly ScoredForecast[]): EvaluationSummary[
     wins: wins.length,
     observedRate: decisive.length === 0 ? null : wins.length / decisive.length,
     meanBreakEven:
-      breakEvens.length === 0 ? null : breakEvens.reduce((sum, value) => sum + value, 0) / breakEvens.length,
+      breakEvens.length === 0
+        ? null
+        : breakEvens.reduce((sum, value) => sum + value, 0) / breakEvens.length,
     interval: clusteredInterval([...bySlate.values()], winRate, UNCERTAINTY_OPTIONS),
   };
 }
@@ -344,14 +358,19 @@ export function summarize(forecasts: readonly ScoredForecast[]): EvaluationSumma
       count: members.length,
       model: scores(members, (forecast) => forecast.probability),
       baseline: scores(members, (forecast) => forecast.marketBaseline!),
-      logLossDifferenceInterval: differenceInterval(members, (forecast) => forecast.marketBaseline!),
+      logLossDifferenceInterval: differenceInterval(
+        members,
+        (forecast) => forecast.marketBaseline!,
+      ),
     });
   }
 
   const priced = forecasts.filter((forecast) => forecast.priceState === "present").length;
   const thresholdMarkets = {} as EvaluationSummary["threshold"]["markets"];
   for (const market of markets) {
-    thresholdMarkets[market] = thresholdReport(graded.filter((forecast) => forecast.market === market));
+    thresholdMarkets[market] = thresholdReport(
+      graded.filter((forecast) => forecast.market === market),
+    );
   }
   return {
     count: graded.length,

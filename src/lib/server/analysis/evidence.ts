@@ -14,7 +14,11 @@ export type MaterialGapKind = "injury-report" | "weather";
 /** Evidence that should exist for this game and does not. It blocks a recommendation. */
 export type MaterialGap = { kind: MaterialGapKind; text: string };
 
-export type CollectedEvidence = { items: EvidenceItem[]; gaps: string[]; materialGaps: MaterialGap[] };
+export type CollectedEvidence = {
+  items: EvidenceItem[];
+  gaps: string[];
+  materialGaps: MaterialGap[];
+};
 
 export type EvidenceCollector = (game: ScheduledGame, nowIso: string) => Promise<CollectedEvidence>;
 
@@ -73,7 +77,9 @@ export function createSourceCollector(input: {
       gaps: [...injuries.gaps, ...(weather.reason ? [weather.reason] : [])],
       materialGaps: [
         ...injuries.materialGaps,
-        ...(weather.state === "missing" ? [{ kind: "weather" as const, text: weather.reason }] : []),
+        ...(weather.state === "missing"
+          ? [{ kind: "weather" as const, text: weather.reason }]
+          : []),
       ],
     };
   };

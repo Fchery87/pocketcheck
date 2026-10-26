@@ -308,20 +308,22 @@ describe("research run model", () => {
 describe("value policy with uncertainty", () => {
   const quiet: EvidenceCollector = async () => ({ items: [], gaps: [], materialGaps: [] });
   const point = { win: 0.6, loss: 0.38, push: 0.02 };
-  const released = (uncertainty: UncertaintyAssessment): ModelSource => async () => ({
-    status: "computed",
-    artifact: {
-      checksum: "b".repeat(64),
-      version: 4,
-      trainingCutoff: "2026-03-01T00:00:00Z",
-      releaseStatus: "released-experimental",
-      releasedMarkets: ["moneyline"],
-    },
-    probabilities: point,
-    uncertainty,
-    eligible: true,
-    reason: "Released for moneyline.",
-  });
+  const released =
+    (uncertainty: UncertaintyAssessment): ModelSource =>
+    async () => ({
+      status: "computed",
+      artifact: {
+        checksum: "b".repeat(64),
+        version: 4,
+        trainingCutoff: "2026-03-01T00:00:00Z",
+        releaseStatus: "released-experimental",
+        releasedMarkets: ["moneyline"],
+      },
+      probabilities: point,
+      uncertainty,
+      eligible: true,
+      reason: "Released for moneyline.",
+    });
   const sure = (win: number, loss: number): UncertaintyAssessment => ({
     available: true,
     confidence: 0.9,
@@ -337,7 +339,10 @@ describe("value policy with uncertainty", () => {
     expect(policy.conclusion).toBe("experimental value candidate");
     expect(policy.expectedValuePerUnit).toBeCloseTo(0.6 * 1.1 - 0.38, 10);
     expect(policy.conservativeExpectedValuePerUnit).toBeCloseTo(0.5 * 1.1 - 0.48, 10);
-    expect(policy.threshold).toEqual({ version: "threshold-2026-10-25", conservativeExpectedValue: 0 });
+    expect(policy.threshold).toEqual({
+      version: "threshold-2026-10-25",
+      conservativeExpectedValue: 0,
+    });
     expect(policy.priceCutoff).toMatchObject({ available: true, decimalMinimum: 1 + 0.48 / 0.5 });
   });
 
@@ -365,11 +370,12 @@ describe("value policy with uncertainty", () => {
   });
 
   it("does not assess uncertainty for an ineligible model", async () => {
-    const ineligible: ModelSource = async (...args) => ({
-      ...(await released(sure(0.5, 0.48))(...args)),
-      eligible: false,
-      reason: "Unreleased artifacts are not eligible.",
-    }) as Awaited<ReturnType<ModelSource>>;
+    const ineligible: ModelSource = async (...args) =>
+      ({
+        ...(await released(sure(0.5, 0.48))(...args)),
+        eligible: false,
+        reason: "Unreleased artifacts are not eligible.",
+      }) as Awaited<ReturnType<ModelSource>>;
     const policy = (await run(ineligible)).run!.policy!;
     expect(policy.conclusion).toBe("insufficient evidence");
     expect(policy.uncertainty).toEqual({ available: false, reason: "Not assessed." });
@@ -385,41 +391,67 @@ describe("manual evidence standing in for a missing source", () => {
       { kind: "weather", text: "Weather was not collected." },
     ],
   });
-  const hoursBefore = (hours: number) => new Date(Date.parse(NOW) - hours * 3_600_000).toISOString();
+  const hoursBefore = (hours: number) =>
+    new Date(Date.parse(NOW) - hours * 3_600_000).toISOString();
   const entry = (covers: "injury-report" | "weather" | undefined, sourceTime: string) => ({
     text: covers === "weather" ? "Kickoff 52F, wind 8 mph, 10% rain" : "PHI: no starters out",
     url: "",
     sourceTime,
     ...(covers ? { covers } : {}),
   });
-  const analyze = (manualEvidence: ReturnType<typeof entry>[], extra: Partial<AnalysisRequest> = {}) =>
-    runAnalysis(request({ manualEvidence, ...extra }), { store: createMemoryStore(), collect: missingBoth });
+  const analyze = (
+    manualEvidence: ReturnType<typeof entry>[],
+    extra: Partial<AnalysisRequest> = {},
+  ) =>
+    runAnalysis(request({ manualEvidence, ...extra }), {
+      store: createMemoryStore(),
+      collect: missingBoth,
+    });
 
   it("clears each gap that fresh, tagged manual evidence covers, and says the run relies on it", async () => {
-    const outcome = await analyze([entry("injury-report", hoursBefore(3)), entry("weather", hoursBefore(2))]);
+    const outcome = await analyze([
+      entry("injury-report", hoursBefore(3)),
+      entry("weather", hoursBefore(2)),
+    ]);
     const policy = outcome.run!.policy!;
     expect(policy.blockingReason).not.toBe("Material evidence is missing.");
     expect(policy.reliesOnManualEvidence).toBe(true);
-    expect(policy.manualCoverage.map((coverage) => coverage.kind).sort()).toEqual(["injury-report", "weather"]);
+    expect(policy.manualCoverage.map((coverage) => coverage.kind).sort()).toEqual([
+      "injury-report",
+      "weather",
+    ]);
     expect(outcome.run!.gaps.join(" ")).toMatch(/injury report comes from manual evidence/);
   });
 
   it("keeps the gap when the tagged evidence is too old, and says why", async () => {
-    const outcome = await analyze([entry("injury-report", hoursBefore(30)), entry("weather", hoursBefore(2))]);
+    const outcome = await analyze([
+      entry("injury-report", hoursBefore(30)),
+      entry("weather", hoursBefore(2)),
+    ]);
     expect(outcome.run!.policy!.blockingReason).toBe("Material evidence is missing.");
-    expect(outcome.run!.gaps.join(" ")).toMatch(/30 hours old; the injury report needs one from the last 24 hours/);
+    expect(outcome.run!.gaps.join(" ")).toMatch(
+      /30 hours old; the injury report needs one from the last 24 hours/,
+    );
   });
 
   it("keeps the gap for untagged evidence or evidence without a source time", async () => {
-    const untagged = await analyze([entry(undefined, hoursBefore(1)), entry("weather", hoursBefore(1))]);
+    const untagged = await analyze([
+      entry(undefined, hoursBefore(1)),
+      entry("weather", hoursBefore(1)),
+    ]);
     expect(untagged.run!.policy!.blockingReason).toBe("Material evidence is missing.");
-    const undated = await analyze([entry("injury-report", "unknown"), entry("weather", hoursBefore(1))]);
+    const undated = await analyze([
+      entry("injury-report", "unknown"),
+      entry("weather", hoursBefore(1)),
+    ]);
     expect(undated.run!.gaps.join(" ")).toMatch(/has no source time, so it cannot stand in/);
     expect(undated.run!.policy!.reliesOnManualEvidence).toBe(true);
   });
 
   it("re-checks carried evidence against the refresh's own cutoff", async () => {
-    const parent = (await analyze([entry("injury-report", hoursBefore(20)), entry("weather", hoursBefore(1))])).run!;
+    const parent = (
+      await analyze([entry("injury-report", hoursBefore(20)), entry("weather", hoursBefore(1))])
+    ).run!;
     const later = new Date(Date.parse(NOW) + 6 * 3_600_000).toISOString();
     const refreshed = await runAnalysis(
       request({
@@ -430,7 +462,9 @@ describe("manual evidence standing in for a missing source", () => {
       }),
       { store: createMemoryStore(), collect: missingBoth },
     );
-    expect(refreshed.run!.policy!.manualCoverage.map((coverage) => coverage.kind)).toEqual(["weather"]);
+    expect(refreshed.run!.policy!.manualCoverage.map((coverage) => coverage.kind)).toEqual([
+      "weather",
+    ]);
     expect(refreshed.run!.policy!.blockingReason).toBe("Material evidence is missing.");
   });
 });

@@ -93,7 +93,12 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
       const outcome = await runAnalysis(
         request({
           manualEvidence: [
-            { text: "Kickoff 52F", url: "", sourceTime: "2026-10-25T14:00:00.000Z", covers: "weather" },
+            {
+              text: "Kickoff 52F",
+              url: "",
+              sourceTime: "2026-10-25T14:00:00.000Z",
+              covers: "weather",
+            },
           ],
         }),
         {
@@ -105,7 +110,9 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
           }),
         },
       );
-      const listed = (await store.listCompleted()).find((summary) => summary.id === outcome.run!.id);
+      const listed = (await store.listCompleted()).find(
+        (summary) => summary.id === outcome.run!.id,
+      );
       expect(listed?.reliesOnManualEvidence).toBe(true);
     });
 

@@ -90,7 +90,11 @@ export function createArtifactModel(input: {
     };
     const row = featureRowForGame(history, upcoming, artifact.featureParameters);
     const probabilities = offerProbabilities(predictGame(artifact, row), offer);
-    const uncertainty = conservativeProbabilities(artifact.uncertainty, offer.market, probabilities);
+    const uncertainty = conservativeProbabilities(
+      artifact.uncertainty,
+      offer.market,
+      probabilities,
+    );
     const eligibility = valueEligibility(artifact, offer.market);
     return {
       status: "computed",

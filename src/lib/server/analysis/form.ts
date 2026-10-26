@@ -33,7 +33,12 @@ export type ManualEvidenceForm =
   | {
       ok: true;
       rows: ManualEvidenceRow[];
-      entries: Array<{ text: string; url: string; sourceTime: string; covers?: "injury-report" | "weather" }>;
+      entries: Array<{
+        text: string;
+        url: string;
+        sourceTime: string;
+        covers?: "injury-report" | "weather";
+      }>;
     }
   | { ok: false; rows: ManualEvidenceRow[]; error: string };
 
@@ -67,7 +72,8 @@ export function parseManualEvidence(data: FormData): ManualEvidenceForm {
     if (row.covers && row.covers !== "injury-report" && row.covers !== "weather") {
       return { ok: false, rows, error: `Manual evidence ${index + 1}: unknown source tag` };
     }
-    const covers = row.covers === "injury-report" || row.covers === "weather" ? row.covers : undefined;
+    const covers =
+      row.covers === "injury-report" || row.covers === "weather" ? row.covers : undefined;
     const sourceTime = row.time ? parseObservedAt(row.time) : "unknown";
     if (!sourceTime) {
       return {

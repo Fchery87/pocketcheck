@@ -46,14 +46,19 @@ describe("calibration table", () => {
   it("treats a slate's results as one unit, so correlated slates widen the interval", () => {
     // Same 400 sides and the same 50% rate; only the slate grouping differs.
     const independent = fitUncertainty(samples(400, 1, (index) => index % 2 === 0));
-    const correlated = fitUncertainty(samples(400, 10, (index) => Math.floor(index / 10) % 2 === 0));
+    const correlated = fitUncertainty(
+      samples(400, 10, (index) => Math.floor(index / 10) % 2 === 0),
+    );
     const rate = (table: ReturnType<typeof fitUncertainty>) =>
       table.markets.moneyline.find((entry) => entry.lower === 0.6)!.conservativeRate!;
     expect(rate(correlated)).toBeLessThan(rate(independent) - 0.03);
   });
 
   it("ignores pushes, which have no decisive result", () => {
-    const pushes = samples(100, 1, () => true).map((sample) => ({ ...sample, outcome: "push" as const }));
+    const pushes = samples(100, 1, () => true).map((sample) => ({
+      ...sample,
+      outcome: "push" as const,
+    }));
     expect(fitUncertainty(pushes).markets.moneyline.every((bin) => bin.sides === 0)).toBe(true);
   });
 
@@ -67,7 +72,11 @@ describe("conservative probabilities", () => {
   const table = fitUncertainty(samples(400, 4, (index) => index % 5 < 3));
 
   it("lowers the decisive win probability by the bin's calibration bound and keeps the push", () => {
-    const result = conservativeProbabilities(table, "moneyline", { win: 0.6, loss: 0.37, push: 0.03 });
+    const result = conservativeProbabilities(table, "moneyline", {
+      win: 0.6,
+      loss: 0.37,
+      push: 0.03,
+    });
     if (!result.available) throw new Error(result.reason);
     const bin = table.markets.moneyline.find((entry) => entry.lower === 0.6)!;
     const q = 0.6 / 0.97;

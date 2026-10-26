@@ -119,12 +119,15 @@ export function fitUncertainty(
   const count = Math.round(1 / options.binWidth);
   const markets = {} as Record<Market, CalibrationBin[]>;
   for (const market of MARKETS) {
-    const decisive = samples.filter((sample) => sample.market === market && sample.outcome !== "push");
+    const decisive = samples.filter(
+      (sample) => sample.market === market && sample.outcome !== "push",
+    );
     markets[market] = Array.from({ length: count }, (_, index) => {
       const lower = Number((index * options.binWidth).toFixed(4));
       const upper = Number(((index + 1) * options.binWidth).toFixed(4));
       const members = decisive.filter(
-        (sample) => Math.min(count - 1, Math.floor(sample.decisiveWin / options.binWidth)) === index,
+        (sample) =>
+          Math.min(count - 1, Math.floor(sample.decisiveWin / options.binWidth)) === index,
       );
       const bySlate = new Map<string, SlateTally>();
       for (const member of members) {
@@ -134,7 +137,10 @@ export function fitUncertainty(
         bySlate.set(member.slate, tally);
       }
       const clusters = [...bySlate.values()];
-      const interval = clusteredInterval(clusters, rate, { ...options, seed: options.seed + index });
+      const interval = clusteredInterval(clusters, rate, {
+        ...options,
+        seed: options.seed + index,
+      });
       return {
         lower,
         upper,
