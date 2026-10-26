@@ -21,7 +21,8 @@ import { decidePolicy } from "./policy.ts";
 import { assembleEvidencePacket } from "../sources/packet.ts";
 import { createManualEvidence } from "../sources/manual.ts";
 import type { EvidenceItem, ScheduledGame, SourceTime } from "../sources/contracts.ts";
-import { noSources, type EvidenceCollector } from "./evidence.ts";
+import { noSources, type EvidenceCollector, type MaterialGapKind } from "./evidence.ts";
+import { coverMaterialGaps } from "./coverage.ts";
 
 export type { ThesisDrafter };
 
@@ -47,7 +48,12 @@ export type AnalysisRequest = {
   carriedEvidence?: EvidenceItem[];
 };
 
-export type ManualEvidenceInput = { text: string; url: string; sourceTime: SourceTime };
+export type ManualEvidenceInput = {
+  text: string;
+  url: string;
+  sourceTime: SourceTime;
+  covers?: MaterialGapKind;
+};
 
 export type AnalysisDependencies = {
   store: ResearchStore;
@@ -157,6 +163,7 @@ export async function runAnalysis(
         url: entry.url,
         sourceTime: entry.sourceTime,
         enteredAt: request.nowIso,
+        ...(entry.covers ? { covers: entry.covers } : {}),
       }),
     );
   } catch (error) {
@@ -165,6 +172,11 @@ export async function runAnalysis(
 
   note("collecting evidence");
   const collected = await collect(request.game, request.nowIso);
+  const coverage = coverMaterialGaps(
+    collected.materialGaps,
+    [...(request.carriedEvidence ?? []), ...manual],
+    request.nowIso,
+  );
   const packet = assembleEvidencePacket({
     game: request.game,
     decisionCutoff: request.nowIso,
@@ -182,6 +194,7 @@ export async function runAnalysis(
   const late = packet.rejectedAfterCutoff;
   const gaps = [
     ...packet.gaps,
+    ...coverage.notes,
     ...conflictGaps,
     ...(late.length > 0
       ? [
@@ -210,7 +223,8 @@ export async function runAnalysis(
   const policy = decidePolicy({
     offerValid: true,
     gameStarted: false,
-    materialEvidenceMissing: collected.materialGaps.length > 0 || conflictGaps.length > 0,
+    materialEvidenceMissing: coverage.remaining.length > 0 || conflictGaps.length > 0,
+    manualCoverage: coverage.covered,
     releaseStatus: eligible ? "released-experimental" : "unreleased",
     releaseReason: probabilityModel.reason,
     probabilities:

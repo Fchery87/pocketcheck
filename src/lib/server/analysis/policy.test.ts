@@ -5,6 +5,7 @@ const released = {
   offerValid: true,
   gameStarted: false,
   materialEvidenceMissing: false,
+  manualCoverage: [],
   releaseStatus: "released-experimental" as const,
   probabilities: { win: 0.55, loss: 0.45, push: 0 },
   uncertainty: {

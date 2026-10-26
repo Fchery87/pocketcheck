@@ -375,3 +375,62 @@ describe("value policy with uncertainty", () => {
     expect(policy.uncertainty).toEqual({ available: false, reason: "Not assessed." });
   });
 });
+
+describe("manual evidence standing in for a missing source", () => {
+  const missingBoth: EvidenceCollector = async () => ({
+    items: [],
+    gaps: ["Injury report was not collected.", "Weather was not collected."],
+    materialGaps: [
+      { kind: "injury-report", text: "Injury report was not collected." },
+      { kind: "weather", text: "Weather was not collected." },
+    ],
+  });
+  const hoursBefore = (hours: number) => new Date(Date.parse(NOW) - hours * 3_600_000).toISOString();
+  const entry = (covers: "injury-report" | "weather" | undefined, sourceTime: string) => ({
+    text: covers === "weather" ? "Kickoff 52F, wind 8 mph, 10% rain" : "PHI: no starters out",
+    url: "",
+    sourceTime,
+    ...(covers ? { covers } : {}),
+  });
+  const analyze = (manualEvidence: ReturnType<typeof entry>[], extra: Partial<AnalysisRequest> = {}) =>
+    runAnalysis(request({ manualEvidence, ...extra }), { store: createMemoryStore(), collect: missingBoth });
+
+  it("clears each gap that fresh, tagged manual evidence covers, and says the run relies on it", async () => {
+    const outcome = await analyze([entry("injury-report", hoursBefore(3)), entry("weather", hoursBefore(2))]);
+    const policy = outcome.run!.policy!;
+    expect(policy.blockingReason).not.toBe("Material evidence is missing.");
+    expect(policy.reliesOnManualEvidence).toBe(true);
+    expect(policy.manualCoverage.map((coverage) => coverage.kind).sort()).toEqual(["injury-report", "weather"]);
+    expect(outcome.run!.gaps.join(" ")).toMatch(/injury report comes from manual evidence/);
+  });
+
+  it("keeps the gap when the tagged evidence is too old, and says why", async () => {
+    const outcome = await analyze([entry("injury-report", hoursBefore(30)), entry("weather", hoursBefore(2))]);
+    expect(outcome.run!.policy!.blockingReason).toBe("Material evidence is missing.");
+    expect(outcome.run!.gaps.join(" ")).toMatch(/30 hours old; the injury report needs one from the last 24 hours/);
+  });
+
+  it("keeps the gap for untagged evidence or evidence without a source time", async () => {
+    const untagged = await analyze([entry(undefined, hoursBefore(1)), entry("weather", hoursBefore(1))]);
+    expect(untagged.run!.policy!.blockingReason).toBe("Material evidence is missing.");
+    const undated = await analyze([entry("injury-report", "unknown"), entry("weather", hoursBefore(1))]);
+    expect(undated.run!.gaps.join(" ")).toMatch(/has no source time, so it cannot stand in/);
+    expect(undated.run!.policy!.reliesOnManualEvidence).toBe(true);
+  });
+
+  it("re-checks carried evidence against the refresh's own cutoff", async () => {
+    const parent = (await analyze([entry("injury-report", hoursBefore(20)), entry("weather", hoursBefore(1))])).run!;
+    const later = new Date(Date.parse(NOW) + 6 * 3_600_000).toISOString();
+    const refreshed = await runAnalysis(
+      request({
+        nowIso: later,
+        observedAt: later,
+        parentId: parent.id,
+        carriedEvidence: parent.evidence.filter((item) => item.origin === "manual"),
+      }),
+      { store: createMemoryStore(), collect: missingBoth },
+    );
+    expect(refreshed.run!.policy!.manualCoverage.map((coverage) => coverage.kind)).toEqual(["weather"]);
+    expect(refreshed.run!.policy!.blockingReason).toBe("Material evidence is missing.");
+  });
+});

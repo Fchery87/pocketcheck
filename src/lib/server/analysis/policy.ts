@@ -2,6 +2,7 @@ import { expectedValue, type OutcomeProbabilities } from "#lib/domain/odds.ts";
 import { VALUE_THRESHOLD } from "#lib/domain/threshold.ts";
 import type { ReleaseStatus } from "../models/artifact.ts";
 import type { UncertaintyAssessment } from "../models/uncertainty.ts";
+import type { ManualCoverage } from "./coverage.ts";
 
 export const POLICY_VERSION = "policy-2026-10-25.2";
 
@@ -19,6 +20,8 @@ export type PolicyInput = {
   offerValid: boolean;
   gameStarted: boolean;
   materialEvidenceMissing: boolean;
+  /** Gaps that fresh, tagged manual evidence cleared. */
+  manualCoverage: ManualCoverage[];
   releaseStatus: ReleaseStatus;
   /** Why the model is not eligible, shown when releaseStatus is not released. */
   releaseReason?: string;
@@ -37,6 +40,8 @@ export type PolicyDecision = {
   conservativeExpectedValuePerUnit: number | null;
   threshold: typeof VALUE_THRESHOLD;
   uncertainty: UncertaintyAssessment;
+  manualCoverage: ManualCoverage[];
+  reliesOnManualEvidence: boolean;
   priceCutoff:
     | { available: false; reason: string }
     | { available: true; decimalMinimum: number; conservativeExpectedValue: number };
@@ -72,6 +77,8 @@ export function decidePolicy(input: PolicyInput): PolicyDecision {
     conservativeExpectedValuePerUnit: null,
     threshold: VALUE_THRESHOLD,
     uncertainty: input.uncertainty,
+    manualCoverage: input.manualCoverage,
+    reliesOnManualEvidence: input.manualCoverage.length > 0,
     priceCutoff: priceCutoff(input.uncertainty),
     label:
       "Experimental estimate. Not proof of an edge. Thresholds in this policy are versioned and are not scientifically established." as const,

@@ -1,5 +1,6 @@
 import type { EvidenceFacts, EvidenceItem, SourceTime } from "./contracts.ts";
 import { evidenceItem } from "./item.ts";
+import type { MaterialGapKind } from "../analysis/evidence.ts";
 
 export function createManualEvidence(input: {
   text?: string;
@@ -8,6 +9,7 @@ export function createManualEvidence(input: {
   enteredAt: string;
   factKey?: string;
   facts?: EvidenceFacts;
+  covers?: MaterialGapKind;
 }): EvidenceItem {
   const text = input.text?.trim() ?? "";
   const url = input.url?.trim() ?? "";
@@ -28,6 +30,6 @@ export function createManualEvidence(input: {
     origin: "manual",
     excerpt: text || null,
     factKey: input.factKey ?? null,
-    facts: input.facts ?? { note: text },
+    facts: input.facts ?? { note: text, ...(input.covers ? { covers: input.covers } : {}) },
   });
 }
