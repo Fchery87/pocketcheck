@@ -44,20 +44,24 @@ export type PrivateLean = {
   rationale: string;
 };
 
+export type SnapshotProvenance = "captured" | "legacy-unknown";
+
 /** The game as it stood when the run was saved. */
 export type RunGame = {
   id: string;
   season: number;
-  week: number;
+  week: number | null;
   home: string;
   away: string;
   kickoff: string;
-  venue: string;
+  venue: string | null;
 };
 
 export type ResearchRun = {
   id: string;
   parentId: string | null;
+  snapshotVersion: 1;
+  snapshotProvenance: SnapshotProvenance;
   /** Decision cutoff: evidence after this instant was excluded. */
   cutoffAt: string;
   status: RunStatus;
@@ -82,12 +86,18 @@ export type ResearchRun = {
   createdAt: string;
 };
 
-export type NewRun = Omit<ResearchRun, "id" | "createdAt"> & { id?: string };
+export type NewRun = Omit<
+  ResearchRun,
+  "id" | "createdAt" | "snapshotVersion" | "snapshotProvenance"
+> & {
+  id?: string;
+};
 
 /** One journal row. Listing never loads every full run. */
 export type RunSummary = {
   id: string;
   parentId: string | null;
+  snapshotProvenance: SnapshotProvenance;
   createdAt: string;
   conclusion: string;
   game: Pick<RunGame, "id" | "home" | "away" | "kickoff">;
@@ -99,6 +109,7 @@ export function summarize(run: ResearchRun): RunSummary {
   return {
     id: run.id,
     parentId: run.parentId,
+    snapshotProvenance: run.snapshotProvenance,
     createdAt: run.createdAt,
     conclusion: run.policy?.conclusion ?? run.report?.conclusion ?? "unknown",
     game: { id: run.game.id, home: run.game.home, away: run.game.away, kickoff: run.game.kickoff },
@@ -146,6 +157,8 @@ export function createMemoryStore(): ResearchStore {
       const saved: ResearchRun = structuredClone({
         ...input,
         id,
+        snapshotVersion: 1,
+        snapshotProvenance: "captured",
         createdAt: new Date().toISOString(),
       });
       runs.set(id, saved);

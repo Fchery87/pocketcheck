@@ -4,6 +4,8 @@ Personal sports handicapping research, beginning with NFL pregame moneylines, sp
 
 Status (2026-10-25): the research workflow runs end to end on the real nflverse schedule and saves every run to Neon. You pick an upcoming game, enter an offer, your own evidence, and an optional private lean, and get a report with price mathematics, cited evidence, evidence gaps, and the policy conclusion. Each run collects the nflverse injury report for both teams and the NWS kickoff forecast for U.S. outdoor venues. Refreshes keep the earlier report unchanged. No probability model or betting advantage has been validated.
 
+Each analysis stores a versioned snapshot of its game and exact research offer, so reloading the schedule does not rewrite an existing report or journal entry. Legacy entries are frozen from the schedule available at migration time and marked with unknown original provenance; their original kickoff and venue cannot be confirmed. The private lean remains stored separately from the evidence packet and thesis.
+
 Theses are drafted by the model you choose in Settings (TheClawBay or DeepSeek), or by a deterministic fixture drafter that makes no AI call. Settings lists each provider's catalog with its retrieval time. A model can draft only when its catalog declares text output (DeepSeek) or it passes a one-request JSON test (TheClawBay declares nothing). There is no automatic fallback: a missing key or a removed model stops the analysis with the reason. Each report shows its token usage and provider-reported cost, or says none was reported.
 
 Not yet wired into the app: the baseline model; settlement, closing-line comparison, and summaries.

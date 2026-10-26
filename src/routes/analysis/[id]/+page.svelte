@@ -15,7 +15,15 @@
 
 <main>
   <h1>Report: {run.game.away} at {run.game.home}</h1>
-  <p>{easternTime(run.game.kickoff)}, {run.game.venue}</p>
+  <p>{easternTime(run.game.kickoff)}, {run.game.venue ?? "venue unknown"}</p>
+  {#if run.snapshotProvenance === "legacy-unknown"}
+    <p data-testid="snapshot-provenance">
+      This older record's game details were copied from the schedule during migration; its original
+      kickoff and venue could not be confirmed.
+    </p>
+  {:else}
+    <p data-testid="snapshot-provenance">Game and research offer captured with this report.</p>
+  {/if}
   <p data-testid="status">{run.status}</p>
   {#if run.parentId}
     <p>Refresh of <a href="/analysis/{run.parentId}">an earlier report</a>. That report is unchanged.</p>

@@ -10,6 +10,7 @@ if (!testDatabaseUrl) {
 }
 
 export type IsolatedDb = { db: Db; schema: string; drop(): Promise<void> };
+export type IsolatedDbOptions = { throughMigration?: string };
 
 const options = {
   ssl: new URL(testDatabaseUrl).searchParams.get("sslmode") === "disable" ? false : "require",
@@ -21,7 +22,7 @@ const options = {
  * A fresh schema with every migration applied. One connection, so the session's search_path
  * holds; it goes to the unpooled endpoint because the pooler does not keep session state.
  */
-export async function isolatedDb(): Promise<IsolatedDb> {
+export async function isolatedDb(optionsForTest: IsolatedDbOptions = {}): Promise<IsolatedDb> {
   if (!testDatabaseUrl) throw new Error("No database URL for integration tests");
   const schema = `it_${randomBytes(6).toString("hex")}`;
   const admin = postgres(testDatabaseUrl, { ...options, max: 1 });
@@ -34,7 +35,12 @@ export async function isolatedDb(): Promise<IsolatedDb> {
   try {
     await db.unsafe(`SET search_path TO ${schema}`);
     const migrations = path.resolve(process.cwd(), "migrations");
-    for (const file of (await readdir(migrations)).filter((name) => name.endsWith(".sql")).sort()) {
+    const files = (await readdir(migrations)).filter((name) => name.endsWith(".sql")).sort();
+    const end = optionsForTest.throughMigration
+      ? files.indexOf(optionsForTest.throughMigration)
+      : files.length - 1;
+    if (end < 0) throw new Error(`Migration not found: ${optionsForTest.throughMigration}`);
+    for (const file of files.slice(0, end + 1)) {
       await db.unsafe(await readFile(path.join(migrations, file), "utf8"));
     }
   } catch (error) {

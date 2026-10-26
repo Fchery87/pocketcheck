@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Sql } from "postgres";
 import type { ThesisReport } from "../providers/contracts.ts";
 import type { EvidenceFacts, EvidenceItem } from "../sources/contracts.ts";
-import { JournalRepository, type EvidenceRecord } from "../db/repository.ts";
+import { JournalRepository, type EvidenceRecord, type GameRecord } from "../db/repository.ts";
 import type { RunModel } from "./model.ts";
 import type { PolicyDecision } from "./policy.ts";
 import type {
@@ -10,6 +10,7 @@ import type {
   ProgressStage,
   ResearchRun,
   ResearchStore,
+  RunGame,
   RunStatus,
   RunUsage,
 } from "./store.ts";
@@ -75,18 +76,12 @@ export function createNeonStore(sql: Sql): ResearchStore {
     return {
       id: analysis.id,
       parentId: analysis.parentId,
+      snapshotVersion: analysis.snapshot.version,
+      snapshotProvenance: analysis.snapshot.provenance,
       cutoffAt: analysis.cutoffAt,
       status: runStatus(analysis.status),
       stages: (analysis.stages as ProgressStage[] | null) ?? [],
-      game: {
-        id: game.sourceGameId,
-        season: game.season,
-        week: game.week ?? 0,
-        home: game.homeTeam,
-        away: game.awayTeam,
-        kickoff: game.kickoffAt,
-        venue: game.venue ?? "",
-      },
+      game: toRunGame(game),
       offer: {
         gameId: game.sourceGameId,
         sportsbook: offer.sportsbook,
@@ -95,8 +90,8 @@ export function createNeonStore(sql: Sql): ResearchStore {
         pointLine: offer.pointLine,
         americanOdds: offer.americanOdds,
         decimalOdds: offer.decimalOdds,
-        observedAt: offer.observedAt,
-        kickoffAt: offer.kickoffAt,
+        observedAt: isoTimestamp(offer.observedAt),
+        kickoffAt: isoTimestamp(offer.kickoffAt),
         rules: offer.rules,
         opposing: offer.opposing,
       },
@@ -203,6 +198,22 @@ export function createNeonStore(sql: Sql): ResearchStore {
       return records.filter((record) => record.analysisId !== null).map(toBet);
     },
   };
+}
+
+function toRunGame(game: GameRecord): RunGame {
+  return {
+    id: game.sourceGameId,
+    season: game.season,
+    week: game.week,
+    home: game.homeTeam,
+    away: game.awayTeam,
+    kickoff: isoTimestamp(game.kickoffAt),
+    venue: game.venue,
+  };
+}
+
+function isoTimestamp(value: string): string {
+  return new Date(value).toISOString();
 }
 
 function toBet(record: Awaited<ReturnType<JournalRepository["listBets"]>>[number]): ActualBet {

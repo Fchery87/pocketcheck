@@ -146,6 +146,51 @@ export function describeStoreContract(name: string, makeStore: () => ResearchSto
       expect(completed).toEqual(expect.arrayContaining([parent.id, child.run!.id]));
     });
 
+    it("keeps a run's game and offer after the current schedule changes", async () => {
+      const store = makeStore();
+      const first = (await runAnalysis(request(), { store })).run!;
+      const changedGame = {
+        ...game,
+        kickoff: "2026-10-26T17:00:00.000Z",
+        venue: { ...game.venue, name: "Updated Lincoln Financial Field" },
+      };
+      const second = (
+        await runAnalysis(
+          request({
+            game: changedGame,
+            nowIso: "2026-10-26T16:00:00.000Z",
+            scheduleRetrievedAt: "2026-10-26T12:00:00.000Z",
+            parentId: first.id,
+            sportsbook: "Changed Book",
+            americanOdds: -105,
+            observedAt: "2026-10-26T15:30:00.000Z",
+          }),
+          { store },
+        )
+      ).run!;
+
+      expect(second.game).toMatchObject({
+        kickoff: changedGame.kickoff,
+        venue: changedGame.venue.name,
+      });
+      expect(second.snapshotProvenance).toBe("captured");
+      expect(second.offer).toMatchObject({ sportsbook: "Changed Book", americanOdds: -105 });
+      expect(await store.getRun(first.id)).toEqual(first);
+      expect(await store.getRun(first.id)).toMatchObject({
+        game: { kickoff: game.kickoff, venue: game.venue.name },
+        offer: first.offer,
+        evidence: first.evidence,
+        report: first.report,
+        lean: first.lean,
+      });
+      expect((await store.listCompleted()).map((run) => run.id)).toEqual(
+        expect.arrayContaining([first.id, second.id]),
+      );
+      const listed = (await store.listCompleted()).find((item) => item.id === first.id);
+      expect(listed?.game.kickoff).toBe(game.kickoff);
+      expect(listed?.snapshotProvenance).toBe("captured");
+    });
+
     it("keeps a failed run readable with its evidence but out of the completed list", async () => {
       const store = makeStore();
       const outcome = await runAnalysis(request(), { store, drafter: overridingDrafter });

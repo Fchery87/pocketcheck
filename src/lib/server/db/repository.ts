@@ -43,6 +43,7 @@ export type AnalysisRecord = {
   id: string;
   offerId: string;
   parentId: string | null;
+  snapshot: AnalysisSnapshot;
   cutoffAt: string;
   status: "pending" | "running" | "completed" | "failed" | "interrupted";
   conclusion: string | null;
@@ -63,6 +64,13 @@ export type AnalysisRecord = {
   usage: unknown;
   probabilityModel: unknown;
   evidenceIds: string[];
+};
+
+export type AnalysisSnapshot = {
+  version: 1;
+  provenance: "captured" | "legacy-unknown";
+  game: GameRecord;
+  offer: OfferRecord;
 };
 
 export type ReportRecord = {
@@ -220,6 +228,38 @@ export class JournalRepository {
         `;
         const persistedGameId = gameRows[0]?.id ?? gameId;
 
+        const snapshot: AnalysisSnapshot = {
+          version: 1,
+          provenance: "captured",
+          game: {
+            id: persistedGameId,
+            sourceGameId: input.game.sourceGameId,
+            season: input.game.season,
+            week: input.game.week,
+            awayTeam: input.game.awayTeam,
+            homeTeam: input.game.homeTeam,
+            kickoffAt: input.game.kickoffAt,
+            venue: input.game.venue,
+            status: input.game.status,
+          },
+          offer: {
+            id: offerId,
+            gameId: persistedGameId,
+            sportsbook: input.offer.sportsbook,
+            market: input.offer.market,
+            selection: input.offer.selection,
+            pointLine: input.offer.pointLine,
+            americanOdds: input.offer.americanOdds,
+            decimalOdds,
+            observedAt: input.offer.observedAt,
+            enteredAt: input.offer.enteredAt,
+            kickoffAt: input.offer.kickoffAt,
+            rules: input.offer.rules,
+            opposing: input.offer.opposing,
+            completedAt: completed ? completedAt : null,
+          },
+        };
+
         await tx`
           INSERT INTO offers (
             id, game_id, sportsbook, market, selection, point_line, american_odds, decimal_odds,
@@ -239,7 +279,7 @@ export class JournalRepository {
             id, offer_id, parent_id, cutoff_at, status, conclusion,
             method_version, policy_version, schema_version, prompt_version,
             evidence_packet_hash, provider, model, failure_reason, idempotency_key, completed_at,
-            policy, stages, gaps, usage, probability_model
+            policy, stages, gaps, usage, probability_model, snapshot
           ) VALUES (
             ${analysisId}, ${offerId}, ${input.analysis.parentId ?? null}, ${input.analysis.cutoffAt},
             ${input.analysis.status}, ${input.analysis.conclusion ?? null},
@@ -251,7 +291,7 @@ export class JournalRepository {
             ${completed ? completedAt : null},
             ${jsonOrNull(tx, input.analysis.policy)}, ${jsonOrNull(tx, input.analysis.stages)},
             ${jsonOrNull(tx, input.analysis.gaps)}, ${jsonOrNull(tx, input.analysis.usage)},
-            ${jsonOrNull(tx, input.analysis.probabilityModel)}
+            ${jsonOrNull(tx, input.analysis.probabilityModel)}, ${tx.json(snapshot as never)}
           )
         `;
 
@@ -311,13 +351,9 @@ export class JournalRepository {
   async readRun(analysisId: string) {
     const analysis = await this.readAnalysis(analysisId);
     if (!analysis) throw new Error(`Analysis not found: ${analysisId}`);
-    const offer = await this.readOffer(analysis.offerId);
-    if (!offer) throw new Error(`Offer not found: ${analysis.offerId}`);
-    const game = await this.readGameForOffer(analysis.offerId);
-    if (!game) throw new Error(`Game not found for offer: ${analysis.offerId}`);
     return {
-      game,
-      offer,
+      game: analysis.snapshot.game,
+      offer: analysis.snapshot.offer,
       evidence: await this.readEvidenceForAnalysis(analysisId),
       analysis,
       report: await this.readReport(analysisId),
@@ -348,22 +384,27 @@ export class JournalRepository {
         selection: Offer["selection"];
         point_line: string | null;
         american_odds: number;
+        snapshot_provenance: "captured" | "legacy-unknown";
         relies_on_manual_evidence: boolean;
       }[]
     >`
       SELECT a.id, a.parent_id, a.created_at, a.conclusion,
-             g.source_game_id, g.home_team, g.away_team, g.kickoff_at,
+             a.snapshot->'game'->>'sourceGameId' AS source_game_id,
+             a.snapshot->'game'->>'homeTeam' AS home_team,
+             a.snapshot->'game'->>'awayTeam' AS away_team,
+             (a.snapshot->'game'->>'kickoffAt')::timestamptz AS kickoff_at,
              o.sportsbook, o.market, o.selection, o.point_line, o.american_odds,
+             a.snapshot->>'provenance' AS snapshot_provenance,
              COALESCE((a.policy->>'reliesOnManualEvidence')::boolean, false) AS relies_on_manual_evidence
       FROM analyses a
       JOIN offers o ON o.id = a.offer_id
-      JOIN games g ON g.id = o.game_id
       WHERE a.status = 'completed'
       ORDER BY a.created_at DESC
     `;
     return rows.map((row) => ({
       id: row.id,
       parentId: row.parent_id,
+      snapshotProvenance: row.snapshot_provenance,
       createdAt: iso(row.created_at)!,
       conclusion: row.conclusion,
       game: {
@@ -600,7 +641,7 @@ export class JournalRepository {
             id, offer_id, parent_id, cutoff_at, status, conclusion,
             method_version, policy_version, schema_version, prompt_version,
             evidence_packet_hash, provider, model, failure_reason, idempotency_key, completed_at,
-            created_at, policy, stages, gaps, usage, probability_model
+            created_at, policy, stages, gaps, usage, probability_model, snapshot
           ) VALUES (
             ${analysis.id}, ${analysis.offerId}, ${analysis.parentId},
             ${analysis.cutoffAt}, ${analysis.status}, ${analysis.conclusion},
@@ -610,7 +651,7 @@ export class JournalRepository {
             ${analysis.completedAt}, ${analysis.createdAt},
             ${jsonOrNull(tx, analysis.policy)}, ${jsonOrNull(tx, analysis.stages)},
             ${jsonOrNull(tx, analysis.gaps)}, ${jsonOrNull(tx, analysis.usage)},
-            ${jsonOrNull(tx, analysis.probabilityModel)}
+            ${jsonOrNull(tx, analysis.probabilityModel)}, ${tx.json(analysis.snapshot as never)}
           )
           ON CONFLICT DO NOTHING
         `;
@@ -669,13 +710,6 @@ export class JournalRepository {
     });
 
     return this.exportJournal(snapshot.analyses.map((row) => row.id));
-  }
-
-  private async readGameForOffer(offerId: string): Promise<GameRecord | null> {
-    const rows = await this.sql<GameRow[]>`
-      SELECT g.* FROM games g JOIN offers o ON o.game_id = g.id WHERE o.id = ${offerId}
-    `;
-    return rows[0] ? mapGame(rows[0]) : null;
   }
 
   private async readOffer(id: string): Promise<OfferRecord | null> {
@@ -787,6 +821,7 @@ type AnalysisRow = {
   id: string;
   offer_id: string;
   parent_id: string | null;
+  snapshot: AnalysisSnapshot;
   cutoff_at: Date;
   status: AnalysisRecord["status"];
   conclusion: string | null;
@@ -904,6 +939,7 @@ function mapAnalysis(row: AnalysisRow, evidenceIds: string[]): AnalysisRecord {
     id: row.id,
     offerId: row.offer_id,
     parentId: row.parent_id,
+    snapshot: row.snapshot,
     cutoffAt: iso(row.cutoff_at)!,
     status: row.status,
     conclusion: row.conclusion,

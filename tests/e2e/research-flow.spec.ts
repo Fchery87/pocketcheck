@@ -3,7 +3,6 @@ import { expect, test } from "@playwright/test";
 test.beforeAll(async ({ request }) => {
   const response = await request.get("/__verification");
   expect(response.ok()).toBe(true);
-  expect((await response.json()).analyses).toBe(0);
 });
 
 test.beforeEach(async ({ request }) => {
@@ -29,7 +28,7 @@ test("production rejects a mismatched form origin", async ({ request }) => {
   expect(response.status()).toBe(403);
 });
 
-test("offer, report, refresh, and unchanged prior report", async ({ page }) => {
+test("offer, report, refresh, and unchanged prior report", async ({ page, request }) => {
   await page.goto("/");
   // The game card follows the select only after hydration.
   await page.waitForLoadState("networkidle");
@@ -51,11 +50,16 @@ test("offer, report, refresh, and unchanged prior report", async ({ page }) => {
   await forecast.getByTestId("manual-text").fill("Kickoff 52F, wind 8 mph");
   await forecast.getByTestId("manual-time").fill("2026-10-25T11:30");
   await forecast.getByTestId("manual-covers").selectOption("weather");
+  const beforeSubmission = await request.get("/__verification");
+  expect((await beforeSubmission.json()).analyses).toBe(0);
   await page.getByTestId("analyze").click();
 
   // One conclusion, owned by the policy.
   await expect(page.getByTestId("conclusion")).toHaveText("insufficient evidence");
   await expect(page.getByTestId("manual-coverage")).toContainText("kickoff forecast");
+  await expect(page.getByTestId("snapshot-provenance")).toHaveText(
+    "Game and research offer captured with this report.",
+  );
   await expect(page.getByTestId("policy")).toContainText("The model is off");
   await expect(page.getByTestId("policy")).toContainText("Expected value unavailable");
 
@@ -111,6 +115,8 @@ test("offer, report, refresh, and unchanged prior report", async ({ page }) => {
 
   await page.goto(firstUrl);
   await expect(page.getByTestId("summary")).toHaveText(firstSummary);
+  await expect(page.getByRole("heading", { name: "Report: DAL at PHI" })).toBeVisible();
+  await expect(page.locator("main > p").first()).toContainText("Lincoln Financial Field");
   await expect(page.getByTestId("price")).toContainText("-110");
   await expect(page.getByTestId("observed-at-display")).toContainText("11:30");
 
