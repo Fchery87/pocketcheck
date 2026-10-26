@@ -17,7 +17,15 @@
         <a href="/analysis/{assessment.id}">{assessment.conclusion}</a>
         <span>{label(assessment)}</span>
         <span>at {assessment.offer.sportsbook}, analyzed {easternTime(assessment.createdAt)}</span>
-        {#if assessment.parentId}<span>(refresh)</span>{/if}
+        {#if assessment.assessmentRole.role === "primary"}
+          <span data-testid="assessment-role">primary: {assessment.assessmentRole.reason}</span>
+        {:else if assessment.assessmentRole.role === "refresh"}
+          <span data-testid="assessment-role">refresh: {assessment.assessmentRole.reason}</span>
+        {:else if assessment.assessmentRole.role === "ineligible"}
+          <span data-testid="assessment-role">ineligible: {assessment.assessmentRole.reason}</span>
+        {:else}
+          <span data-testid="assessment-role">unclassified: {assessment.assessmentRole.reason}</span>
+        {/if}
         {#if assessment.reliesOnManualEvidence}<span>(relies on manual evidence)</span>{/if}
         {#if assessment.snapshotProvenance === "legacy-unknown"}
           <span data-testid="legacy-snapshot-provenance">
