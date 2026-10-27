@@ -488,3 +488,68 @@ test("settings starts on the fixture drafter without calling a provider", async 
   await expect(page.getByTestId("form-success")).toHaveText("Drafter saved.");
   await expect(page.locator("body")).not.toContainText("sk-");
 });
+
+async function noHorizontalOverflow(page: Page) {
+  const widths = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollWidth,
+    client: document.documentElement.clientWidth,
+  }));
+  expect(widths.scroll).toBeLessThanOrEqual(widths.client);
+}
+
+async function fillOffer(page: Page, odds: string) {
+  await page.goto("/");
+  await page.waitForLoadState("networkidle");
+  await page.getByTestId("game-id").selectOption("2026_07_DAL_PHI");
+  await page.getByLabel("Sportsbook").fill("Example Book");
+  await page.getByTestId("market").selectOption("moneyline");
+  await page.getByTestId("observed-at").fill("2026-10-25T11:30");
+  await page.getByTestId("lean").fill("PHI");
+  await page.getByTestId("american-odds").fill(odds);
+}
+
+test("the theme cookie picks the server-rendered theme and the switch changes it", async ({
+  page,
+  context,
+}) => {
+  await context.addCookies([
+    { name: "pocketcheck-theme", value: "dark", url: test.info().project.use.baseURL! },
+  ]);
+  const response = await page.goto("/");
+  expect(await response!.text()).toMatch(/<html lang="en" data-theme="dark"/);
+  await page.waitForLoadState("networkidle");
+
+  const themes = page.getByTestId("theme-switch");
+  await expect(themes.getByRole("radio", { name: "Dark" })).toHaveAttribute("aria-checked", "true");
+  await themes.getByRole("radio", { name: "Light" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+
+  await page.getByTestId("theme-switch").getByRole("radio", { name: "System" }).click();
+  await expect(page.locator("html")).not.toHaveAttribute("data-theme");
+  const cookie = (await context.cookies()).find((item) => item.name === "pocketcheck-theme");
+  expect(cookie?.value).toBe("system");
+});
+
+test("a failed submission focuses the offer and keeps every typed value", async ({ page }) => {
+  await fillOffer(page, "not a price");
+  await page.getByTestId("analyze").click();
+  await expect(page.getByTestId("form-error")).toContainText("Invalid American price");
+  await expect(page.getByRole("heading", { name: "Offer", exact: true })).toBeFocused();
+  await expect(page.getByLabel("Sportsbook")).toHaveValue("Example Book");
+  await expect(page.getByTestId("market")).toHaveValue("moneyline");
+  await expect(page.getByTestId("observed-at")).toHaveValue("2026-10-25T11:30");
+  await expect(page.getByTestId("lean")).toHaveValue("PHI");
+  await expect(page.getByTestId("american-odds")).toHaveValue("not a price");
+});
+
+test("Analyze and the report fit a 390px phone", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await fillOffer(page, "-110");
+  await noHorizontalOverflow(page);
+  await page.getByTestId("analyze").click();
+  await expect(page.getByTestId("conclusion")).toBeVisible();
+  await noHorizontalOverflow(page);
+  await expect(page.getByTestId("policy")).toContainText("Expected value unavailable");
+});
