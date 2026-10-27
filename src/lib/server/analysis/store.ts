@@ -9,7 +9,10 @@ import {
   type Market,
 } from "#lib/domain/offer.ts";
 import { compareClosing, type ClosingComparison } from "./closing.ts";
-import type { ProviderRequestRecord, ThesisReport } from "../providers/contracts.ts";
+import type {
+  ProviderRequestRecord,
+  ThesisReport,
+} from "../providers/contracts.ts";
 import type { RunModel } from "./model.ts";
 import type { SavedForecast } from "./forecast-record.ts";
 import type { PolicyDecision } from "./policy.ts";
@@ -18,7 +21,11 @@ import type { AttemptRequest } from "./attempt.ts";
 import type { JournalExport } from "../db/repository.ts";
 import { assertRestorable } from "../db/repository.ts";
 import { classifyPregameRuns, type PregameRun } from "./primary.ts";
-import { createMemoryBoardStore, type GameBoardStore, type OpenPick } from "./board-store.ts";
+import {
+  createMemoryBoardStore,
+  type GameBoardStore,
+  type OpenPick,
+} from "./board-store.ts";
 
 /**
  * Research store contract.
@@ -56,7 +63,8 @@ export type RunUsage = {
 
 export type { ProviderRequestRecord };
 
-export type RunStatus = "pending" | "running" | "completed" | "interrupted" | "failed";
+export type RunStatus =
+  "pending" | "running" | "completed" | "interrupted" | "failed";
 
 export type PrivateLean = {
   text: string;
@@ -123,7 +131,12 @@ export type ResearchRun = {
 
 export type NewRun = Omit<
   ResearchRun,
-  "id" | "createdAt" | "completedAt" | "assessmentRole" | "snapshotVersion" | "snapshotProvenance"
+  | "id"
+  | "createdAt"
+  | "completedAt"
+  | "assessmentRole"
+  | "snapshotVersion"
+  | "snapshotProvenance"
 > & {
   id?: string;
 };
@@ -148,20 +161,30 @@ export type RunSummary = {
   createdAt: string;
   conclusion: string;
   game: Pick<RunGame, "id" | "home" | "away" | "kickoff">;
-  offer: Pick<Offer, "sportsbook" | "market" | "selection" | "pointLine" | "americanOdds">;
+  offer: Pick<
+    Offer,
+    "sportsbook" | "market" | "selection" | "pointLine" | "americanOdds"
+  >;
   reliesOnManualEvidence: boolean;
   /** Null only while a store has not yet attached a role. The journal always fills it. */
   assessmentRole: AssessmentRole;
 };
 
-export function summarize(run: ResearchRun): Omit<RunSummary, "assessmentRole"> {
+export function summarize(
+  run: ResearchRun,
+): Omit<RunSummary, "assessmentRole"> {
   return {
     id: run.id,
     parentId: run.parentId,
     snapshotProvenance: run.snapshotProvenance,
     createdAt: run.createdAt,
     conclusion: run.policy?.conclusion ?? run.report?.conclusion ?? "unknown",
-    game: { id: run.game.id, home: run.game.home, away: run.game.away, kickoff: run.game.kickoff },
+    game: {
+      id: run.game.id,
+      home: run.game.home,
+      away: run.game.away,
+      kickoff: run.game.kickoff,
+    },
     offer: {
       sportsbook: run.offer.sportsbook,
       market: run.offer.market,
@@ -174,14 +197,18 @@ export function summarize(run: ResearchRun): Omit<RunSummary, "assessmentRole"> 
 }
 
 const PRIMARY_REASON = "Earliest completed analysis before kickoff";
-const REFRESH_REASON = "Later completed analysis. The primary assessment is unchanged.";
+const REFRESH_REASON =
+  "Later completed analysis. The primary assessment is unchanged.";
 const AFTER_KICKOFF_REASON =
   "Decision cutoff is not before kickoff, so this analysis is not an eligible pregame assessment.";
 const UNCLASSIFIED_REASON =
   "Completion time was not recorded, so this analysis was not classified before outcomes.";
 
 export function assessmentRoleFor(
-  run: Pick<ResearchRun, "id" | "status" | "cutoffAt" | "game" | "createdAt"> & {
+  run: Pick<
+    ResearchRun,
+    "id" | "status" | "cutoffAt" | "game" | "createdAt"
+  > & {
     completedAt: string | null;
   },
   siblings: Array<
@@ -201,7 +228,9 @@ export function assessmentRoleFor(
     kickoffAt: item.game.kickoff,
     status: item.status === "interrupted" ? "interrupted" : item.status,
   }));
-  const choice = classifyPregameRuns(pregame).find((item) => item.id === run.id);
+  const choice = classifyPregameRuns(pregame).find(
+    (item) => item.id === run.id,
+  );
   if (!choice || choice.role === "ineligible") {
     const reason =
       choice?.reason === "after-kickoff"
@@ -209,8 +238,13 @@ export function assessmentRoleFor(
         : "This analysis did not complete before kickoff.";
     return { role: "ineligible", reason };
   }
-  if (choice.role === "primary") return { role: "primary", reason: PRIMARY_REASON };
-  return { role: "refresh", primaryId: choice.primaryId, reason: REFRESH_REASON };
+  if (choice.role === "primary")
+    return { role: "primary", reason: PRIMARY_REASON };
+  return {
+    role: "refresh",
+    primaryId: choice.primaryId,
+    reason: REFRESH_REASON,
+  };
 }
 
 export type ContractProvenance = "captured" | "legacy-unknown";
@@ -258,7 +292,10 @@ export type RecordBetResult =
   | { kind: "existing"; bet: ActualBet }
   | { kind: "conflict"; error: string };
 
-export type ClosingSubject = { kind: "analysis" | "bet" | "model-pick"; id: string };
+export type ClosingSubject = {
+  kind: "analysis" | "bet" | "model-pick";
+  id: string;
+};
 
 export type ClosingProvenance = "observed" | "archived-untimestamped";
 
@@ -294,7 +331,10 @@ export type NewClosing = {
   source: string;
 };
 
-export type RecordClosingResult = { kind: "created"; closing: ClosingObservation };
+export type RecordClosingResult = {
+  kind: "created";
+  closing: ClosingObservation;
+};
 
 export type ArchivedClosing = {
   subject: ClosingSubject;
@@ -306,7 +346,8 @@ export type ArchivedClosing = {
   source: string;
 };
 
-export type SettlementNoticeKind = "final" | "postponed" | "void" | "unresolved";
+export type SettlementNoticeKind =
+  "final" | "postponed" | "void" | "unresolved";
 
 export type RecordSettlementInput = {
   eventId: string;
@@ -369,7 +410,9 @@ export type ResearchStore = {
   recordClosing: (closing: NewClosing) => Promise<RecordClosingResult>;
   /** Oldest first. Earlier observations stay when a later one is recorded. */
   listClosings: () => Promise<ClosingObservation[]>;
-  recordSettlement: (input: RecordSettlementInput) => Promise<RecordSettlementResult>;
+  recordSettlement: (
+    input: RecordSettlementInput,
+  ) => Promise<RecordSettlementResult>;
   readSettlement: (input: {
     analysisId: string;
     betId?: string | null;
@@ -377,7 +420,9 @@ export type ResearchStore = {
   /** Test seam: a completed row whose role was never frozen at completion. */
   recordUnclassifiedCompleted?: (run: ResearchRun) => Promise<void>;
   /** Test seam: an archived price with no observation time. */
-  recordArchivedClosing?: (closing: ArchivedClosing) => Promise<ClosingObservation>;
+  recordArchivedClosing?: (
+    closing: ArchivedClosing,
+  ) => Promise<ClosingObservation>;
   /** Version 1 journal backup. Credentials and bulk caches are not included. */
   exportJournal: () => Promise<JournalExport>;
   /**
@@ -404,16 +449,27 @@ export function createMemoryStore(): JournalStore {
 
   function freezeRole(saved: ResearchRun): AssessmentRole {
     const completedAt = saved.completedAt ?? saved.createdAt;
-    const sameGame = [...runs.values()].filter((run) => run.game.id === saved.game.id);
-    const existingPrimary = sameGame.find((run) => run.assessmentRole?.role === "primary");
+    const sameGame = [...runs.values()].filter(
+      (run) => run.game.id === saved.game.id,
+    );
+    const existingPrimary = sameGame.find(
+      (run) => run.assessmentRole?.role === "primary",
+    );
     if (saved.status !== "completed" || completedAt === null) {
-      return assessmentRoleFor({ ...saved, completedAt: null }, [{ ...saved, completedAt: null }]);
+      return assessmentRoleFor({ ...saved, completedAt: null }, [
+        { ...saved, completedAt: null },
+      ]);
     }
     if (!(Date.parse(saved.cutoffAt) < Date.parse(saved.game.kickoff))) {
-      return assessmentRoleFor({ ...saved, completedAt }, [{ ...saved, completedAt }]);
+      return assessmentRoleFor({ ...saved, completedAt }, [
+        { ...saved, completedAt },
+      ]);
     }
     if (!existingPrimary || existingPrimary.id === saved.id) {
-      return { role: "primary", reason: "Earliest completed analysis before kickoff" };
+      return {
+        role: "primary",
+        reason: "Earliest completed analysis before kickoff",
+      };
     }
     return {
       role: "refresh",
@@ -435,11 +491,13 @@ export function createMemoryStore(): JournalStore {
       const existingId = requests.get(requestId);
       if (existingId) {
         const existing = runs.get(existingId);
-        if (!existing) throw new Error(`Attempt index is inconsistent: ${requestId}`);
+        if (!existing)
+          throw new Error(`Attempt index is inconsistent: ${requestId}`);
         if (existing.request?.hash !== requestHash) {
           return {
             kind: "conflict",
-            error: "This request identifier was already used with different inputs.",
+            error:
+              "This request identifier was already used with different inputs.",
           };
         }
         return { kind: "existing", run: structuredClone(existing) };
@@ -447,7 +505,9 @@ export function createMemoryStore(): JournalStore {
       const id = input.id ?? randomUUID();
       const createdAt = new Date().toISOString();
       const terminal =
-        input.status === "completed" || input.status === "failed" || input.status === "interrupted";
+        input.status === "completed" ||
+        input.status === "failed" ||
+        input.status === "interrupted";
       const draft: ResearchRun = structuredClone({
         ...input,
         id,
@@ -464,7 +524,8 @@ export function createMemoryStore(): JournalStore {
       return { kind: "created", run: structuredClone(draft) };
     },
     async updateAttempt(input) {
-      if (!input.id) throw new Error("An attempt update requires an analysis id.");
+      if (!input.id)
+        throw new Error("An attempt update requires an analysis id.");
       const existing = runs.get(input.id);
       if (!existing) throw new Error(`Analysis not found: ${input.id}`);
       if (existing.status === "completed") return structuredClone(existing);
@@ -472,22 +533,29 @@ export function createMemoryStore(): JournalStore {
         existing.request?.id !== input.request?.id ||
         existing.request?.hash !== input.request?.hash
       ) {
-        throw new Error("An attempt update cannot change its request identity or inputs.");
+        throw new Error(
+          "An attempt update cannot change its request identity or inputs.",
+        );
       }
       const terminal =
-        input.status === "completed" || input.status === "failed" || input.status === "interrupted";
-      const completedAt = existing.completedAt ?? (terminal ? new Date().toISOString() : null);
+        input.status === "completed" ||
+        input.status === "failed" ||
+        input.status === "interrupted";
+      const completedAt =
+        existing.completedAt ?? (terminal ? new Date().toISOString() : null);
       const updated: ResearchRun = structuredClone({
         ...input,
         id: input.id,
-        forecast: input.forecast === undefined ? existing.forecast : input.forecast,
+        forecast:
+          input.forecast === undefined ? existing.forecast : input.forecast,
         createdAt: existing.createdAt,
         completedAt,
         snapshotVersion: existing.snapshotVersion,
         snapshotProvenance: existing.snapshotProvenance,
         assessmentRole: existing.assessmentRole,
       });
-      if (terminal && !updated.assessmentRole) updated.assessmentRole = freezeRole(updated);
+      if (terminal && !updated.assessmentRole)
+        updated.assessmentRole = freezeRole(updated);
       runs.set(updated.id, updated);
       return structuredClone(updated);
     },
@@ -512,20 +580,24 @@ export function createMemoryStore(): JournalStore {
     },
     async markInterrupted(id) {
       const run = runs.get(id);
-      if (!run || run.status === "completed") return run ? structuredClone(run) : null;
+      if (!run || run.status === "completed")
+        return run ? structuredClone(run) : null;
       const interrupted: ResearchRun = {
         ...run,
         status: "interrupted",
         completedAt: run.completedAt ?? new Date().toISOString(),
         assessmentRole: run.assessmentRole,
       };
-      if (!interrupted.assessmentRole) interrupted.assessmentRole = freezeRole(interrupted);
+      if (!interrupted.assessmentRole)
+        interrupted.assessmentRole = freezeRole(interrupted);
       runs.set(id, interrupted);
       return structuredClone(interrupted);
     },
     async recordBet(bet) {
       const write = betWrites.then(async () => {
-        const board = bet.modelPickId ? await boardStore.getBoardForPick(bet.modelPickId) : null;
+        const board = bet.modelPickId
+          ? await boardStore.getBoardForPick(bet.modelPickId)
+          : null;
         return recordMemoryBet(
           { runs, bets, submissions, fingerprints },
           bet,
@@ -543,7 +615,12 @@ export function createMemoryStore(): JournalStore {
     },
     async recordClosing(input) {
       const saved = recordMemoryClosing(
-        { runs, bets, closings, pickOpen: (pickId) => boardStore.pickContract(pickId) },
+        {
+          runs,
+          bets,
+          closings,
+          pickOpen: (pickId) => boardStore.pickContract(pickId),
+        },
         input,
       );
       return { kind: "created", closing: structuredClone(saved) };
@@ -552,7 +629,9 @@ export function createMemoryStore(): JournalStore {
       return closings.map((item) => structuredClone(item));
     },
     async recordSettlement(input) {
-      const write = betWrites.then(() => recordMemorySettlement({ runs, bets, notices }, input));
+      const write = betWrites.then(() =>
+        recordMemorySettlement({ runs, bets, notices }, input),
+      );
       betWrites = write.then(
         () => undefined,
         () => undefined,
@@ -565,7 +644,12 @@ export function createMemoryStore(): JournalStore {
     async recordUnclassifiedCompleted(run) {
       runs.set(
         run.id,
-        structuredClone({ ...run, status: "completed", assessmentRole: null, completedAt: null }),
+        structuredClone({
+          ...run,
+          status: "completed",
+          assessmentRole: null,
+          completedAt: null,
+        }),
       );
     },
     async recordArchivedClosing(input) {
@@ -590,13 +674,17 @@ export function createMemoryStore(): JournalStore {
       for (const [id, run] of incoming.runs) {
         const existing = runs.get(id);
         if (existing && JSON.stringify(existing) !== JSON.stringify(run)) {
-          throw new Error(`Conflicting analysis identifier ${id} does not match the saved record.`);
+          throw new Error(
+            `Conflicting analysis identifier ${id} does not match the saved record.`,
+          );
         }
       }
       for (const bet of incoming.bets) {
         const existing = bets.find((item) => item.id === bet.id);
         if (existing && JSON.stringify(existing) !== JSON.stringify(bet)) {
-          throw new Error(`Conflicting bet identifier ${bet.id} does not match the saved record.`);
+          throw new Error(
+            `Conflicting bet identifier ${bet.id} does not match the saved record.`,
+          );
         }
       }
       for (const [id, run] of incoming.runs) {
@@ -610,10 +698,12 @@ export function createMemoryStore(): JournalStore {
         }
       }
       for (const closing of incoming.closings) {
-        if (!closings.some((item) => item.id === closing.id)) closings.push(closing);
+        if (!closings.some((item) => item.id === closing.id))
+          closings.push(closing);
       }
       for (const notice of incoming.notices) {
-        if (!notices.some((item) => item.id === notice.id)) notices.push(notice);
+        if (!notices.some((item) => item.id === notice.id))
+          notices.push(notice);
       }
       return memoryBackup(runs, bets, closings, notices);
     },
@@ -636,14 +726,16 @@ function recordMemoryBet(
   }
   let game: { id: string; kickoff: string };
   if (input.modelPickId) {
-    if (!pickGame) throw new Error(`Model pick not found: ${input.modelPickId}`);
+    if (!pickGame)
+      throw new Error(`Model pick not found: ${input.modelPickId}`);
     game = pickGame;
   } else {
     const run = state.runs.get(input.analysisId!);
     if (!run) throw new Error(`Analysis not found: ${input.analysisId}`);
     game = { id: run.game.id, kickoff: run.game.kickoff };
   }
-  if (!input.submissionId) throw new Error("An actual bet requires a submission identifier.");
+  if (!input.submissionId)
+    throw new Error("An actual bet requires a submission identifier.");
   if (!Number.isFinite(input.stakeUnits) || input.stakeUnits <= 0) {
     throw new Error("Stake must be a positive number of units");
   }
@@ -677,11 +769,15 @@ function recordMemoryBet(
   const existingId = state.submissions.get(input.submissionId);
   if (existingId) {
     const existing = state.bets.find((item) => item.id === existingId);
-    if (!existing) throw new Error(`Bet submission index is inconsistent: ${input.submissionId}`);
+    if (!existing)
+      throw new Error(
+        `Bet submission index is inconsistent: ${input.submissionId}`,
+      );
     if (state.fingerprints.get(existing.id) !== fingerprint) {
       return {
         kind: "conflict",
-        error: "This submission identifier was already used with different inputs.",
+        error:
+          "This submission identifier was already used with different inputs.",
       };
     }
     return { kind: "existing", bet: structuredClone(existing) };
@@ -748,7 +844,9 @@ function openSide(
   const bet = state.bets.find((item) => item.id === subject.id);
   if (!bet) throw new Error(`Bet not found: ${subject.id}`);
   if (!bet.analysisId) {
-    throw new Error("A bet placed from a model pick has no analysis to compare against yet.");
+    throw new Error(
+      "A bet placed from a model pick has no analysis to compare against yet.",
+    );
   }
   const run = state.runs.get(bet.analysisId);
   if (!run) throw new Error(`Analysis not found: ${bet.analysisId}`);
@@ -777,7 +875,8 @@ function recordMemoryClosing(
   input: NewClosing,
   provenance: ClosingProvenance = "observed",
 ): ClosingObservation {
-  if (!input.source.trim()) throw new Error("A closing observation requires a source.");
+  if (!input.source.trim())
+    throw new Error("A closing observation requires a source.");
   const open = openSide(state, input.subject);
   if (provenance === "archived-untimestamped") {
     const saved: ClosingObservation = {
@@ -788,7 +887,11 @@ function recordMemoryClosing(
       market: input.market,
       selection: input.selection,
       pointLine: input.pointLine ?? null,
-      rules: { period: "full-game", overtime: "included", tie: input.rules.tie ?? null },
+      rules: {
+        period: "full-game",
+        overtime: "included",
+        tie: input.rules.tie ?? null,
+      },
       americanOdds: input.americanOdds,
       observedAt: null,
       source: input.source.trim(),
@@ -878,19 +981,24 @@ function recordMemorySettlement(
     if (!input.reason?.trim()) {
       return { kind: "conflict", error: "A correction requires a reason." };
     }
-    const prior = state.notices.find((item) => item.id === input.correctsNoticeId);
+    const prior = state.notices.find(
+      (item) => item.id === input.correctsNoticeId,
+    );
     if (!prior || prior.analysisId !== input.analysisId) {
       throw new Error(`Settlement not found: ${input.correctsNoticeId}`);
     }
   }
   const payloadKey = settlementPayloadKey(input);
-  const sameEvent = state.notices.filter((item) => item.eventId === input.eventId);
+  const sameEvent = state.notices.filter(
+    (item) => item.eventId === input.eventId,
+  );
   if (sameEvent.length > 0) {
     const match = sameEvent.find((item) => item.payloadKey === payloadKey);
     if (match) return { kind: "duplicate", noticeId: match.id };
     return {
       kind: "conflict",
-      error: "This settlement event identifier was already used with different inputs.",
+      error:
+        "This settlement event identifier was already used with different inputs.",
     };
   }
   const saved: StoredNotice = {
@@ -912,7 +1020,10 @@ function recordMemorySettlement(
   return { kind: "recorded", noticeId: saved.id };
 }
 
-export function gradeFromNotices(offer: Offer, notices: StoredNotice[]): SettlementGrade {
+export function gradeFromNotices(
+  offer: Offer,
+  notices: StoredNotice[],
+): SettlementGrade {
   const ordered = [...notices].sort((left, right) =>
     left.recordedAt.localeCompare(right.recordedAt),
   );
@@ -930,7 +1041,8 @@ export function gradeFromNotices(offer: Offer, notices: StoredNotice[]): Settlem
 }
 
 function gradeNotice(offer: Offer, notice: StoredNotice): Settlement {
-  if (notice.kind === "postponed" || notice.kind === "unresolved") return "unresolved";
+  if (notice.kind === "postponed" || notice.kind === "unresolved")
+    return "unresolved";
   if (notice.kind === "void") return "void";
   return settleOffer(offer, {
     homeScore: notice.homeScore ?? Number.NaN,
@@ -949,11 +1061,19 @@ function readMemorySettlement(
 ): { assessment: SettlementGrade; bet: SettlementGrade | null } {
   const run = state.runs.get(input.analysisId);
   if (!run) throw new Error(`Analysis not found: ${input.analysisId}`);
-  const forRun = state.notices.filter((item) => item.analysisId === input.analysisId);
+  const forRun = state.notices.filter(
+    (item) => item.analysisId === input.analysisId,
+  );
   const assessment = gradeFromNotices(run.offer, forRun);
   if (!input.betId) return { assessment, bet: null };
   const bet = state.bets.find((item) => item.id === input.betId);
-  if (!bet || bet.analysisId !== input.analysisId || !bet.market || !bet.selection || !bet.rules) {
+  if (
+    !bet ||
+    bet.analysisId !== input.analysisId ||
+    !bet.market ||
+    !bet.selection ||
+    !bet.rules
+  ) {
     return { assessment, bet: null };
   }
   const contract = parseOffer({
@@ -1014,7 +1134,9 @@ function memoryFromBackup(backup: JournalExport): {
   return {
     runs: new Map(body.runs.map((run) => [run.id, structuredClone(run)])),
     bets: (body.actualBets ?? []).map((bet) => structuredClone(bet)),
-    closings: (body.closingObservations ?? []).map((closing) => structuredClone(closing)),
+    closings: (body.closingObservations ?? []).map((closing) =>
+      structuredClone(closing),
+    ),
     notices: (body.notices ?? []).map((notice) => structuredClone(notice)),
   };
 }
