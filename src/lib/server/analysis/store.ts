@@ -18,7 +18,7 @@ import type { AttemptRequest } from "./attempt.ts";
 import type { JournalExport } from "../db/repository.ts";
 import { assertRestorable } from "../db/repository.ts";
 import { classifyPregameRuns, type PregameRun } from "./primary.ts";
-import { createMemoryBoardStore, type GameBoardStore } from "./board-store.ts";
+import { createMemoryBoardStore, type GameBoardStore, type OpenPick } from "./board-store.ts";
 
 /**
  * Research store contract.
@@ -161,7 +161,12 @@ export function summarize(run: ResearchRun): Omit<RunSummary, "assessmentRole"> 
     snapshotProvenance: run.snapshotProvenance,
     createdAt: run.createdAt,
     conclusion: run.policy?.conclusion ?? run.report?.conclusion ?? "unknown",
-    game: { id: run.game.id, home: run.game.home, away: run.game.away, kickoff: run.game.kickoff },
+    game: {
+      id: run.game.id,
+      home: run.game.home,
+      away: run.game.away,
+      kickoff: run.game.kickoff,
+    },
     offer: {
       sportsbook: run.offer.sportsbook,
       market: run.offer.market,
@@ -210,7 +215,11 @@ export function assessmentRoleFor(
     return { role: "ineligible", reason };
   }
   if (choice.role === "primary") return { role: "primary", reason: PRIMARY_REASON };
-  return { role: "refresh", primaryId: choice.primaryId, reason: REFRESH_REASON };
+  return {
+    role: "refresh",
+    primaryId: choice.primaryId,
+    reason: REFRESH_REASON,
+  };
 }
 
 export type ContractProvenance = "captured" | "legacy-unknown";
@@ -258,7 +267,10 @@ export type RecordBetResult =
   | { kind: "existing"; bet: ActualBet }
   | { kind: "conflict"; error: string };
 
-export type ClosingSubject = { kind: "analysis" | "bet"; id: string };
+export type ClosingSubject = {
+  kind: "analysis" | "bet" | "model-pick";
+  id: string;
+};
 
 export type ClosingProvenance = "observed" | "archived-untimestamped";
 
@@ -294,7 +306,10 @@ export type NewClosing = {
   source: string;
 };
 
-export type RecordClosingResult = { kind: "created"; closing: ClosingObservation };
+export type RecordClosingResult = {
+  kind: "created";
+  closing: ClosingObservation;
+};
 
 export type ArchivedClosing = {
   subject: ClosingSubject;
@@ -413,7 +428,10 @@ export function createMemoryStore(): JournalStore {
       return assessmentRoleFor({ ...saved, completedAt }, [{ ...saved, completedAt }]);
     }
     if (!existingPrimary || existingPrimary.id === saved.id) {
-      return { role: "primary", reason: "Earliest completed analysis before kickoff" };
+      return {
+        role: "primary",
+        reason: "Earliest completed analysis before kickoff",
+      };
     }
     return {
       role: "refresh",
@@ -542,7 +560,15 @@ export function createMemoryStore(): JournalStore {
       return [...bets];
     },
     async recordClosing(input) {
-      const saved = recordMemoryClosing({ runs, bets, closings }, input);
+      const saved = recordMemoryClosing(
+        {
+          runs,
+          bets,
+          closings,
+          pickOpen: (pickId) => boardStore.pickContract(pickId),
+        },
+        input,
+      );
       return { kind: "created", closing: structuredClone(saved) };
     },
     async listClosings() {
@@ -562,7 +588,12 @@ export function createMemoryStore(): JournalStore {
     async recordUnclassifiedCompleted(run) {
       runs.set(
         run.id,
-        structuredClone({ ...run, status: "completed", assessmentRole: null, completedAt: null }),
+        structuredClone({
+          ...run,
+          status: "completed",
+          assessmentRole: null,
+          completedAt: null,
+        }),
       );
     },
     async recordArchivedClosing(input) {
@@ -716,7 +747,11 @@ type OpenSide = {
 };
 
 function openSide(
-  state: { runs: Map<string, ResearchRun>; bets: ActualBet[] },
+  state: {
+    runs: Map<string, ResearchRun>;
+    bets: ActualBet[];
+    pickOpen?: (pickId: string) => OpenPick | null;
+  },
   subject: ClosingSubject,
 ): OpenSide {
   if (subject.kind === "analysis") {
@@ -732,6 +767,11 @@ function openSide(
       americanOdds: run.offer.americanOdds,
       rules: run.offer.rules,
     };
+  }
+  if (subject.kind === "model-pick") {
+    const open = state.pickOpen?.(subject.id);
+    if (!open) throw new Error(`Model pick not found: ${subject.id}`);
+    return open;
   }
   const bet = state.bets.find((item) => item.id === subject.id);
   if (!bet) throw new Error(`Bet not found: ${subject.id}`);
@@ -756,7 +796,12 @@ function openSide(
 }
 
 function recordMemoryClosing(
-  state: { runs: Map<string, ResearchRun>; bets: ActualBet[]; closings: ClosingObservation[] },
+  state: {
+    runs: Map<string, ResearchRun>;
+    bets: ActualBet[];
+    closings: ClosingObservation[];
+    pickOpen?: (pickId: string) => OpenPick | null;
+  },
   input: NewClosing,
   provenance: ClosingProvenance = "observed",
 ): ClosingObservation {
@@ -771,7 +816,11 @@ function recordMemoryClosing(
       market: input.market,
       selection: input.selection,
       pointLine: input.pointLine ?? null,
-      rules: { period: "full-game", overtime: "included", tie: input.rules.tie ?? null },
+      rules: {
+        period: "full-game",
+        overtime: "included",
+        tie: input.rules.tie ?? null,
+      },
       americanOdds: input.americanOdds,
       observedAt: null,
       source: input.source.trim(),

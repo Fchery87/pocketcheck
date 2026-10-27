@@ -13,9 +13,11 @@ import {
   type GameBoard,
   type GameBoardStatus,
   type GameBoardStore,
+  type ListedModelPick,
   type ModelPick,
   type NewGameBoard,
 } from "./board-store.ts";
+import { chooseModelPickRole, unclassifiedPickRole } from "./model-pick-primary.ts";
 import type { SavedForecast } from "./forecast-record.ts";
 import type { ModelPickCalculation } from "./model-pick.ts";
 import type { RunGame, RunUsage, StoredNotice } from "./store.ts";
@@ -61,6 +63,10 @@ type PickRow = {
   forecasting_model: ForecastingModelIdentity;
   forecast: SavedForecast | null;
   created_at: Date;
+  pick_role: "primary" | "refresh" | "ineligible" | null;
+  reason: string | null;
+  primary_pick_id_role: string | null;
+  protocol_id: string | null;
 };
 
 const MARKET_ORDER: Market[] = ["moneyline", "spread", "total"];
@@ -77,7 +83,14 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore {
     const markets = await db<MarketRow[]>`
       SELECT market, offers, no_pick_reason FROM board_markets WHERE board_id = ${id}
     `;
-    const picks = await db<PickRow[]>`SELECT * FROM model_picks WHERE board_id = ${id}`;
+    const picks = await db<PickRow[]>`
+      SELECT p.id, p.board_id, p.market, p.parent_pick_id, p.calculation, p.forecasting_model,
+        p.forecast, p.created_at, r.role AS pick_role, r.reason, r.primary_pick_id AS primary_pick_id_role,
+        r.protocol_id
+      FROM model_picks p
+      LEFT JOIN model_pick_roles r ON r.pick_id = p.id
+      WHERE p.board_id = ${id}
+    `;
     const ordered = [...markets].sort(
       (left, right) => MARKET_ORDER.indexOf(left.market) - MARKET_ORDER.indexOf(right.market),
     );
@@ -251,13 +264,60 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore {
     async finishBoard(input) {
       const explanation =
         input.status === "completed" && input.explanation ? input.explanation : null;
-      await sql`
-        UPDATE game_boards
-        SET status = ${input.status}, failure_reason = ${input.failureReason},
-          explanation = ${explanation ? sql.json(explanation as never) : null},
-          completed_at = now()
-        WHERE id = ${input.boardId} AND completed_at IS NULL
-      `;
+      await sql.begin(async (tx) => {
+        const [board] = await tx<
+          Array<{
+            id: string;
+            parent_id: string | null;
+            cutoff_at: Date;
+            game_id: string;
+            kickoff_at: Date;
+          }>
+        >`
+          SELECT b.id, b.parent_id, b.cutoff_at, b.game_id, b.kickoff_at
+          FROM game_boards b
+          WHERE b.id = ${input.boardId} AND b.completed_at IS NULL
+          FOR UPDATE OF b
+        `;
+        if (!board) return;
+        await tx`
+          SELECT id FROM model_pick_roles
+          WHERE game_id = ${board.game_id}
+          FOR UPDATE
+        `;
+        const picks = await tx<Array<{ id: string; market: Market }>>`
+          SELECT id, market FROM model_picks WHERE board_id = ${input.boardId}
+        `;
+        for (const pick of picks) {
+          const [existing] = await tx<{ pick_id: string }[]>`
+            SELECT pick_id FROM model_pick_roles
+            WHERE game_id = ${board.game_id} AND market = ${pick.market} AND role = 'primary'
+          `;
+          const role = chooseModelPickRole({
+            status: input.status,
+            cutoffAt: iso(board.cutoff_at),
+            kickoffAt: iso(board.kickoff_at),
+            isRefresh: board.parent_id !== null,
+            primaryPickId: existing?.pick_id ?? null,
+          });
+          await tx`
+            INSERT INTO model_pick_roles (
+              pick_id, game_id, market, role, reason, primary_pick_id, protocol_id
+            ) VALUES (
+              ${pick.id}, ${board.game_id}, ${pick.market}, ${role.role}, ${role.reason},
+              ${role.role === "refresh" ? role.primaryPickId : null},
+              ${role.role === "primary" ? role.protocolId : null}
+            )
+          `;
+        }
+        await tx`
+          UPDATE game_boards
+          SET status = ${input.status}, failure_reason = ${input.failureReason},
+            explanation = ${explanation ? tx.json(explanation as never) : null},
+            completed_at = now()
+          WHERE id = ${input.boardId} AND completed_at IS NULL
+        `;
+      });
       return require(sql, input.boardId);
     },
     async getBoard(id) {
@@ -364,10 +424,56 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore {
       `;
       return row ? read(sql, row.board_id) : null;
     },
+    async listModelPicks() {
+      const rows = await sql<{ board_id: string }[]>`
+        SELECT b.id AS board_id
+        FROM game_boards b
+        WHERE b.completed_at IS NOT NULL
+          AND EXISTS (SELECT 1 FROM model_picks p WHERE p.board_id = b.id)
+        ORDER BY b.completed_at, b.id
+      `;
+      const listed: ListedModelPick[] = [];
+      for (const row of rows) {
+        const board = await require(sql, row.board_id);
+        const settlement = await this.readBoardSettlement(board.id);
+        for (const market of board.markets) {
+          if (!market.pick) continue;
+          const offer = market.offers.find(
+            (item) => item.selection === market.pick!.calculation.pickedSelection,
+          );
+          const grade = settlement.markets.find((item) => item.market === market.market)?.grade;
+          if (!offer || !grade) continue;
+          listed.push({
+            pick: market.pick,
+            game: board.game,
+            observedAt: board.observedAt,
+            offer,
+            grade,
+          });
+        }
+      }
+      return listed;
+    },
   };
 }
 
 function toPick(row: PickRow): ModelPick {
+  const role =
+    row.pick_role === "primary" && row.protocol_id
+      ? {
+          role: "primary" as const,
+          reason: row.reason ?? "",
+          protocolId: row.protocol_id,
+        }
+      : row.pick_role === "refresh"
+        ? {
+            role: "refresh" as const,
+            reason: row.reason ?? "",
+            primaryPickId: row.primary_pick_id_role,
+          }
+        : row.pick_role === "ineligible"
+          ? { role: "ineligible" as const, reason: row.reason ?? "" }
+          : unclassifiedPickRole();
   return {
     id: row.id,
     boardId: row.board_id,
@@ -376,6 +482,7 @@ function toPick(row: PickRow): ModelPick {
     forecastingModel: row.forecasting_model,
     calculation: row.calculation,
     forecast: row.forecast,
+    role,
     createdAt: iso(row.created_at),
   };
 }

@@ -122,7 +122,10 @@ export function createNeonStore(sql: Sql): JournalStore {
         opposing: offer.opposing,
       },
       lean: userResearch
-        ? { text: userResearch.lean ?? "", rationale: userResearch.rationale ?? "" }
+        ? {
+            text: userResearch.lean ?? "",
+            rationale: userResearch.rationale ?? "",
+          }
         : null,
       evidence: evidence.map(evidenceItem),
       evidencePacketHash: analysis.evidencePacketHash ?? "",
@@ -250,7 +253,10 @@ export function createNeonStore(sql: Sql): JournalStore {
       return readNeonSettlement(journal, input);
     },
     async recordClosing(input) {
-      return { kind: "created", closing: await persistClosing(journal, input, "observed") };
+      return {
+        kind: "created",
+        closing: await persistClosing(journal, input, "observed"),
+      };
     },
     async listClosings() {
       const [records, runs, bets] = await Promise.all([
@@ -263,7 +269,10 @@ export function createNeonStore(sql: Sql): JournalStore {
         analyses.set(summary.id, await getRun(summary.id));
       }
       const betById = new Map(bets.map((bet) => [bet.id, bet]));
-      return records.map((record) => toClosing(record, analyses, betById));
+      const closings = [];
+      for (const record of records)
+        closings.push(await toClosing(record, analyses, betById, journal));
+      return closings;
     },
     async recordArchivedClosing(input) {
       return persistClosing(
@@ -446,12 +455,17 @@ async function persistClosing(
     const record = await journal.recordClosing({
       analysisId: input.subject.kind === "analysis" ? input.subject.id : null,
       betId: input.subject.kind === "bet" ? input.subject.id : null,
+      modelPickId: input.subject.kind === "model-pick" ? input.subject.id : null,
       provenance,
       sportsbook: input.sportsbook.trim(),
       market: input.market,
       selection: input.selection,
       pointLine: input.pointLine ?? null,
-      rules: { period: "full-game", overtime: "included", tie: input.rules.tie ?? null },
+      rules: {
+        period: "full-game",
+        overtime: "included",
+        tie: input.rules.tie ?? null,
+      },
       americanOdds: input.americanOdds,
       observedAt: null,
       source: input.source.trim(),
@@ -485,6 +499,7 @@ async function persistClosing(
   const record = await journal.recordClosing({
     analysisId: input.subject.kind === "analysis" ? input.subject.id : null,
     betId: input.subject.kind === "bet" ? input.subject.id : null,
+    modelPickId: input.subject.kind === "model-pick" ? input.subject.id : null,
     provenance: "observed",
     sportsbook: contract.sportsbook,
     market: contract.market,
@@ -515,6 +530,11 @@ async function persistClosing(
 }
 
 async function openSide(journal: JournalRepository, input: NewClosing) {
+  if (input.subject.kind === "model-pick") {
+    const saved = await journal.findPickContract(input.subject.id);
+    if (!saved) throw new Error(`Model pick not found: ${input.subject.id}`);
+    return saved;
+  }
   if (input.subject.kind === "analysis") {
     const saved = await journal.findRun(input.subject.id);
     if (!saved) throw new Error(`Analysis not found: ${input.subject.id}`);
@@ -547,14 +567,17 @@ async function openSide(journal: JournalRepository, input: NewClosing) {
   };
 }
 
-function toClosing(
+async function toClosing(
   record: Awaited<ReturnType<JournalRepository["listClosings"]>>[number],
   analyses: Map<string, ResearchRun | null>,
   bets: Map<string, Awaited<ReturnType<JournalRepository["listBets"]>>[number]>,
-): ClosingObservation {
-  const subject = record.analysisId
-    ? { kind: "analysis" as const, id: record.analysisId }
-    : { kind: "bet" as const, id: record.betId! };
+  journal: JournalRepository,
+): Promise<ClosingObservation> {
+  const subject = record.modelPickId
+    ? { kind: "model-pick" as const, id: record.modelPickId }
+    : record.analysisId
+      ? { kind: "analysis" as const, id: record.analysisId }
+      : { kind: "bet" as const, id: record.betId! };
   if (record.provenance === "archived-untimestamped" || record.observedAt === null) {
     return {
       id: record.id,
@@ -572,36 +595,41 @@ function toClosing(
     };
   }
   const openContract =
-    subject.kind === "bet"
-      ? (() => {
-          const bet = bets.get(subject.id);
-          return bet?.contract && bet.sportsbook
-            ? {
-                market: bet.contract.market,
-                selection: bet.contract.selection,
-                pointLine: bet.contract.pointLine,
-                sportsbook: bet.sportsbook,
-                rules: bet.contract.rules,
-                americanOdds: bet.americanOdds,
-              }
-            : null;
-        })()
-      : (() => {
-          const analysis = analyses.get(subject.id);
-          return analysis
-            ? {
-                market: analysis.offer.market,
-                selection: analysis.offer.selection,
-                pointLine: analysis.offer.pointLine,
-                sportsbook: analysis.offer.sportsbook,
-                rules: analysis.offer.rules,
-                americanOdds: analysis.offer.americanOdds,
-              }
-            : null;
-        })();
+    subject.kind === "model-pick"
+      ? await journal.findPickContract(subject.id)
+      : subject.kind === "bet"
+        ? (() => {
+            const bet = bets.get(subject.id);
+            return bet?.contract && bet.sportsbook
+              ? {
+                  market: bet.contract.market,
+                  selection: bet.contract.selection,
+                  pointLine: bet.contract.pointLine,
+                  sportsbook: bet.sportsbook,
+                  rules: bet.contract.rules,
+                  americanOdds: bet.americanOdds,
+                }
+              : null;
+          })()
+        : (() => {
+            const analysis = analyses.get(subject.id);
+            return analysis
+              ? {
+                  market: analysis.offer.market,
+                  selection: analysis.offer.selection,
+                  pointLine: analysis.offer.pointLine,
+                  sportsbook: analysis.offer.sportsbook,
+                  rules: analysis.offer.rules,
+                  americanOdds: analysis.offer.americanOdds,
+                }
+              : null;
+          })();
   const comparison = openContract
     ? compareClosing(
-        { ...openContract, decimalOdds: americanToDecimal(openContract.americanOdds) },
+        {
+          ...openContract,
+          decimalOdds: americanToDecimal(openContract.americanOdds),
+        },
         {
           market: record.market,
           selection: record.selection,

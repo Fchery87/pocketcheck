@@ -32,7 +32,7 @@ export type CohortCounts = {
 };
 
 export type CohortSummary = {
-  sample: "primary-only" | "actual-bets";
+  sample: "primary-only" | "actual-bets" | "model-picks";
   graded: number;
   unavailable: number;
   counts: CohortCounts & { primary?: number; refresh?: number; bets?: number };
@@ -56,7 +56,13 @@ function gradedStake(
 function countsFor(
   rows: Array<{ settlement: Settlement | "postponed"; closing?: ClosingState }>,
 ): CohortCounts {
-  const counts: CohortCounts = { settled: 0, unresolved: 0, push: 0, void: 0, missingClosing: 0 };
+  const counts: CohortCounts = {
+    settled: 0,
+    unresolved: 0,
+    push: 0,
+    void: 0,
+    missingClosing: 0,
+  };
   for (const row of rows) {
     if (row.settlement === "win" || row.settlement === "loss") counts.settled += 1;
     else if (row.settlement === "push") counts.push += 1;
@@ -86,7 +92,10 @@ function finished(
     },
     roi: roi.available
       ? roi
-      : { available: false, reason: unavailable > 0 ? "unresolved-or-missing" : roi.reason },
+      : {
+          available: false,
+          reason: unavailable > 0 ? "unresolved-or-missing" : roi.reason,
+        },
   };
 }
 
@@ -101,6 +110,37 @@ export function summarizePrimary(rows: TrackedAssessment[]): CohortSummary {
   }
   return finished(
     "primary-only",
+    stakes,
+    unavailable,
+    {
+      ...countsFor(primary),
+      primary: primary.length,
+      refresh: rows.filter((row) => row.role === "refresh").length,
+    },
+    primary.filter((row) => row.closing === "comparable").length,
+  );
+}
+
+export type TrackedModelPick = {
+  id: string;
+  gameId: string;
+  role: "primary" | "refresh";
+  settlement: Settlement | "postponed";
+  unitProfit: number | null;
+  closing?: ClosingState;
+};
+
+export function summarizeModelPicks(rows: TrackedModelPick[]): CohortSummary {
+  const primary = rows.filter((row) => row.role === "primary");
+  const stakes: StakeResult[] = [];
+  let unavailable = 0;
+  for (const row of primary) {
+    const stake = gradedStake(row.settlement, row.unitProfit, 1);
+    if (stake) stakes.push(stake);
+    else unavailable += 1;
+  }
+  return finished(
+    "model-picks",
     stakes,
     unavailable,
     {
@@ -172,18 +212,22 @@ export type JournalPerformance = {
   bets: CohortSummary;
 };
 
-function profitFor(
+export function profitFor(
   result: Settlement | "unresolved",
   stake: number,
   americanOdds: number,
 ): number | null {
   if (result !== "win" && result !== "loss" && result !== "push" && result !== "void") return null;
-  return unitReturn({ result, stake, decimalOdds: americanToDecimal(americanOdds) });
+  return unitReturn({
+    result,
+    stake,
+    decimalOdds: americanToDecimal(americanOdds),
+  });
 }
 
-function closingFor(
+export function closingFor(
   closings: ClosingObservation[],
-  kind: "analysis" | "bet",
+  kind: "analysis" | "bet" | "model-pick",
   id: string,
 ): ClosingState {
   const comparable = closings.some(

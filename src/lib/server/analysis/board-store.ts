@@ -5,6 +5,11 @@ import type { SavedForecast } from "./forecast-record.ts";
 import type { PickExplanationReport, ProviderRequestRecord } from "../providers/contracts.ts";
 import type { ModelPickCalculation } from "./model-pick.ts";
 import {
+  chooseModelPickRole,
+  unclassifiedPickRole,
+  type ModelPickRole,
+} from "./model-pick-primary.ts";
+import {
   gradeFromNotices,
   type PrivateLean,
   type RunGame,
@@ -43,6 +48,11 @@ export type ModelPick = {
   calculation: ModelPickCalculation;
   /** The frozen prospective forecast for the picked side. Null when none was captured. */
   forecast: SavedForecast | null;
+  /**
+   * Frozen when the board finishes. Unclassified until then, and unclassified for a pick whose
+   * board finished before roles were recorded.
+   */
+  role: ModelPickRole;
   createdAt: string;
 };
 
@@ -161,10 +171,23 @@ export type RecordGameSettlementResult =
   | { kind: "duplicate"; noticeId: string }
   | { kind: "conflict"; error: string };
 
+/** A finished board's model pick, with the offer the pick named and the grade of that contract. */
+export type ListedModelPick = {
+  pick: ModelPick;
+  game: RunGame;
+  observedAt: string;
+  offer: Offer;
+  grade: SettlementGrade;
+};
+
 export type BoardSettlement = {
   gameId: string;
   /** Each market in board order. The grade is null when the market has no model pick. */
-  markets: Array<{ market: Market; pick: ModelPick | null; grade: SettlementGrade | null }>;
+  markets: Array<{
+    market: Market;
+    pick: ModelPick | null;
+    grade: SettlementGrade | null;
+  }>;
 };
 
 export const SETTLEMENT_EVENT_CONFLICT =
@@ -227,6 +250,8 @@ export type GameBoardStore = {
   listRefreshes: (parentId: string) => Promise<GameBoard[]>;
   /** The board that holds a model pick, or null when no such pick exists. */
   getBoardForPick: (pickId: string) => Promise<GameBoard | null>;
+  /** Model picks on finished boards, oldest completion first. Unfinished boards stay out. */
+  listModelPicks: () => Promise<ListedModelPick[]>;
 };
 
 export const BOARD_CONFLICT =
@@ -238,9 +263,26 @@ export function isTerminalBoard(status: GameBoardStatus): boolean {
   return TERMINAL.includes(status);
 }
 
-export function createMemoryBoardStore(notices: StoredNotice[] = []): GameBoardStore {
+export type MemoryBoardStore = GameBoardStore & {
+  /** The picked offer, for a closing comparison. Null when the pick is unknown. */
+  pickContract: (pickId: string) => OpenPick | null;
+};
+
+export type OpenPick = {
+  gameId: string;
+  kickoffAt: string;
+  market: Market;
+  selection: Offer["selection"];
+  pointLine: number | null;
+  sportsbook: string;
+  americanOdds: number;
+  rules: Offer["rules"];
+};
+
+export function createMemoryBoardStore(notices: StoredNotice[] = []): MemoryBoardStore {
   const boards = new Map<string, GameBoard>();
   const submissions = new Map<string, string>();
+  const finishChains = new Map<string, Promise<unknown>>();
 
   function require(id: string): GameBoard {
     const board = boards.get(id);
@@ -265,7 +307,11 @@ export function createMemoryBoardStore(notices: StoredNotice[] = []): GameBoardS
         ...input,
         id: randomUUID(),
         status: "pending" as const,
-        markets: input.markets.map((market) => ({ ...market, pick: null, noPickReason: null })),
+        markets: input.markets.map((market) => ({
+          ...market,
+          pick: null,
+          noPickReason: null,
+        })),
         evidence: [],
         gaps: [],
         failureReason: null,
@@ -314,6 +360,7 @@ export function createMemoryBoardStore(notices: StoredNotice[] = []): GameBoardS
             id: randomUUID(),
             boardId: board.id,
             market: market.market,
+            role: unclassifiedPickRole(),
             createdAt,
           };
           return { ...market, pick };
@@ -346,16 +393,54 @@ export function createMemoryBoardStore(notices: StoredNotice[] = []): GameBoardS
     },
     async finishBoard(input) {
       const board = require(input.boardId);
-      if (isTerminalBoard(board.status)) return structuredClone(board);
-      const updated: GameBoard = structuredClone({
-        ...board,
-        status: input.status,
-        failureReason: input.failureReason,
-        explanation: input.status === "completed" ? (input.explanation ?? null) : null,
-        completedAt: new Date().toISOString(),
+      const prior = finishChains.get(board.game.id) ?? Promise.resolve();
+      const write = prior.then(async () => {
+        const current = require(input.boardId);
+        if (isTerminalBoard(current.status)) return structuredClone(current);
+        const completedAt = new Date().toISOString();
+        const markets = current.markets.map((market) => {
+          if (!market.pick || market.pick.role.role !== "unclassified") return market;
+          const existing = [...boards.values()]
+            .flatMap((item) => item.markets)
+            .find(
+              (item) =>
+                item.pick?.role.role === "primary" &&
+                item.pick.market === market.market &&
+                boards.get(item.pick.boardId)?.game.id === current.game.id,
+            );
+          return {
+            ...market,
+            pick: {
+              ...market.pick,
+              role: chooseModelPickRole({
+                status: input.status,
+                cutoffAt: current.cutoffAt,
+                kickoffAt: current.game.kickoff,
+                isRefresh: current.parentId !== null,
+                primaryPickId: existing?.pick?.id ?? null,
+              }),
+            },
+          };
+        });
+        const updated: GameBoard = structuredClone({
+          ...current,
+          markets,
+          status: input.status,
+          failureReason: input.failureReason,
+          explanation: input.status === "completed" ? (input.explanation ?? null) : null,
+          completedAt,
+        });
+        boards.set(current.id, updated);
+        return structuredClone(updated);
       });
-      boards.set(board.id, updated);
-      return structuredClone(updated);
+      finishChains.set(
+        board.game.id,
+        write.then(
+          () => undefined,
+          () => undefined,
+        ),
+      );
+      return write;
     },
     async getBoard(id) {
       const board = boards.get(id);
@@ -417,6 +502,56 @@ export function createMemoryBoardStore(notices: StoredNotice[] = []): GameBoardS
         item.markets.some((market) => market.pick?.id === pickId),
       );
       return board ? structuredClone(board) : null;
+    },
+    async listModelPicks() {
+      const finished = [...boards.values()]
+        .filter((board) => isTerminalBoard(board.status))
+        .sort((left, right) => (left.completedAt ?? "").localeCompare(right.completedAt ?? ""));
+      return finished.flatMap((board): ListedModelPick[] => {
+        const settlement = gradeBoardMarkets(
+          board,
+          notices.filter((item) => item.gameId === board.game.id),
+        );
+        return board.markets.flatMap((market) => {
+          if (!market.pick) return [];
+          const offer = market.offers.find(
+            (item) => item.selection === market.pick!.calculation.pickedSelection,
+          );
+          const grade = settlement.markets.find((item) => item.market === market.market)?.grade;
+          if (!offer || !grade) return [];
+          return [
+            {
+              pick: structuredClone(market.pick),
+              game: structuredClone(board.game),
+              observedAt: board.observedAt,
+              offer: structuredClone(offer),
+              grade,
+            },
+          ];
+        });
+      });
+    },
+    pickContract(pickId) {
+      for (const board of boards.values()) {
+        for (const market of board.markets) {
+          if (market.pick?.id !== pickId) continue;
+          const offer = market.offers.find(
+            (item) => item.selection === market.pick!.calculation.pickedSelection,
+          );
+          if (!offer) return null;
+          return {
+            gameId: board.game.id,
+            kickoffAt: board.game.kickoff,
+            market: market.market,
+            selection: offer.selection,
+            pointLine: offer.pointLine,
+            sportsbook: board.sportsbook,
+            americanOdds: offer.americanOdds,
+            rules: offer.rules,
+          };
+        }
+      }
+      return null;
     },
   };
 }
