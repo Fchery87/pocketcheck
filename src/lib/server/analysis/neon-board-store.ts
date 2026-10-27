@@ -30,6 +30,8 @@ type BoardRow = {
   evidence: EvidenceItem[];
   gaps: string[];
   failure_reason: string | null;
+  lean_text: string | null;
+  lean_rationale: string | null;
   completed_at: Date | null;
   created_at: Date;
 };
@@ -90,6 +92,10 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore {
       evidence: board.evidence,
       gaps: board.gaps,
       failureReason: board.failure_reason,
+      lean:
+        board.lean_text === null
+          ? null
+          : { text: board.lean_text, rationale: board.lean_rationale ?? "" },
       createdAt: iso(board.created_at),
       completedAt: board.completed_at ? iso(board.completed_at) : null,
     };
@@ -129,11 +135,12 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore {
       const inserted = await tx<{ id: string }[]>`
         INSERT INTO game_boards (
           id, submission_id, request_hash, parent_id, game_id, game, sportsbook,
-          observed_at, kickoff_at, cutoff_at, status
+          observed_at, kickoff_at, cutoff_at, status, lean_text, lean_rationale
         ) VALUES (
           ${id}, ${input.request.id}, ${input.request.hash}, ${input.parentId},
           ${gameRow!.id}, ${tx.json(game as never)}, ${input.sportsbook},
-          ${input.observedAt}, ${game.kickoff}, ${input.cutoffAt}, 'pending'
+          ${input.observedAt}, ${game.kickoff}, ${input.cutoffAt}, 'pending',
+          ${input.lean?.text ?? null}, ${input.lean ? input.lean.rationale : null}
         )
         ON CONFLICT (submission_id) DO NOTHING
         RETURNING id

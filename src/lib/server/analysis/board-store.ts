@@ -3,7 +3,7 @@ import type { Market, Offer } from "#lib/domain/offer.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
 import type { SavedForecast } from "./forecast-record.ts";
 import type { ModelPickCalculation } from "./model-pick.ts";
-import type { RunGame } from "./store.ts";
+import type { PrivateLean, RunGame } from "./store.ts";
 
 /**
  * Game board store contract.
@@ -62,6 +62,8 @@ export type GameBoard = {
   evidence: EvidenceItem[];
   gaps: string[];
   failureReason: string | null;
+  /** The user's own lean. Kept apart from the evidence, the forecast, and every model pick. */
+  lean: PrivateLean | null;
   createdAt: string;
   completedAt: string | null;
 };
@@ -69,7 +71,11 @@ export type GameBoard = {
 export type NewGameBoard = Pick<
   GameBoard,
   "request" | "parentId" | "game" | "sportsbook" | "observedAt" | "cutoffAt"
-> & { markets: Array<Pick<BoardMarket, "market" | "offers">> };
+> & {
+  /** Omitted means no lean. */
+  lean?: PrivateLean | null;
+  markets: Array<Pick<BoardMarket, "market" | "offers">>;
+};
 
 export type BeginBoardResult =
   | { kind: "created"; board: GameBoard }
@@ -148,6 +154,7 @@ export function createMemoryBoardStore(): GameBoardStore {
         evidence: [],
         gaps: [],
         failureReason: null,
+        lean: input.lean ?? null,
         createdAt: new Date().toISOString(),
         completedAt: null,
       });

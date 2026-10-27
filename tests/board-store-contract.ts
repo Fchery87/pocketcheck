@@ -165,6 +165,42 @@ export function describeGameBoardContract(
       expect(saved?.markets[0]?.noPickReason).toBe("first");
     });
 
+    it("returns the private lean and manual evidence beside the board, apart from its model pick", async () => {
+      const store = await makeStore();
+      const outcome = await runGameBoard(
+        ask({
+          lean: "Dallas on the road",
+          rationale: "Pace of their offense",
+          manualEvidence: [
+            {
+              text: "Club report: no starters out.",
+              url: "",
+              sourceTime: "2026-10-25T14:00:00.000Z",
+              covers: "injury-report",
+              team: "PHI",
+            },
+          ],
+        }),
+        { store, collect: quiet, model: model() },
+      );
+      expect(outcome.ok, outcome.ok ? "" : outcome.error).toBe(true);
+      const saved = await store.getBoard(outcome.board!.id);
+      expect(saved).toEqual(outcome.board);
+      expect(saved?.lean).toEqual({
+        text: "Dallas on the road",
+        rationale: "Pace of their offense",
+      });
+      expect(saved?.evidence.filter((item) => item.origin === "manual")).toHaveLength(1);
+      const { lean: _lean, ...rest } = saved!;
+      expect(JSON.stringify(rest)).not.toContain("Dallas on the road");
+      const without = await runGameBoard(ask({ requestId: "no-lean" }), {
+        store,
+        collect: quiet,
+        model: model(),
+      });
+      expect((await store.getBoard(without.board!.id))?.lean).toBeNull();
+    });
+
     it("keeps game boards out of research analyses", async () => {
       const store = await makeStore();
       await runGameBoard(ask(), { store, collect: quiet, model: model() });

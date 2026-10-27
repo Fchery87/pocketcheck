@@ -7,7 +7,7 @@ import {
   type SideProbability,
 } from "./distribution.ts";
 import type { FeatureRow } from "./features.ts";
-import { predictMean, type LinearModel } from "./fit.ts";
+import { meanContributions, predictMean, type LinearModel, type MeanContributions } from "./fit.ts";
 import type { ModelArtifact } from "./artifact.ts";
 
 export type GameProbabilities = {
@@ -19,6 +19,8 @@ export type GameProbabilities = {
   moneyline: { home: SideProbability; away: SideProbability };
   spread: (homeLine: number) => { home: SideProbability; away: SideProbability };
   total: (line: number) => { over: SideProbability; under: SideProbability };
+  /** What moved each predicted mean: margin for moneyline and spread, total for totals. */
+  drivers: { margin: MeanContributions; total: MeanContributions };
 };
 
 function side(
@@ -46,5 +48,9 @@ export function predictGame(artifact: ModelArtifact, row: FeatureRow): GameProba
     moneyline,
     spread: (homeLine) => spreadFromMargin(margin.bins, homeLine),
     total: (line) => totalFromDistribution(total.bins, line),
+    drivers: {
+      margin: meanContributions(artifact.margin.model, row),
+      total: meanContributions(artifact.total.model, row),
+    },
   };
 }

@@ -11,6 +11,34 @@
   const units = (value: number) => `${value >= 0 ? "+" : "-"}${Math.abs(value).toFixed(4)}`;
   const team = (selection: SideSelection) =>
     selection === "home" ? board.game.home : selection === "away" ? board.game.away : selection;
+  const FEATURE_LABELS: Record<string, string> = {
+    home_prior_margin: "Home team's recent point margin",
+    away_prior_margin: "Away team's recent point margin",
+    home_prior_points_for: "Home team's recent points scored",
+    away_prior_points_for: "Away team's recent points scored",
+    home_prior_points_against: "Home team's recent points allowed",
+    away_prior_points_against: "Away team's recent points allowed",
+    home_rest_days: "Home team's rest days",
+    away_rest_days: "Away team's rest days",
+    home_qb_share: "Home quarterback continuity",
+    away_qb_share: "Away quarterback continuity",
+    home_qb_rating: "Home quarterback rating",
+    away_qb_rating: "Away quarterback rating",
+    home_indicator: "Home field",
+  };
+  const points = (value: number) => `${value >= 0 ? "+" : "−"}${Math.abs(value).toFixed(2)}`;
+  /** The largest contributors to the market's own mean: margin for sides, total for totals. */
+  const driversFor = (market: string, forecast: { drivers?: Drivers } | null) => {
+    const part = market === "total" ? forecast?.drivers?.total : forecast?.drivers?.margin;
+    if (!part) return null;
+    const largest = [...part.contributions]
+      .filter((item) => Math.abs(item.points) >= 0.005)
+      .sort((left, right) => Math.abs(right.points) - Math.abs(left.points))
+      .slice(0, 4);
+    return { intercept: part.intercept, largest };
+  };
+  type Part = { intercept: number; contributions: Array<{ feature: string; points: number }> };
+  type Drivers = { margin: Part; total: Part };
   const sideName = (selection: SideSelection) =>
     selection === "home" || selection === "away" ? `${team(selection)} (${selection})` : selection;
 </script>
@@ -123,6 +151,45 @@
             {/if}
           </dd>
         </dl>
+        {@const drivers = driversFor(market.market, pick.forecast)}
+        <div class="pc-drivers" data-testid="drivers-{market.market}">
+          <p class="pc-kicker">
+            What moved the forecast: {market.market === "total" ? "predicted total" : "predicted margin, home minus away"}
+          </p>
+          {#if drivers}
+            <ul class="pc-ledger" data-testid="driver-list">
+              {#each drivers.largest as driver (driver.feature)}
+                <li data-testid="driver">
+                  {FEATURE_LABELS[driver.feature] ?? driver.feature}
+                  <span class="pc-figure">{points(driver.points)} points</span>
+                </li>
+              {/each}
+            </ul>
+            <p class="pc-hint">
+              Each effect is the model's coefficient times how far this input sits from the training average,
+              added to a baseline of {drivers.intercept.toFixed(2)} points.
+            </p>
+          {:else}
+            <p class="pc-hint" data-testid="drivers-unavailable">
+              <span class="pc-unknown">∅ Unavailable</span> This model pick has no frozen forecast with drivers.
+            </p>
+          {/if}
+        </div>
+        <div class="pc-gaps" data-testid="gaps-{market.market}">
+          <p class="pc-kicker">Evidence gaps</p>
+          {#if board.gaps.length === 0}
+            <p class="pc-hint">No gaps were recorded for this game.</p>
+          {:else}
+            <ul class="pc-ledger pc-gap-list">
+              {#each board.gaps as gap (gap)}
+                <li>{gap}</li>
+              {/each}
+            </ul>
+          {/if}
+          {#if calculation.materialEvidenceMissing}
+            <p class="pc-hint">Material evidence is missing, so this model pick cannot be graded strong.</p>
+          {/if}
+        </div>
         <p class="pc-hint" data-testid="forecasting-model">
           Forecasting model {pick.forecastingModel.checksum.slice(0, 12)}, version
           {pick.forecastingModel.version}, trained on games through
@@ -146,4 +213,12 @@
       </p>
     </section>
   {/each}
+  {#if board.lean}
+    <section class="pc-section" data-testid="board-lean" aria-labelledby="board-lean-title">
+      <h2 id="board-lean-title">Your private lean</h2>
+      <p>{board.lean.text}</p>
+      {#if board.lean.rationale}<p class="pc-hint">{board.lean.rationale}</p>{/if}
+      <p class="pc-hint">Saved beside this board. It is not in the evidence, the forecast, or any model pick.</p>
+    </section>
+  {/if}
 </main>

@@ -9,7 +9,10 @@ import { gatherEvidence } from "./gather-evidence.ts";
 import { noModel, type ModelSource, type RunModel } from "./model.ts";
 import { calculateModelPick } from "./model-pick.ts";
 import { redactText } from "./redact.ts";
-import { snapshot, type ForecastSource } from "./run.ts";
+import { snapshot, type ForecastSource, type ManualEvidenceInput } from "./run.ts";
+import type { PrivateLean } from "./store.ts";
+import { createManualEvidence } from "../sources/manual.ts";
+import type { EvidenceItem } from "../sources/contracts.ts";
 
 export type GameBoardRequest = {
   /** Stable browser-generated submission identifier, reused only to retry this exact board. */
@@ -23,6 +26,11 @@ export type GameBoardRequest = {
   observedAt: string;
   moneyline?: BoardMoneylineInput;
   parentId?: string | null;
+  /** Optional evidence entered with the board. Entry time is the board's cutoff. */
+  manualEvidence?: ManualEvidenceInput[];
+  /** Optional private lean. Saved beside the board, never in a model pick or the evidence. */
+  lean?: string;
+  rationale?: string;
 };
 
 export type GameBoardDependencies = {
@@ -138,8 +146,30 @@ export async function runGameBoard(
     throw error;
   }
 
+  let manual: EvidenceItem[];
+  try {
+    manual = (request.manualEvidence ?? []).map((entry) =>
+      createManualEvidence({
+        text: entry.text,
+        url: entry.url,
+        sourceTime: entry.sourceTime,
+        enteredAt: request.nowIso,
+        ...(entry.covers ? { covers: entry.covers } : {}),
+        ...(entry.team ? { team: entry.team } : {}),
+      }),
+    );
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Invalid manual evidence" };
+  }
+  const leanText = request.lean?.trim() ?? "";
+  const leanRationale = request.rationale?.trim() ?? "";
+  const lean: PrivateLean | null =
+    leanText || leanRationale ? { text: leanText, rationale: leanRationale } : null;
+
   const scheduleRetrievedAt = request.scheduleRetrievedAt ?? request.nowIso;
   const identity = {
+    manualEvidence: manual,
+    lean,
     game: snapshot(request.game),
     parentId: request.parentId ?? null,
     cutoffAt: request.nowIso,
@@ -157,6 +187,7 @@ export async function runGameBoard(
     observedAt: request.observedAt,
     cutoffAt: request.nowIso,
     markets,
+    lean,
   });
   if (begun.kind === "conflict") return { ok: false, error: begun.error };
   if (begun.kind === "existing") {
@@ -177,7 +208,7 @@ export async function runGameBoard(
       scheduleRetrievedAt,
       collect,
       carried: [],
-      manual: [],
+      manual,
     });
     const results: FrozenMarketResult[] = [];
     for (const entry of markets) {
