@@ -13,5 +13,15 @@ export const load: PageServerLoad = async ({ params }) => {
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const board = uuid.test(params.id) ? await store.getBoard(params.id) : null;
   if (!board) error(404, "Game board not found");
-  return { board };
+  const parent = board.parentId ? await store.getBoard(board.parentId) : null;
+  const refreshes = await store.listRefreshes(board.id);
+  return {
+    board,
+    parent,
+    refreshes: refreshes.map((item) => ({
+      id: item.id,
+      sportsbook: item.sportsbook,
+      observedAt: item.observedAt,
+    })),
+  };
 };

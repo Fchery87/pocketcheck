@@ -37,6 +37,25 @@
     <p data-testid="board-sportsbook-display">Prices from {board.sportsbook}</p>
     <p class="pc-report-status">Status <span class="pc-figure" data-testid="board-status">{board.status}</span></p>
   </div>
+  {#if data.parent}
+    <p data-testid="board-parent">
+      Refreshes <a href="/board/{data.parent.id}" data-testid="parent-link">the earlier board</a> from
+      {data.parent.sportsbook}, prices observed {easternTime(data.parent.observedAt)}. That board is unchanged.
+    </p>
+  {/if}
+  {#if data.refreshes.length > 0}
+    <ul class="pc-list" data-testid="board-refreshes">
+      {#each data.refreshes as refresh (refresh.id)}
+        <li>
+          <a href="/board/{refresh.id}" data-testid="refresh-link">Refreshed board</a> from {refresh.sportsbook},
+          prices observed {easternTime(refresh.observedAt)}
+        </li>
+      {/each}
+    </ul>
+  {/if}
+  {#if board.status === "completed"}
+    <p><a href="/board?refresh={board.id}" data-testid="refresh-board">Refresh with new prices</a></p>
+  {/if}
   {#if board.failureReason}
     <section class="pc-alert-block" data-testid="board-failure">
       <h2>Board not completed</h2>
@@ -140,6 +159,20 @@
         </p>
       {:else}
         <p data-testid="no-pick"><span class="pc-unknown">∅ Not computed</span> This board stopped before its model picks were frozen.</p>
+      {/if}
+      {#if data.parent}
+        {@const earlier = data.parent.markets.find((item) => item.market === market.market)}
+        <p class="pc-hint" data-testid="parent-pick-{market.market}">
+          {#if earlier?.pick}
+            {@const before = earlier.pick.calculation.sides.find(
+              (side) => side.selection === earlier.pick!.calculation.pickedSelection,
+            )!}
+            Earlier board: {team(before.selection)} {market.market}{lined(before.pointLine)} {signed(before.americanOdds)},
+            graded {earlier.pick.calculation.grade}.
+          {:else}
+            The earlier board had no {market.market} model pick.
+          {/if}
+        </p>
       {/if}
       <p class="pc-hint">
         Entered: {sideName(market.offers[0].selection)}{lined(market.offers[0].pointLine)} {signed(market.offers[0].americanOdds)},

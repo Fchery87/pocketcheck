@@ -165,6 +165,21 @@ export async function runGameBoard(
     throw error;
   }
 
+  let parentPicks = new Map<Market, string>();
+  if (request.parentId) {
+    const parent = await store.getBoard(request.parentId);
+    if (!parent) return { ok: false, error: "The board to refresh was not found." };
+    if (parent.game.id !== request.game.id) {
+      return { ok: false, error: "A refresh must be for the same game as the board it refreshes." };
+    }
+    if (parent.status !== "completed") {
+      return { ok: false, error: "Only a frozen board can be refreshed." };
+    }
+    parentPicks = new Map(
+      parent.markets.flatMap((market) => (market.pick ? [[market.market, market.pick.id]] : [])),
+    );
+  }
+
   const scheduleRetrievedAt = request.scheduleRetrievedAt ?? request.nowIso;
   const identity = {
     game: snapshot(request.game),
@@ -208,16 +223,22 @@ export async function runGameBoard(
     });
     const results: FrozenMarketResult[] = [];
     for (const entry of markets) {
+      const picked = await pickMarket({
+        market: entry.market,
+        offers: entry.offers,
+        game: request.game,
+        nowIso: request.nowIso,
+        materialEvidenceMissing: gathered.materialEvidenceMissing,
+        model,
+        forecast,
+      });
       results.push(
-        await pickMarket({
-          market: entry.market,
-          offers: entry.offers,
-          game: request.game,
-          nowIso: request.nowIso,
-          materialEvidenceMissing: gathered.materialEvidenceMissing,
-          model,
-          forecast,
-        }),
+        picked.pick
+          ? {
+              ...picked,
+              pick: { ...picked.pick, parentPickId: parentPicks.get(entry.market) ?? null },
+            }
+          : picked,
       );
     }
     await store.freezeModelPicks({

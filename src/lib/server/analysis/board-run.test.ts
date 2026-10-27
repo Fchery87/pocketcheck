@@ -507,3 +507,109 @@ describe("game board rejection", () => {
     expect(await store.listCompleted()).toEqual([]);
   });
 });
+
+describe("game board refresh", () => {
+  const model = () => scriptedModel({ home: { win: 0.62, loss: 0.36, push: 0.02 } });
+  const priced = {
+    spread: { homeLine: -3.5, awayLine: 3.5, home: -110, away: -110 },
+    total: { overLine: 44.5, underLine: 44.5, over: -105, under: -115 },
+  };
+
+  it("links a child board and each model pick to the parent's pick in the same market", async () => {
+    const store = createMemoryStore();
+    const deps = { store, collect: quiet, model: model() };
+    const parent = (
+      await runGameBoard(
+        board({
+          requestId: "parent",
+          moneyline: { home: -150, away: 130, tieRule: "push" },
+          ...priced,
+        }),
+        deps,
+      )
+    ).board!;
+    const before = structuredClone(await store.getBoard(parent.id));
+
+    const child = await runGameBoard(
+      board({
+        requestId: "child",
+        parentId: parent.id,
+        sportsbook: "Other Book",
+        observedAt: "2026-10-25T15:45:00.000Z",
+        moneyline: { home: -160, away: 140, tieRule: "push" },
+        total: { overLine: 45, underLine: 45, over: -110, under: -110 },
+      }),
+      deps,
+    );
+    expect(child.ok, child.ok ? "" : child.error).toBe(true);
+    const saved = (await store.getBoard(child.board!.id))!;
+    expect(saved.parentId).toBe(parent.id);
+    expect(saved.request.id).toBe("child");
+    expect(saved.markets.map((market) => market.market)).toEqual(["moneyline", "total"]);
+    const parentPicks = new Map(before!.markets.map((m) => [m.market, m.pick!.id]));
+    for (const market of saved.markets) {
+      expect(market.pick!.parentPickId).toBe(parentPicks.get(market.market));
+    }
+    expect(await store.getBoard(parent.id)).toEqual(before);
+  });
+
+  it("leaves a market the parent did not have without a parent pick", async () => {
+    const store = createMemoryStore();
+    const deps = { store, collect: quiet, model: model() };
+    const parent = (await runGameBoard(board({ requestId: "parent" }), deps)).board!;
+    const child = await runGameBoard(
+      board({ requestId: "child", parentId: parent.id, ...priced }),
+      deps,
+    );
+    const picks = Object.fromEntries(
+      child.board!.markets.map((market) => [market.market, market.pick!.parentPickId]),
+    );
+    expect(picks.moneyline).toBe(parent.markets[0]!.pick!.id);
+    expect(picks.spread).toBeNull();
+    expect(picks.total).toBeNull();
+  });
+
+  it("rejects a refresh of an unknown board or of another game", async () => {
+    const store = createMemoryStore();
+    const deps = { store, collect: quiet, model: model() };
+    const missing = await runGameBoard(
+      board({ requestId: "a", parentId: "00000000-0000-4000-8000-000000000000" }),
+      deps,
+    );
+    expect(missing.ok).toBe(false);
+    expect(missing.ok ? "" : missing.error).toMatch(/not found/);
+
+    const parent = (await runGameBoard(board({ requestId: "parent" }), deps)).board!;
+    const other = loadFixtureGames("tests/fixtures/sources/games-minimized.csv", NOW).find(
+      (item) => item.id !== game.id,
+    )!;
+    const wrongGame = await runGameBoard(
+      board({
+        requestId: "b",
+        parentId: parent.id,
+        game: other,
+        observedAt: new Date(Date.parse(other.kickoff) - 3_600_000).toISOString(),
+      }),
+      deps,
+    );
+    expect(wrongGame.ok).toBe(false);
+    expect(wrongGame.ok ? "" : wrongGame.error).toMatch(/same game/);
+  });
+
+  it("rejects a refresh with the same validation as a new board and saves nothing", async () => {
+    const store = createMemoryStore();
+    const deps = { store, collect: quiet, model: model() };
+    const parent = (await runGameBoard(board({ requestId: "parent" }), deps)).board!;
+    const bad = await runGameBoard(
+      board({
+        requestId: "bad",
+        parentId: parent.id,
+        moneyline: { home: -50, away: 130, tieRule: "push" },
+      }),
+      deps,
+    );
+    expect(bad.ok).toBe(false);
+    expect(bad.board).toBeUndefined();
+    expect(await store.getBoard(parent.id)).toEqual(parent);
+  });
+});
