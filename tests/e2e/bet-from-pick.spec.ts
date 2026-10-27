@@ -22,14 +22,18 @@ test("a bet recorded from a model pick keeps the odds that were placed", async (
   await expect(page).toHaveURL(/\/board\/[0-9a-f-]{36}$/);
   const boardUrl = page.url();
   const card = page.getByTestId("model-pick-moneyline");
-  await expect(card.getByTestId("picked-side")).toHaveText("DAL moneyline +130");
+  await expect(card.getByTestId("picked-side")).toHaveText(
+    "DAL moneyline +130",
+  );
 
   await card.getByTestId("record-bet-from-pick").click();
   await expect(page).toHaveURL(/\/journal\?pick=[0-9a-f-]{36}/);
   await page.waitForLoadState("networkidle");
   await expect(page.getByTestId("bet-pick-start")).toContainText("DAL at PHI");
   // The picked contract is only a starting point.
-  await expect(page.getByTestId("bet-sportsbook")).toHaveValue("Pick Lane Book");
+  await expect(page.getByTestId("bet-sportsbook")).toHaveValue(
+    "Pick Lane Book",
+  );
   await expect(page.getByTestId("bet-market")).toHaveValue("moneyline");
   await expect(page.getByTestId("bet-selection")).toHaveValue("away");
   await expect(page.getByTestId("bet-tie")).toHaveValue("push");
@@ -48,12 +52,24 @@ test("a bet recorded from a model pick keeps the odds that were placed", async (
   await expect(bet).not.toContainText("130");
   await expect(page.getByTestId("bet-from-pick")).toBeVisible();
 
+  await page.getByTestId("settle-bet").selectOption({ index: 1 });
+  await page.getByTestId("settle-event").fill("pick-bet-final");
+  await page.getByTestId("settle-kind").selectOption("final");
+  await page.getByTestId("settle-home").fill("24");
+  await page.getByTestId("settle-away").fill("20");
+  await page.getByRole("button", { name: "Record settlement" }).click();
+  await expect(page.getByTestId("settlement-recorded")).toBeVisible();
+  await expect(page.getByTestId("pick-bet-result")).toHaveText("win");
+  await expect(page.getByTestId("bet-counts")).toContainText("1 settled");
+
   // The board and its model pick are unchanged.
   await page.goto(boardUrl);
-  await expect(page.getByTestId("model-pick-moneyline").getByTestId("picked-side")).toHaveText(
-    "DAL moneyline +130",
+  await expect(
+    page.getByTestId("model-pick-moneyline").getByTestId("picked-side"),
+  ).toHaveText("DAL moneyline +130");
+  await expect(page.getByTestId("board-sportsbook-display")).toContainText(
+    "Pick Lane Book",
   );
-  await expect(page.getByTestId("board-sportsbook-display")).toContainText("Pick Lane Book");
   const state = await (await request.get("/__verification")).json();
   expect(state.analyses).toBe(0);
 });

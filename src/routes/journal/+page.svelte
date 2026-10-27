@@ -206,6 +206,8 @@
             placed {easternTime(bet.placedAt)}. The market, line, and rules of this placement were not recorded.
           </Badge>
         {/if}
+        {@const grade = data.pickBetGrades.find((row) => row.betId === bet.id)?.grade}
+        {#if grade}<Badge data-testid="pick-bet-result">{grade.effective}</Badge>{/if}
       </li>
     {/each}
   </ul>
@@ -218,7 +220,7 @@
   <form class="pc-form" method="POST" action="?/settle">
     <label>
       Analysis
-      <select name="analysisId" required data-testid="settle-analysis">
+      <select name="analysisId" data-testid="settle-analysis">
         <option value="">choose an analysis</option>
         {#each data.assessments as assessment (assessment.id)}
           <option value={assessment.id}>{label(assessment)}</option>

@@ -163,7 +163,7 @@ export type SettlementRecord = {
 export type SettlementNoticeRecord = {
   id: string;
   eventId: string;
-  analysisId: string;
+  analysisId: string | null;
   betId: string | null;
   kind: "final" | "postponed" | "void" | "unresolved";
   homeScore: number | null;
@@ -259,8 +259,11 @@ export class JournalRepository {
 
   async saveCompletedAnalysis(input: SaveAnalysisInput) {
     if (input.analysis.idempotencyKey) {
-      const existing = await this.findAnalysisByIdempotencyKey(input.analysis.idempotencyKey);
-      if (existing) return { ...(await this.readRun(existing.id)), created: false };
+      const existing = await this.findAnalysisByIdempotencyKey(
+        input.analysis.idempotencyKey,
+      );
+      if (existing)
+        return { ...(await this.readRun(existing.id)), created: false };
     }
 
     const gameId = input.game.id ?? randomUUID();
@@ -268,7 +271,8 @@ export class JournalRepository {
     const analysisId = input.analysis.id ?? randomUUID();
     const evidenceIds = input.evidence.map((item) => item.id ?? randomUUID());
     const completedAt = new Date().toISOString();
-    const decimalOdds = input.offer.decimalOdds ?? americanToDecimal(input.offer.americanOdds);
+    const decimalOdds =
+      input.offer.decimalOdds ?? americanToDecimal(input.offer.americanOdds);
     const completed = input.analysis.status === "completed";
 
     try {
@@ -326,10 +330,15 @@ export class JournalRepository {
             opposing: input.offer.opposing,
             completedAt: completed ? completedAt : null,
           },
-          ...(input.analysis.request ? { request: input.analysis.request } : {}),
+          ...(input.analysis.request
+            ? { request: input.analysis.request }
+            : {}),
           providerRequests: input.analysis.providerRequests ?? [],
-          providerOutcomeAmbiguous: input.analysis.providerOutcomeAmbiguous ?? false,
-          ...(input.analysis.forecast ? { forecast: input.analysis.forecast } : {}),
+          providerOutcomeAmbiguous:
+            input.analysis.providerOutcomeAmbiguous ?? false,
+          ...(input.analysis.forecast
+            ? { forecast: input.analysis.forecast }
+            : {}),
         };
 
         await tx`
@@ -426,8 +435,11 @@ export class JournalRepository {
       });
     } catch (error) {
       if (input.analysis.idempotencyKey && isUniqueViolation(error)) {
-        const existing = await this.findAnalysisByIdempotencyKey(input.analysis.idempotencyKey);
-        if (existing) return { ...(await this.readRun(existing.id)), created: false };
+        const existing = await this.findAnalysisByIdempotencyKey(
+          input.analysis.idempotencyKey,
+        );
+        if (existing)
+          return { ...(await this.readRun(existing.id)), created: false };
       }
       throw error;
     }
@@ -439,12 +451,15 @@ export class JournalRepository {
     const analysisId = input.analysis.id;
     const requestId = input.analysis.idempotencyKey;
     const requestHash = input.analysis.request?.hash;
-    if (!analysisId || !requestId || !requestHash) throw new Error("Attempt identity is required");
+    if (!analysisId || !requestId || !requestHash)
+      throw new Error("Attempt identity is required");
     const existing = await this.findAnalysisByIdempotencyKey(requestId);
     if (!existing || existing.id !== analysisId)
       throw new Error(`Analysis not found: ${analysisId}`);
     if (existing.snapshot.request?.hash !== requestHash) {
-      throw new Error("An attempt update cannot change its request identity or inputs.");
+      throw new Error(
+        "An attempt update cannot change its request identity or inputs.",
+      );
     }
     if (existing.completedAt) return this.readRun(analysisId);
 
@@ -465,8 +480,11 @@ export class JournalRepository {
           probability_model = ${jsonOrNull(tx, input.analysis.probabilityModel)},
           snapshot = snapshot || ${tx.json({
             providerRequests: input.analysis.providerRequests ?? [],
-            providerOutcomeAmbiguous: input.analysis.providerOutcomeAmbiguous ?? false,
-            ...(input.analysis.forecast ? { forecast: input.analysis.forecast } : {}),
+            providerOutcomeAmbiguous:
+              input.analysis.providerOutcomeAmbiguous ?? false,
+            ...(input.analysis.forecast
+              ? { forecast: input.analysis.forecast }
+              : {}),
           } as never)}
         WHERE id = ${analysisId} AND completed_at IS NULL
       `;
@@ -504,20 +522,27 @@ export class JournalRepository {
     const analysisId = input.analysis.id;
     const requestId = input.analysis.idempotencyKey;
     const requestHash = input.analysis.request?.hash;
-    if (!analysisId || !requestId || !requestHash) throw new Error("Attempt identity is required");
+    if (!analysisId || !requestId || !requestHash)
+      throw new Error("Attempt identity is required");
     const existing = await this.findAnalysisByIdempotencyKey(requestId);
     if (!existing || existing.id !== analysisId)
       throw new Error(`Analysis not found: ${analysisId}`);
     if (existing.snapshot.request?.hash !== requestHash) {
-      throw new Error("An attempt update cannot change its request identity or inputs.");
+      throw new Error(
+        "An attempt update cannot change its request identity or inputs.",
+      );
     }
     if (existing.completedAt) return this.readRun(analysisId);
 
-    const completedAt = input.analysis.status === "completed" ? new Date().toISOString() : null;
+    const completedAt =
+      input.analysis.status === "completed" ? new Date().toISOString() : null;
     const evidenceIds = input.evidence.map((item) => item.id ?? randomUUID());
     const snapshot = {
       ...existing.snapshot,
-      providerRequests: input.analysis.providerRequests ?? existing.snapshot.providerRequests ?? [],
+      providerRequests:
+        input.analysis.providerRequests ??
+        existing.snapshot.providerRequests ??
+        [],
       providerOutcomeAmbiguous:
         input.analysis.providerOutcomeAmbiguous ??
         existing.snapshot.providerOutcomeAmbiguous ??
@@ -554,7 +579,8 @@ export class JournalRepository {
         WHERE id = ${analysisId} AND completed_at IS NULL
         RETURNING id
       `;
-      if (!updated[0]) throw new Error(`Attempt is no longer writable: ${analysisId}`);
+      if (!updated[0])
+        throw new Error(`Attempt is no longer writable: ${analysisId}`);
       if (completedAt) {
         await tx`UPDATE offers SET completed_at = ${completedAt} WHERE id = ${existing.offerId} AND completed_at IS NULL`;
       }
@@ -621,7 +647,9 @@ export class JournalRepository {
 
   /** Like readRun, but null when the analysis does not exist. */
   async findRun(analysisId: string) {
-    const rows = await this.sql<{ id: string }[]>`SELECT id FROM analyses WHERE id = ${analysisId}`;
+    const rows = await this.sql<
+      { id: string }[]
+    >`SELECT id FROM analyses WHERE id = ${analysisId}`;
     return rows[0] ? this.readRun(analysisId) : null;
   }
 
@@ -729,7 +757,9 @@ export class JournalRepository {
   }
 
   async listBets(): Promise<BetRecord[]> {
-    const rows = await this.sql<BetRow[]>`SELECT * FROM bets ORDER BY created_at ASC`;
+    const rows = await this.sql<
+      BetRow[]
+    >`SELECT * FROM bets ORDER BY created_at ASC`;
     return rows.map(mapBet);
   }
 
@@ -772,11 +802,15 @@ export class JournalRepository {
   }
 
   async readClosing(id: string): Promise<ClosingRecord | null> {
-    const rows = await this.sql<ClosingRow[]>`SELECT * FROM closing_observations WHERE id = ${id}`;
+    const rows = await this.sql<
+      ClosingRow[]
+    >`SELECT * FROM closing_observations WHERE id = ${id}`;
     return rows[0] ? mapClosing(rows[0]) : null;
   }
 
-  async findAnalysisByIdempotencyKey(key: string): Promise<AnalysisRecord | null> {
+  async findAnalysisByIdempotencyKey(
+    key: string,
+  ): Promise<AnalysisRecord | null> {
     const rows = await this.sql<{ id: string }[]>`
       SELECT id FROM analyses WHERE idempotency_key = ${key}
     `;
@@ -817,9 +851,12 @@ export class JournalRepository {
             FROM model_picks pick JOIN game_boards board ON board.id = pick.board_id
             WHERE pick.id = ${input.modelPickId}
           `;
-          if (!pick) throw new Error(`Model pick not found: ${input.modelPickId}`);
+          if (!pick)
+            throw new Error(`Model pick not found: ${input.modelPickId}`);
           if (!input.contract || !input.sportsbook) {
-            throw new Error("A bet from a model pick requires its placed contract.");
+            throw new Error(
+              "A bet from a model pick requires its placed contract.",
+            );
           }
           offerId = randomUUID();
           await tx`
@@ -834,7 +871,8 @@ export class JournalRepository {
             )
           `;
         }
-        if (!offerId) throw new Error("A bet requires a researched offer or a model pick.");
+        if (!offerId)
+          throw new Error("A bet requires a researched offer or a model pick.");
         await tx`
           INSERT INTO bets (
             id, offer_id, analysis_id, model_pick_id, submission_id, contract, contract_fingerprint,
@@ -852,7 +890,11 @@ export class JournalRepository {
     } catch (error) {
       if (input.submissionId && isUniqueViolation(error)) {
         const existing = await this.findBetBySubmissionId(input.submissionId);
-        if (existing && existing.contractFingerprint === input.contractFingerprint) return existing;
+        if (
+          existing &&
+          existing.contractFingerprint === input.contractFingerprint
+        )
+          return existing;
         throw new BetSubmissionConflict(
           "This submission identifier was already used with different inputs.",
         );
@@ -867,7 +909,7 @@ export class JournalRepository {
   async insertSettlementNotice(input: {
     id: string;
     eventId: string;
-    analysisId: string;
+    analysisId: string | null;
     betId: string | null;
     kind: "final" | "postponed" | "void" | "unresolved";
     homeScore: number | null;
@@ -901,14 +943,20 @@ export class JournalRepository {
     return row ? { id: row.id, payloadKey: row.payload_key } : null;
   }
 
-  async readSettlementNotice(
-    id: string,
-  ): Promise<{ id: string; analysisId: string | null } | null> {
-    const rows = await this.sql<{ id: string; analysis_id: string | null }[]>`
-      SELECT id, analysis_id FROM settlement_notices WHERE id = ${id}
+  async readSettlementNotice(id: string): Promise<{
+    id: string;
+    analysisId: string | null;
+    betId: string | null;
+  } | null> {
+    const rows = await this.sql<
+      { id: string; analysis_id: string | null; bet_id: string | null }[]
+    >`
+      SELECT id, analysis_id, bet_id FROM settlement_notices WHERE id = ${id}
     `;
     const row = rows[0];
-    return row ? { id: row.id, analysisId: row.analysis_id } : null;
+    return row
+      ? { id: row.id, analysisId: row.analysis_id, betId: row.bet_id }
+      : null;
   }
 
   async listSettlementNotices(analysisId: string): Promise<
@@ -945,6 +993,48 @@ export class JournalRepository {
       id: row.id,
       eventId: row.event_id,
       analysisId: row.analysis_id,
+      betId: row.bet_id,
+      kind: row.kind,
+      homeScore: row.home_score,
+      awayScore: row.away_score,
+      source: row.source,
+      reason: row.reason,
+      correctsId: row.corrects_id,
+      recordedAt: iso(row.recorded_at) ?? "",
+    }));
+  }
+
+  async listSettlementNoticesForBet(betId: string): Promise<
+    Array<{
+      id: string;
+      eventId: string;
+      betId: string | null;
+      kind: "final" | "postponed" | "void" | "unresolved";
+      homeScore: number | null;
+      awayScore: number | null;
+      source: string;
+      reason: string | null;
+      correctsId: string | null;
+      recordedAt: string;
+    }>
+  > {
+    const rows = await this.sql<
+      Array<{
+        id: string;
+        event_id: string;
+        bet_id: string | null;
+        kind: "final" | "postponed" | "void" | "unresolved";
+        home_score: number | null;
+        away_score: number | null;
+        source: string;
+        reason: string | null;
+        corrects_id: string | null;
+        recorded_at: Date | string;
+      }>
+    >`SELECT * FROM settlement_notices WHERE bet_id = ${betId} AND analysis_id IS NULL ORDER BY recorded_at ASC`;
+    return rows.map((row) => ({
+      id: row.id,
+      eventId: row.event_id,
       betId: row.bet_id,
       kind: row.kind,
       homeScore: row.home_score,
@@ -993,7 +1083,8 @@ export class JournalRepository {
     settledAt: string;
   }): Promise<SettlementRecord> {
     const previous = await this.readSettlement(input.settlementId);
-    if (!previous) throw new Error(`Settlement not found: ${input.settlementId}`);
+    if (!previous)
+      throw new Error(`Settlement not found: ${input.settlementId}`);
     const id = randomUUID();
     await this.sql`
       INSERT INTO settlements (
@@ -1023,19 +1114,27 @@ export class JournalRepository {
 
   async exportJournal(analysisIds?: string[]): Promise<JournalExport> {
     const analyses = analysisIds?.length
-      ? await this.sql<AnalysisRow[]>`SELECT * FROM analyses WHERE id = ANY(${analysisIds}::uuid[])`
-      : await this.sql<AnalysisRow[]>`SELECT * FROM analyses ORDER BY created_at ASC`;
+      ? await this.sql<
+          AnalysisRow[]
+        >`SELECT * FROM analyses WHERE id = ANY(${analysisIds}::uuid[])`
+      : await this.sql<
+          AnalysisRow[]
+        >`SELECT * FROM analyses ORDER BY created_at ASC`;
     const ids = analyses.map((row) => row.id);
-    const mapped = (await Promise.all(ids.map((id) => this.readAnalysis(id)))).filter(
-      (row): row is AnalysisRecord => row !== null,
-    );
+    const mapped = (
+      await Promise.all(ids.map((id) => this.readAnalysis(id)))
+    ).filter((row): row is AnalysisRecord => row !== null);
     const offerIds = [...new Set(mapped.map((row) => row.offerId))];
     const offers = offerIds.length
-      ? await this.sql<OfferRow[]>`SELECT * FROM offers WHERE id = ANY(${offerIds}::uuid[])`
+      ? await this.sql<
+          OfferRow[]
+        >`SELECT * FROM offers WHERE id = ANY(${offerIds}::uuid[])`
       : [];
     const gameIds = [...new Set(offers.map((row) => row.game_id))];
     const games = gameIds.length
-      ? await this.sql<GameRow[]>`SELECT * FROM games WHERE id = ANY(${gameIds}::uuid[])`
+      ? await this.sql<
+          GameRow[]
+        >`SELECT * FROM games WHERE id = ANY(${gameIds}::uuid[])`
       : [];
     const evidence = ids.length
       ? await this.sql<EvidenceRow[]>`
@@ -1045,7 +1144,9 @@ export class JournalRepository {
         `
       : [];
     const reports = ids.length
-      ? await this.sql<ReportRow[]>`SELECT * FROM reports WHERE analysis_id = ANY(${ids}::uuid[])`
+      ? await this.sql<
+          ReportRow[]
+        >`SELECT * FROM reports WHERE analysis_id = ANY(${ids}::uuid[])`
       : [];
     const research = ids.length
       ? await this.sql<
@@ -1053,7 +1154,9 @@ export class JournalRepository {
         >`SELECT * FROM user_research WHERE analysis_id = ANY(${ids}::uuid[])`
       : [];
     const bets = offerIds.length
-      ? await this.sql<BetRow[]>`SELECT * FROM bets WHERE offer_id = ANY(${offerIds}::uuid[])`
+      ? await this.sql<
+          BetRow[]
+        >`SELECT * FROM bets WHERE offer_id = ANY(${offerIds}::uuid[])`
       : [];
     const betIds = bets.map((row) => row.id);
     const settlements =
@@ -1125,12 +1228,16 @@ export class JournalRepository {
   }
 
   private async readOffer(id: string): Promise<OfferRecord | null> {
-    const rows = await this.sql<OfferRow[]>`SELECT * FROM offers WHERE id = ${id}`;
+    const rows = await this.sql<
+      OfferRow[]
+    >`SELECT * FROM offers WHERE id = ${id}`;
     return rows[0] ? mapOffer(rows[0]) : null;
   }
 
   private async readAnalysis(id: string): Promise<AnalysisRecord | null> {
-    const rows = await this.sql<AnalysisRow[]>`SELECT * FROM analyses WHERE id = ${id}`;
+    const rows = await this.sql<
+      AnalysisRow[]
+    >`SELECT * FROM analyses WHERE id = ${id}`;
     if (!rows[0]) return null;
     const links = await this.sql<{ evidence_id: string }[]>`
       SELECT evidence_id FROM analysis_evidence WHERE analysis_id = ${id}
@@ -1142,7 +1249,9 @@ export class JournalRepository {
     );
   }
 
-  private async readEvidenceForAnalysis(analysisId: string): Promise<EvidenceRecord[]> {
+  private async readEvidenceForAnalysis(
+    analysisId: string,
+  ): Promise<EvidenceRecord[]> {
     const rows = await this.sql<EvidenceRow[]>`
       SELECT e.* FROM evidence e
       JOIN analysis_evidence ae ON ae.evidence_id = e.id
@@ -1159,7 +1268,9 @@ export class JournalRepository {
     return rows[0] ? mapReport(rows[0]) : null;
   }
 
-  private async readUserResearch(analysisId: string): Promise<UserResearchRecord | null> {
+  private async readUserResearch(
+    analysisId: string,
+  ): Promise<UserResearchRecord | null> {
     const rows = await this.sql<ResearchRow[]>`
       SELECT * FROM user_research WHERE analysis_id = ${analysisId}
     `;
@@ -1172,7 +1283,9 @@ export class JournalRepository {
   }
 
   private async readSettlement(id: string): Promise<SettlementRecord | null> {
-    const rows = await this.sql<SettlementRow[]>`SELECT * FROM settlements WHERE id = ${id}`;
+    const rows = await this.sql<
+      SettlementRow[]
+    >`SELECT * FROM settlements WHERE id = ${id}`;
     return rows[0] ? mapSettlement(rows[0]) : null;
   }
 }
@@ -1210,7 +1323,8 @@ function stripAnalysisSecrets(analysis: AnalysisRecord): AnalysisRecord {
   };
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** Supported journal backup format. Version 1 is the only importable backup. */
 export const SUPPORTED_JOURNAL_BACKUP_VERSION = 1;
@@ -1251,7 +1365,11 @@ export function assertRestorable(snapshot: JournalExport): void {
   const notices = idsOf(snapshot.settlementNotices ?? [], "settlement notice");
 
   for (const offer of snapshot.offers) {
-    requireReference(games, offer.gameId, `Offer ${offer.id} is missing its game.`);
+    requireReference(
+      games,
+      offer.gameId,
+      `Offer ${offer.id} is missing its game.`,
+    );
     requireShape(
       offer.market,
       ["moneyline", "spread", "total"],
@@ -1259,7 +1377,11 @@ export function assertRestorable(snapshot: JournalExport): void {
     );
   }
   for (const analysis of snapshot.analyses) {
-    requireReference(offers, analysis.offerId, `Analysis ${analysis.id} is missing its offer.`);
+    requireReference(
+      offers,
+      analysis.offerId,
+      `Analysis ${analysis.id} is missing its offer.`,
+    );
     if (analysis.parentId) {
       requireReference(
         analyses,
@@ -1275,16 +1397,24 @@ export function assertRestorable(snapshot: JournalExport): void {
       );
     }
     if (!analysis.snapshot || analysis.snapshot.version !== 1) {
-      throw new Error(`Analysis ${analysis.id} has an unsupported snapshot version.`);
+      throw new Error(
+        `Analysis ${analysis.id} has an unsupported snapshot version.`,
+      );
     }
     if (
       analysis.snapshot.provenance !== "captured" &&
       analysis.snapshot.provenance !== "legacy-unknown"
     ) {
-      throw new Error(`Analysis ${analysis.id} has an unknown snapshot provenance.`);
+      throw new Error(
+        `Analysis ${analysis.id} has an unknown snapshot provenance.`,
+      );
     }
     for (const evidenceId of analysis.evidenceIds) {
-      requireReference(evidence, evidenceId, `Analysis ${analysis.id} is missing linked evidence.`);
+      requireReference(
+        evidence,
+        evidenceId,
+        `Analysis ${analysis.id} is missing linked evidence.`,
+      );
     }
     if (
       analysis.status === "completed" &&
@@ -1294,7 +1424,11 @@ export function assertRestorable(snapshot: JournalExport): void {
         `Completed analysis ${analysis.id} is missing its conclusion or completion time.`,
       );
     }
-    if (!["pending", "running", "completed", "failed", "interrupted"].includes(analysis.status)) {
+    if (
+      !["pending", "running", "completed", "failed", "interrupted"].includes(
+        analysis.status,
+      )
+    ) {
       throw new Error(`Analysis ${analysis.id} has an unknown status.`);
     }
   }
@@ -1302,26 +1436,51 @@ export function assertRestorable(snapshot: JournalExport): void {
     throw new Error("Analysis parent relationships contain a cycle.");
   }
   for (const report of snapshot.reports) {
-    requireReference(analyses, report.analysisId, `Report ${report.id} is missing its analysis.`);
+    requireReference(
+      analyses,
+      report.analysisId,
+      `Report ${report.id} is missing its analysis.`,
+    );
   }
-  if (reports.size !== snapshot.reports.length || research.size !== snapshot.userResearch.length) {
+  if (
+    reports.size !== snapshot.reports.length ||
+    research.size !== snapshot.userResearch.length
+  ) {
     throw new Error("Journal backup repeats an identifier.");
   }
   for (const row of snapshot.userResearch) {
-    requireReference(analyses, row.analysisId, `User research ${row.id} is missing its analysis.`);
+    requireReference(
+      analyses,
+      row.analysisId,
+      `User research ${row.id} is missing its analysis.`,
+    );
   }
   for (const bet of snapshot.bets) {
-    requireReference(offers, bet.offerId, `Bet ${bet.id} is missing its offer.`);
+    requireReference(
+      offers,
+      bet.offerId,
+      `Bet ${bet.id} is missing its offer.`,
+    );
     if (bet.analysisId) {
-      requireReference(analyses, bet.analysisId, `Bet ${bet.id} is missing its analysis.`);
+      requireReference(
+        analyses,
+        bet.analysisId,
+        `Bet ${bet.id} is missing its analysis.`,
+      );
     }
   }
   for (const settlement of snapshot.settlements) {
     if (!settlement.betId && !settlement.offerId) {
-      throw new Error(`Settlement ${settlement.id} is missing the record it grades.`);
+      throw new Error(
+        `Settlement ${settlement.id} is missing the record it grades.`,
+      );
     }
     if (settlement.betId) {
-      requireReference(bets, settlement.betId, `Settlement ${settlement.id} is missing its bet.`);
+      requireReference(
+        bets,
+        settlement.betId,
+        `Settlement ${settlement.id} is missing its bet.`,
+      );
     }
     if (settlement.offerId) {
       requireReference(
@@ -1348,7 +1507,11 @@ export function assertRestorable(snapshot: JournalExport): void {
       `Settlement notice ${notice.id} is missing its analysis.`,
     );
     if (notice.betId) {
-      requireReference(bets, notice.betId, `Settlement notice ${notice.id} is missing its bet.`);
+      requireReference(
+        bets,
+        notice.betId,
+        `Settlement notice ${notice.id} is missing its bet.`,
+      );
     }
     if (notice.correctsId) {
       requireReference(
@@ -1358,7 +1521,9 @@ export function assertRestorable(snapshot: JournalExport): void {
       );
     }
     if (!notice.eventId || !notice.recordedAt || !notice.payloadKey) {
-      throw new Error(`Settlement notice ${notice.id} is missing its event history.`);
+      throw new Error(
+        `Settlement notice ${notice.id} is missing its event history.`,
+      );
     }
   }
   if (
@@ -1369,11 +1534,15 @@ export function assertRestorable(snapshot: JournalExport): void {
       })),
     )
   ) {
-    throw new Error("Settlement notice correction relationships contain a cycle.");
+    throw new Error(
+      "Settlement notice correction relationships contain a cycle.",
+    );
   }
   for (const closing of snapshot.closings) {
     if (!closing.analysisId && !closing.betId) {
-      throw new Error(`Closing observation ${closing.id} is missing the record it observes.`);
+      throw new Error(
+        `Closing observation ${closing.id} is missing the record it observes.`,
+      );
     }
     if (closing.analysisId) {
       requireReference(
@@ -1398,21 +1567,32 @@ function idsOf(rows: Array<{ id: string }>, label: string): Set<string> {
     if (typeof row?.id !== "string" || !UUID.test(row.id)) {
       throw new Error(`Journal backup has a malformed ${label} identifier.`);
     }
-    if (ids.has(row.id)) throw new Error(`Journal backup repeats ${label} identifier ${row.id}.`);
+    if (ids.has(row.id))
+      throw new Error(`Journal backup repeats ${label} identifier ${row.id}.`);
     ids.add(row.id);
   }
   return ids;
 }
 
-function requireReference(ids: Set<string>, id: string | null | undefined, message: string): void {
+function requireReference(
+  ids: Set<string>,
+  id: string | null | undefined,
+  message: string,
+): void {
   if (!id || !ids.has(id)) throw new Error(message);
 }
 
-function requireShape(value: string, allowed: readonly string[], message: string): void {
+function requireShape(
+  value: string,
+  allowed: readonly string[],
+  message: string,
+): void {
   if (!allowed.includes(value)) throw new Error(message);
 }
 
-function hasCycle(rows: Array<{ id: string; parentId: string | null }>): boolean {
+function hasCycle(
+  rows: Array<{ id: string; parentId: string | null }>,
+): boolean {
   const parent = new Map(rows.map((row) => [row.id, row.parentId]));
   for (const row of rows) {
     const seen = new Set<string>();
@@ -1426,8 +1606,12 @@ function hasCycle(rows: Array<{ id: string; parentId: string | null }>): boolean
   return false;
 }
 
-function hasSettlementCycle(rows: Array<{ id: string; correctsId: string | null }>): boolean {
-  return hasCycle(rows.map((row) => ({ id: row.id, parentId: row.correctsId })));
+function hasSettlementCycle(
+  rows: Array<{ id: string; correctsId: string | null }>,
+): boolean {
+  return hasCycle(
+    rows.map((row) => ({ id: row.id, parentId: row.correctsId })),
+  );
 }
 
 type RestoreTx = TransactionSql;
@@ -1437,10 +1621,15 @@ function sameRecord(left: unknown, right: unknown): boolean {
 }
 
 function conflict(label: string, id: string): never {
-  throw new Error(`Conflicting ${label} identifier ${id} does not match the saved record.`);
+  throw new Error(
+    `Conflicting ${label} identifier ${id} does not match the saved record.`,
+  );
 }
 
-async function restoreGames(tx: RestoreTx, games: GameRecord[]): Promise<Map<string, string>> {
+async function restoreGames(
+  tx: RestoreTx,
+  games: GameRecord[],
+): Promise<Map<string, string>> {
   const gameIds = new Map<string, string>();
   for (const game of games) {
     const existing = await tx<GameRow[]>`
@@ -1474,9 +1663,12 @@ async function restoreOffers(
   for (const offer of offers) {
     const gameId = gameIds.get(offer.gameId) ?? offer.gameId;
     const incoming = { ...offer, gameId };
-    const existing = await tx<OfferRow[]>`SELECT * FROM offers WHERE id = ${offer.id}`;
+    const existing = await tx<
+      OfferRow[]
+    >`SELECT * FROM offers WHERE id = ${offer.id}`;
     if (existing[0]) {
-      if (!sameRecord(mapOffer(existing[0]), incoming)) conflict("offer", offer.id);
+      if (!sameRecord(mapOffer(existing[0]), incoming))
+        conflict("offer", offer.id);
       continue;
     }
     await tx`
@@ -1495,11 +1687,17 @@ async function restoreOffers(
   }
 }
 
-async function restoreEvidence(tx: RestoreTx, evidence: EvidenceRecord[]): Promise<void> {
+async function restoreEvidence(
+  tx: RestoreTx,
+  evidence: EvidenceRecord[],
+): Promise<void> {
   for (const item of evidence) {
-    const existing = await tx<EvidenceRow[]>`SELECT * FROM evidence WHERE id = ${item.id}`;
+    const existing = await tx<
+      EvidenceRow[]
+    >`SELECT * FROM evidence WHERE id = ${item.id}`;
     if (existing[0]) {
-      if (!sameRecord(mapEvidence(existing[0]), item)) conflict("evidence", item.id);
+      if (!sameRecord(mapEvidence(existing[0]), item))
+        conflict("evidence", item.id);
       continue;
     }
     await tx`
@@ -1515,10 +1713,17 @@ async function restoreEvidence(tx: RestoreTx, evidence: EvidenceRecord[]): Promi
   }
 }
 
-async function restoreAnalyses(tx: RestoreTx, analyses: AnalysisRecord[]): Promise<void> {
-  const evidenceByAnalysis = new Map(analyses.map((row) => [row.id, row.evidenceIds]));
+async function restoreAnalyses(
+  tx: RestoreTx,
+  analyses: AnalysisRecord[],
+): Promise<void> {
+  const evidenceByAnalysis = new Map(
+    analyses.map((row) => [row.id, row.evidenceIds]),
+  );
   for (const analysis of parentsFirst(analyses, (row) => row.parentId)) {
-    const existing = await tx<AnalysisRow[]>`SELECT * FROM analyses WHERE id = ${analysis.id}`;
+    const existing = await tx<
+      AnalysisRow[]
+    >`SELECT * FROM analyses WHERE id = ${analysis.id}`;
     if (existing[0]) {
       const links = await tx<{ evidence_id: string }[]>`
         SELECT evidence_id FROM analysis_evidence WHERE analysis_id = ${analysis.id}
@@ -1528,7 +1733,12 @@ async function restoreAnalyses(tx: RestoreTx, analyses: AnalysisRecord[]): Promi
         existing[0],
         links.map((row) => row.evidence_id),
       );
-      if (!sameRecord(stripAnalysisSecrets(stored), stripAnalysisSecrets(analysis))) {
+      if (
+        !sameRecord(
+          stripAnalysisSecrets(stored),
+          stripAnalysisSecrets(analysis),
+        )
+      ) {
         conflict("analysis", analysis.id);
       }
       continue;
@@ -1569,11 +1779,17 @@ async function restoreAnalyses(tx: RestoreTx, analyses: AnalysisRecord[]): Promi
   }
 }
 
-async function restoreReports(tx: RestoreTx, reports: ReportRecord[]): Promise<void> {
+async function restoreReports(
+  tx: RestoreTx,
+  reports: ReportRecord[],
+): Promise<void> {
   for (const report of reports) {
-    const existing = await tx<ReportRow[]>`SELECT * FROM reports WHERE id = ${report.id}`;
+    const existing = await tx<
+      ReportRow[]
+    >`SELECT * FROM reports WHERE id = ${report.id}`;
     if (existing[0]) {
-      if (!sameRecord(mapReport(existing[0]), report)) conflict("report", report.id);
+      if (!sameRecord(mapReport(existing[0]), report))
+        conflict("report", report.id);
       continue;
     }
     await tx`
@@ -1588,11 +1804,17 @@ async function restoreReports(tx: RestoreTx, reports: ReportRecord[]): Promise<v
   }
 }
 
-async function restoreResearch(tx: RestoreTx, rows: UserResearchRecord[]): Promise<void> {
+async function restoreResearch(
+  tx: RestoreTx,
+  rows: UserResearchRecord[],
+): Promise<void> {
   for (const research of rows) {
-    const existing = await tx<ResearchRow[]>`SELECT * FROM user_research WHERE id = ${research.id}`;
+    const existing = await tx<
+      ResearchRow[]
+    >`SELECT * FROM user_research WHERE id = ${research.id}`;
     if (existing[0]) {
-      if (!sameRecord(mapResearch(existing[0]), research)) conflict("user research", research.id);
+      if (!sameRecord(mapResearch(existing[0]), research))
+        conflict("user research", research.id);
       continue;
     }
     await tx`
@@ -1604,9 +1826,16 @@ async function restoreResearch(tx: RestoreTx, rows: UserResearchRecord[]): Promi
 
 async function restoreBets(tx: RestoreTx, bets: BetRecord[]): Promise<void> {
   for (const bet of bets) {
-    const existing = await tx<BetRow[]>`SELECT * FROM bets WHERE id = ${bet.id}`;
+    const existing = await tx<
+      BetRow[]
+    >`SELECT * FROM bets WHERE id = ${bet.id}`;
     if (existing[0]) {
-      if (!sameRecord(mapBet(existing[0]), { ...bet, modelPickId: bet.modelPickId ?? null })) {
+      if (
+        !sameRecord(mapBet(existing[0]), {
+          ...bet,
+          modelPickId: bet.modelPickId ?? null,
+        })
+      ) {
         conflict("bet", bet.id);
       }
       continue;
@@ -1626,7 +1855,10 @@ async function restoreBets(tx: RestoreTx, bets: BetRecord[]): Promise<void> {
   }
 }
 
-async function restoreSettlements(tx: RestoreTx, settlements: SettlementRecord[]): Promise<void> {
+async function restoreSettlements(
+  tx: RestoreTx,
+  settlements: SettlementRecord[],
+): Promise<void> {
   for (const settlement of parentsFirst(settlements, (row) => row.correctsId)) {
     const existing = await tx<
       SettlementRow[]
@@ -1675,7 +1907,10 @@ async function restoreSettlementNotices(
   }
 }
 
-async function restoreClosings(tx: RestoreTx, closings: ClosingRecord[]): Promise<void> {
+async function restoreClosings(
+  tx: RestoreTx,
+  closings: ClosingRecord[],
+): Promise<void> {
   for (const closing of closings) {
     const existing = await tx<ClosingRow[]>`
       SELECT * FROM closing_observations WHERE id = ${closing.id}
@@ -1704,11 +1939,17 @@ function jsonOrNull(tx: Pick<Sql, "json">, value: unknown) {
 }
 
 function isUniqueViolation(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "23505";
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "23505"
+  );
 }
 
 const PRIMARY_REASON = "Earliest completed analysis before kickoff";
-const REFRESH_REASON = "Later completed analysis. The primary assessment is unchanged.";
+const REFRESH_REASON =
+  "Later completed analysis. The primary assessment is unchanged.";
 const NOT_COMPLETED_REASON = "This analysis did not complete before kickoff.";
 const AFTER_KICKOFF_REASON =
   "Decision cutoff is not before kickoff, so this analysis is not an eligible pregame assessment.";
@@ -1740,12 +1981,16 @@ async function chooseAssessmentRole(
     [input.gameId],
   );
   const pregame =
-    input.status === "completed" && Date.parse(input.cutoffAt) < Date.parse(input.kickoffAt);
+    input.status === "completed" &&
+    Date.parse(input.cutoffAt) < Date.parse(input.kickoffAt);
   const primary = locked.find((row) => row.assessment_role === "primary");
   if (!pregame) {
     return {
       role: "ineligible",
-      reason: input.status === "completed" ? AFTER_KICKOFF_REASON : NOT_COMPLETED_REASON,
+      reason:
+        input.status === "completed"
+          ? AFTER_KICKOFF_REASON
+          : NOT_COMPLETED_REASON,
       primaryId: null,
     };
   }
@@ -2081,7 +2326,7 @@ function mapSettlement(row: SettlementRow): SettlementRecord {
 type SettlementNoticeRow = {
   id: string;
   event_id: string;
-  analysis_id: string;
+  analysis_id: string | null;
   bet_id: string | null;
   kind: SettlementNoticeRecord["kind"];
   home_score: number | null;

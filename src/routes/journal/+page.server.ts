@@ -25,17 +25,26 @@ function store() {
 const markets = new Set<Market>(["moneyline", "spread", "total"]);
 const selections = new Set<SideSelection>(["home", "away", "over", "under"]);
 const ties = new Set<TieRule>(["push", "loss", "win", "void"]);
-const kinds = new Set<SettlementNoticeKind>(["final", "postponed", "void", "unresolved"]);
+const kinds = new Set<SettlementNoticeKind>([
+  "final",
+  "postponed",
+  "void",
+  "unresolved",
+]);
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The picked contract as editable starting values for the actual-bet form. */
 async function pickStart(journal: ReturnType<typeof store>, pickId: string) {
-  const board = uuid.test(pickId) ? await journal.getBoardForPick(pickId) : null;
+  const board = uuid.test(pickId)
+    ? await journal.getBoardForPick(pickId)
+    : null;
   const market = board?.markets.find((item) => item.pick?.id === pickId);
   const pick = market?.pick;
   if (!board || !market || !pick) return null;
-  const offer = market.offers.find((item) => item.selection === pick.calculation.pickedSelection);
+  const offer = market.offers.find(
+    (item) => item.selection === pick.calculation.pickedSelection,
+  );
   if (!offer) return null;
   return {
     modelPickId: pick.id,
@@ -65,18 +74,38 @@ export const load: PageServerLoad = async ({ url }) => {
       const related = bets.filter((bet) => bet.analysisId === assessment.id);
       const rows = [];
       for (const bet of related) {
-        const read = await journal.readSettlement({ analysisId: assessment.id, betId: bet.id });
+        const read = await journal.readSettlement({
+          analysisId: assessment.id,
+          betId: bet.id,
+        });
         rows.push({ betId: bet.id, grade: read.bet });
       }
       const read = await journal.readSettlement({ analysisId: assessment.id });
-      return { analysisId: assessment.id, assessment: read.assessment, bets: rows };
+      return {
+        analysisId: assessment.id,
+        assessment: read.assessment,
+        bets: rows,
+      };
     }),
   );
+  const pickBetGrades = await Promise.all(
+    bets
+      .filter((bet) => bet.modelPickId && !bet.analysisId)
+      .map(async (bet) => {
+        const read = await journal.readSettlement({ betId: bet.id });
+        return { betId: bet.id, grade: read.bet };
+      }),
+  );
+  const betGrades = [
+    ...settlements.flatMap((row) => row.bets),
+    ...pickBetGrades,
+  ];
   const performance = journalSummaries({
     assessments: assessments.map((assessment) => ({
       ...assessment,
       americanOdds: assessment.offer.americanOdds,
-      grade: settlements.find((row) => row.analysisId === assessment.id)?.assessment ?? {
+      grade: settlements.find((row) => row.analysisId === assessment.id)
+        ?.assessment ?? {
         result: "unresolved",
         effective: "unresolved",
         history: [],
@@ -84,12 +113,19 @@ export const load: PageServerLoad = async ({ url }) => {
     })),
     bets: bets.map((bet) => ({
       ...bet,
-      grade:
-        settlements.flatMap((row) => row.bets).find((row) => row.betId === bet.id)?.grade ?? null,
+      grade: betGrades.find((row) => row.betId === bet.id)?.grade ?? null,
     })),
     closings,
   });
-  return { assessments, bets, settlements, closings, performance, pickBet };
+  return {
+    assessments,
+    bets,
+    settlements,
+    pickBetGrades,
+    closings,
+    performance,
+    pickBet,
+  };
 };
 
 export const actions = {
@@ -106,7 +142,10 @@ export const actions = {
     const tie = String(data.get("tie") ?? "").trim();
     const submissionId = String(data.get("submissionId") ?? "").trim();
     if (!analysisId && !modelPickId)
-      return fail(400, { recorded: false, error: "Choose the analysis this bet belongs to" });
+      return fail(400, {
+        recorded: false,
+        error: "Choose the analysis this bet belongs to",
+      });
     if (!submissionId) {
       return fail(400, {
         recorded: false,
@@ -114,32 +153,52 @@ export const actions = {
       });
     }
     if (!markets.has(market as Market)) {
-      return fail(400, { recorded: false, error: "Choose the market you placed" });
+      return fail(400, {
+        recorded: false,
+        error: "Choose the market you placed",
+      });
     }
     if (!selections.has(selection as SideSelection)) {
-      return fail(400, { recorded: false, error: "Choose the selection you placed" });
+      return fail(400, {
+        recorded: false,
+        error: "Choose the selection you placed",
+      });
     }
     const pointLine = pointLineText === "" ? undefined : Number(pointLineText);
     if (pointLine !== undefined && !Number.isFinite(pointLine)) {
       return fail(400, { recorded: false, error: "Enter the line you placed" });
     }
     if (market === "moneyline" && !ties.has(tie as TieRule)) {
-      return fail(400, { recorded: false, error: "A moneyline requires a tie rule" });
+      return fail(400, {
+        recorded: false,
+        error: "A moneyline requires a tie rule",
+      });
     }
     if (!Number.isFinite(stakeUnits) || stakeUnits <= 0) {
-      return fail(400, { recorded: false, error: "Stake must be a positive number of units" });
+      return fail(400, {
+        recorded: false,
+        error: "Stake must be a positive number of units",
+      });
     }
     const journal = store();
     let contractGame: { id: string; kickoff: string };
     if (modelPickId) {
-      const board = uuid.test(modelPickId) ? await journal.getBoardForPick(modelPickId) : null;
+      const board = uuid.test(modelPickId)
+        ? await journal.getBoardForPick(modelPickId)
+        : null;
       if (!board)
-        return fail(400, { recorded: false, error: `Model pick not found: ${modelPickId}` });
+        return fail(400, {
+          recorded: false,
+          error: `Model pick not found: ${modelPickId}`,
+        });
       contractGame = board.game;
     } else {
       const analysis = await journal.getRun(analysisId);
       if (!analysis)
-        return fail(400, { recorded: false, error: `Analysis not found: ${analysisId}` });
+        return fail(400, {
+          recorded: false,
+          error: `Analysis not found: ${analysisId}`,
+        });
       contractGame = analysis.game;
     }
     const rules: OfferRules = {
@@ -162,7 +221,10 @@ export const actions = {
     } catch (cause) {
       return fail(400, {
         recorded: false,
-        error: cause instanceof Error ? cause.message : "The placed contract is not valid",
+        error:
+          cause instanceof Error
+            ? cause.message
+            : "The placed contract is not valid",
       });
     }
     try {
@@ -178,7 +240,8 @@ export const actions = {
         stakeUnits,
         placedAt: now(),
       });
-      if (result.kind === "conflict") return fail(409, { recorded: false, error: result.error });
+      if (result.kind === "conflict")
+        return fail(409, { recorded: false, error: result.error });
     } catch (cause) {
       return fail(400, {
         recorded: false,
@@ -197,22 +260,36 @@ export const actions = {
     const awayText = String(data.get("awayScore") ?? "").trim();
     const reason = String(data.get("reason") ?? "").trim();
     const correctsNoticeId = String(data.get("correctsNoticeId") ?? "").trim();
-    if (!analysisId) return fail(400, { settled: false, error: "Choose the analysis to settle" });
+    if (!analysisId && !betId) {
+      return fail(400, {
+        settled: false,
+        error: "Choose the analysis or the bet to settle",
+      });
+    }
     if (!eventId)
-      return fail(400, { settled: false, error: "Enter a settlement event identifier" });
+      return fail(400, {
+        settled: false,
+        error: "Enter a settlement event identifier",
+      });
     if (!kinds.has(kind as SettlementNoticeKind)) {
       return fail(400, { settled: false, error: "Choose a settlement kind" });
     }
     const homeScore = homeText === "" ? null : Number(homeText);
     const awayScore = awayText === "" ? null : Number(awayText);
-    if (kind === "final" && (!Number.isInteger(homeScore) || !Number.isInteger(awayScore))) {
-      return fail(400, { settled: false, error: "A final result needs whole-number scores" });
+    if (
+      kind === "final" &&
+      (!Number.isInteger(homeScore) || !Number.isInteger(awayScore))
+    ) {
+      return fail(400, {
+        settled: false,
+        error: "A final result needs whole-number scores",
+      });
     }
     const journal = store();
     try {
       const result = await journal.recordSettlement({
         eventId,
-        analysisId,
+        analysisId: analysisId || null,
         betId: betId || null,
         kind: kind as SettlementNoticeKind,
         homeScore,
@@ -222,7 +299,8 @@ export const actions = {
         reason: reason || null,
         correctsNoticeId: correctsNoticeId || null,
       });
-      if (result.kind === "conflict") return fail(409, { settled: false, error: result.error });
+      if (result.kind === "conflict")
+        return fail(409, { settled: false, error: result.error });
       return {
         recorded: false,
         settled: true,
@@ -232,7 +310,8 @@ export const actions = {
     } catch (cause) {
       return fail(400, {
         settled: false,
-        error: cause instanceof Error ? cause.message : "Settlement was not saved",
+        error:
+          cause instanceof Error ? cause.message : "Settlement was not saved",
       });
     }
   },
@@ -261,19 +340,34 @@ export const actions = {
       });
     }
     if (!source)
-      return fail(400, { recorded: false, error: "Name the source of this closing observation" });
+      return fail(400, {
+        recorded: false,
+        error: "Name the source of this closing observation",
+      });
     if (!observedAt) {
-      return fail(400, { recorded: false, error: "Enter when you observed this closing offer" });
+      return fail(400, {
+        recorded: false,
+        error: "Enter when you observed this closing offer",
+      });
     }
-    if (!markets.has(market as Market) || !selections.has(selection as SideSelection)) {
-      return fail(400, { recorded: false, error: "Choose the closing market and selection" });
+    if (
+      !markets.has(market as Market) ||
+      !selections.has(selection as SideSelection)
+    ) {
+      return fail(400, {
+        recorded: false,
+        error: "Choose the closing market and selection",
+      });
     }
     const pointLine = pointLineText === "" ? undefined : Number(pointLineText);
     if (pointLine !== undefined && !Number.isFinite(pointLine)) {
       return fail(400, { recorded: false, error: "Enter the closing line" });
     }
     if (market === "moneyline" && !ties.has(tie as TieRule)) {
-      return fail(400, { recorded: false, error: "A moneyline requires a tie rule" });
+      return fail(400, {
+        recorded: false,
+        error: "A moneyline requires a tie rule",
+      });
     }
     const journal = store();
     const rules: OfferRules = {
@@ -297,7 +391,10 @@ export const actions = {
     } catch (cause) {
       return fail(400, {
         recorded: false,
-        error: cause instanceof Error ? cause.message : "Closing observation was not saved",
+        error:
+          cause instanceof Error
+            ? cause.message
+            : "Closing observation was not saved",
       });
     }
   },
@@ -305,13 +402,19 @@ export const actions = {
     const data = await request.formData();
     const file = data.get("backup");
     if (!(file instanceof File) || file.size === 0) {
-      return fail(400, { restored: false, error: "Choose a version 1 journal backup to restore." });
+      return fail(400, {
+        restored: false,
+        error: "Choose a version 1 journal backup to restore.",
+      });
     }
     let backup: JournalExport;
     try {
       backup = JSON.parse(await file.text()) as JournalExport;
     } catch {
-      return fail(400, { restored: false, error: "That file is not a journal backup." });
+      return fail(400, {
+        restored: false,
+        error: "That file is not a journal backup.",
+      });
     }
     const journal = store();
     const before = await journal.listCompleted();
@@ -324,7 +427,8 @@ export const actions = {
       }
       return fail(400, {
         restored: false,
-        error: cause instanceof Error ? cause.message : "Journal restore failed.",
+        error:
+          cause instanceof Error ? cause.message : "Journal restore failed.",
       });
     }
     return { restored: true, error: null };
