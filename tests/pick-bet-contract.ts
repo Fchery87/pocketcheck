@@ -5,10 +5,9 @@ import type { JournalStore, NewActualBet } from "#lib/server/analysis/store.ts";
 import { quiet, scriptedModel } from "./board-fixtures.ts";
 
 const NOW = "2026-10-25T16:00:00.000Z";
-const game = loadFixtureGames(
-  "tests/fixtures/sources/games-minimized.csv",
-  NOW,
-).find((item) => item.id === "2026_07_DAL_PHI")!;
+const game = loadFixtureGames("tests/fixtures/sources/games-minimized.csv", NOW).find(
+  (item) => item.id === "2026_07_DAL_PHI",
+)!;
 
 /** Behaviour every journal must share for an actual bet that references a model pick. */
 export function describePickBetContract(
@@ -45,10 +44,7 @@ export function describePickBetContract(
     return outcome.board;
   }
 
-  const placed = (
-    pickId: string,
-    overrides: Partial<NewActualBet> = {},
-  ): NewActualBet => ({
+  const placed = (pickId: string, overrides: Partial<NewActualBet> = {}): NewActualBet => ({
     modelPickId: pickId,
     submissionId: `${scope()}:bet`,
     sportsbook: "Corner Book",
@@ -95,26 +91,22 @@ export function describePickBetContract(
       if (first.kind === "created" && again.kind === "existing") {
         expect(again.bet.id).toBe(first.bet.id);
       }
-      const changed = await store.recordBet(
-        placed(pick.id, { americanOdds: -130 }),
-      );
+      const changed = await store.recordBet(placed(pick.id, { americanOdds: -130 }));
       expect(changed.kind).toBe("conflict");
       expect(await store.listBets()).toHaveLength(1);
     });
 
     it("rejects a model pick that does not exist", async () => {
       const store = await makeStore();
-      await expect(
-        store.recordBet(placed("00000000-0000-4000-8000-000000000000")),
-      ).rejects.toThrow(/Model pick not found/);
+      await expect(store.recordBet(placed("00000000-0000-4000-8000-000000000000"))).rejects.toThrow(
+        /Model pick not found/,
+      );
     });
 
     it("validates the placed contract independently of the pick", async () => {
       const store = await makeStore();
       const pick = (await boardWithPick(store)).markets[0]!.pick!;
-      await expect(
-        store.recordBet(placed(pick.id, { americanOdds: -50 })),
-      ).rejects.toThrow();
+      await expect(store.recordBet(placed(pick.id, { americanOdds: -50 }))).rejects.toThrow();
       expect(await store.listBets()).toEqual([]);
     });
 
@@ -175,16 +167,12 @@ export function describePickBetContract(
         recordedAt: "2026-10-26T05:00:00.000Z",
         source: "league",
         reason: "The game was postponed.",
-        correctsNoticeId:
-          finalNotice.kind === "recorded" ? finalNotice.noticeId : undefined,
+        correctsNoticeId: finalNotice.kind === "recorded" ? finalNotice.noticeId : undefined,
       });
       expect(postponed.kind).toBe("recorded");
       const held = await store.readSettlement({ betId: recorded.bet.id });
       expect(held.bet?.effective).toBe("unresolved");
-      expect(held.bet?.history.map((notice) => notice.result)).toEqual([
-        "loss",
-        "unresolved",
-      ]);
+      expect(held.bet?.history.map((notice) => notice.result)).toEqual(["loss", "unresolved"]);
 
       const summaries = await store.listCompleted();
       expect(summaries).toEqual([]);
@@ -210,9 +198,7 @@ export function describePickBetContract(
     it("records a comparable close for a pick bet and treats a different line as movement", async () => {
       const store = await makeStore();
       const pick = (await boardWithPick(store)).markets[0]!.pick!;
-      const recorded = await store.recordBet(
-        placed(pick.id, { americanOdds: -140 }),
-      );
+      const recorded = await store.recordBet(placed(pick.id, { americanOdds: -140 }));
       if (recorded.kind !== "created") throw new Error("bet was not created");
       const same = await store.recordClosing({
         subject: { kind: "bet", id: recorded.bet.id },

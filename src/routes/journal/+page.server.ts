@@ -25,26 +25,17 @@ function store() {
 const markets = new Set<Market>(["moneyline", "spread", "total"]);
 const selections = new Set<SideSelection>(["home", "away", "over", "under"]);
 const ties = new Set<TieRule>(["push", "loss", "win", "void"]);
-const kinds = new Set<SettlementNoticeKind>([
-  "final",
-  "postponed",
-  "void",
-  "unresolved",
-]);
+const kinds = new Set<SettlementNoticeKind>(["final", "postponed", "void", "unresolved"]);
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The picked contract as editable starting values for the actual-bet form. */
 async function pickStart(journal: ReturnType<typeof store>, pickId: string) {
-  const board = uuid.test(pickId)
-    ? await journal.getBoardForPick(pickId)
-    : null;
+  const board = uuid.test(pickId) ? await journal.getBoardForPick(pickId) : null;
   const market = board?.markets.find((item) => item.pick?.id === pickId);
   const pick = market?.pick;
   if (!board || !market || !pick) return null;
-  const offer = market.offers.find(
-    (item) => item.selection === pick.calculation.pickedSelection,
-  );
+  const offer = market.offers.find((item) => item.selection === pick.calculation.pickedSelection);
   if (!offer) return null;
   return {
     modelPickId: pick.id,
@@ -96,16 +87,12 @@ export const load: PageServerLoad = async ({ url }) => {
         return { betId: bet.id, grade: read.bet };
       }),
   );
-  const betGrades = [
-    ...settlements.flatMap((row) => row.bets),
-    ...pickBetGrades,
-  ];
+  const betGrades = [...settlements.flatMap((row) => row.bets), ...pickBetGrades];
   const performance = journalSummaries({
     assessments: assessments.map((assessment) => ({
       ...assessment,
       americanOdds: assessment.offer.americanOdds,
-      grade: settlements.find((row) => row.analysisId === assessment.id)
-        ?.assessment ?? {
+      grade: settlements.find((row) => row.analysisId === assessment.id)?.assessment ?? {
         result: "unresolved",
         effective: "unresolved",
         history: [],
@@ -183,9 +170,7 @@ export const actions = {
     const journal = store();
     let contractGame: { id: string; kickoff: string };
     if (modelPickId) {
-      const board = uuid.test(modelPickId)
-        ? await journal.getBoardForPick(modelPickId)
-        : null;
+      const board = uuid.test(modelPickId) ? await journal.getBoardForPick(modelPickId) : null;
       if (!board)
         return fail(400, {
           recorded: false,
@@ -221,10 +206,7 @@ export const actions = {
     } catch (cause) {
       return fail(400, {
         recorded: false,
-        error:
-          cause instanceof Error
-            ? cause.message
-            : "The placed contract is not valid",
+        error: cause instanceof Error ? cause.message : "The placed contract is not valid",
       });
     }
     try {
@@ -240,8 +222,7 @@ export const actions = {
         stakeUnits,
         placedAt: now(),
       });
-      if (result.kind === "conflict")
-        return fail(409, { recorded: false, error: result.error });
+      if (result.kind === "conflict") return fail(409, { recorded: false, error: result.error });
     } catch (cause) {
       return fail(400, {
         recorded: false,
@@ -276,10 +257,7 @@ export const actions = {
     }
     const homeScore = homeText === "" ? null : Number(homeText);
     const awayScore = awayText === "" ? null : Number(awayText);
-    if (
-      kind === "final" &&
-      (!Number.isInteger(homeScore) || !Number.isInteger(awayScore))
-    ) {
+    if (kind === "final" && (!Number.isInteger(homeScore) || !Number.isInteger(awayScore))) {
       return fail(400, {
         settled: false,
         error: "A final result needs whole-number scores",
@@ -299,8 +277,7 @@ export const actions = {
         reason: reason || null,
         correctsNoticeId: correctsNoticeId || null,
       });
-      if (result.kind === "conflict")
-        return fail(409, { settled: false, error: result.error });
+      if (result.kind === "conflict") return fail(409, { settled: false, error: result.error });
       return {
         recorded: false,
         settled: true,
@@ -310,8 +287,7 @@ export const actions = {
     } catch (cause) {
       return fail(400, {
         settled: false,
-        error:
-          cause instanceof Error ? cause.message : "Settlement was not saved",
+        error: cause instanceof Error ? cause.message : "Settlement was not saved",
       });
     }
   },
@@ -350,10 +326,7 @@ export const actions = {
         error: "Enter when you observed this closing offer",
       });
     }
-    if (
-      !markets.has(market as Market) ||
-      !selections.has(selection as SideSelection)
-    ) {
+    if (!markets.has(market as Market) || !selections.has(selection as SideSelection)) {
       return fail(400, {
         recorded: false,
         error: "Choose the closing market and selection",
@@ -391,10 +364,7 @@ export const actions = {
     } catch (cause) {
       return fail(400, {
         recorded: false,
-        error:
-          cause instanceof Error
-            ? cause.message
-            : "Closing observation was not saved",
+        error: cause instanceof Error ? cause.message : "Closing observation was not saved",
       });
     }
   },
@@ -427,8 +397,7 @@ export const actions = {
       }
       return fail(400, {
         restored: false,
-        error:
-          cause instanceof Error ? cause.message : "Journal restore failed.",
+        error: cause instanceof Error ? cause.message : "Journal restore failed.",
       });
     }
     return { restored: true, error: null };

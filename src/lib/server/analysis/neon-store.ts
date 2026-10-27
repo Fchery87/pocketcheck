@@ -62,9 +62,7 @@ function evidenceRow(item: EvidenceItem) {
     retrievedAt: item.retrievedAt,
     publishedAt: item.publishedAt === "unknown" ? null : item.publishedAt,
     effectiveAt: null,
-    checksum:
-      item.checksum ??
-      createHash("sha256").update(JSON.stringify(body)).digest("hex"),
+    checksum: item.checksum ?? createHash("sha256").update(JSON.stringify(body)).digest("hex"),
     body,
     origin: item.origin,
     completeness: "packet",
@@ -135,12 +133,9 @@ export function createNeonStore(sql: Sql): JournalStore {
       gaps: Array.isArray(analysis.gaps) ? (analysis.gaps as string[]) : [],
       usage: (analysis.usage as RunUsage | null) ?? null,
       providerRequests: analysis.snapshot.providerRequests ?? [],
-      providerOutcomeAmbiguous:
-        analysis.snapshot.providerOutcomeAmbiguous ?? false,
+      providerOutcomeAmbiguous: analysis.snapshot.providerOutcomeAmbiguous ?? false,
       probabilityModel: (analysis.probabilityModel as RunModel | null) ?? null,
-      forecast:
-        (analysis.snapshot.forecast as SavedForecast | null | undefined) ??
-        null,
+      forecast: (analysis.snapshot.forecast as SavedForecast | null | undefined) ?? null,
       report: (report?.body as ThesisReport | null | undefined) ?? null,
       renderedText: report?.renderedText ?? "",
       failureReason: analysis.failureReason,
@@ -155,19 +150,15 @@ export function createNeonStore(sql: Sql): JournalStore {
 
   const research: ResearchStore = {
     async beginAttempt(run) {
-      const saved = await journal.saveCompletedAnalysis(
-        journalInput(run, true),
-      );
+      const saved = await journal.saveCompletedAnalysis(journalInput(run, true));
       if (saved.analysis.snapshot.request?.hash !== run.request?.hash) {
         return {
           kind: "conflict",
-          error:
-            "This request identifier was already used with different inputs.",
+          error: "This request identifier was already used with different inputs.",
         };
       }
       const existing = await getRun(saved.analysis.id);
-      if (!existing)
-        throw new Error(`Analysis was not persisted: ${saved.analysis.id}`);
+      if (!existing) throw new Error(`Analysis was not persisted: ${saved.analysis.id}`);
       return { kind: saved.created ? "created" : "existing", run: existing };
     },
     async updateAttempt(run) {
@@ -190,25 +181,17 @@ export function createNeonStore(sql: Sql): JournalStore {
     },
     async recordBet(bet) {
       if (!bet.analysisId === !bet.modelPickId) {
-        throw new Error(
-          "An actual bet belongs to one analysis or one model pick.",
-        );
+        throw new Error("An actual bet belongs to one analysis or one model pick.");
       }
-      const saved = bet.analysisId
-        ? await journal.findRun(bet.analysisId)
-        : null;
-      if (bet.analysisId && !saved)
-        throw new Error(`Analysis not found: ${bet.analysisId}`);
-      const pickBoard = bet.modelPickId
-        ? await boardStore.getBoardForPick(bet.modelPickId)
-        : null;
+      const saved = bet.analysisId ? await journal.findRun(bet.analysisId) : null;
+      if (bet.analysisId && !saved) throw new Error(`Analysis not found: ${bet.analysisId}`);
+      const pickBoard = bet.modelPickId ? await boardStore.getBoardForPick(bet.modelPickId) : null;
       if (bet.modelPickId && !pickBoard)
         throw new Error(`Model pick not found: ${bet.modelPickId}`);
       const game = saved
         ? { id: saved.game.sourceGameId, kickoff: saved.game.kickoffAt }
         : { id: pickBoard!.game.id, kickoff: pickBoard!.game.kickoff };
-      if (!bet.submissionId)
-        throw new Error("An actual bet requires a submission identifier.");
+      if (!bet.submissionId) throw new Error("An actual bet requires a submission identifier.");
       if (!Number.isFinite(bet.stakeUnits) || bet.stakeUnits <= 0) {
         throw new Error("Stake must be a positive number of units");
       }
@@ -347,10 +330,7 @@ function isoTimestamp(value: string): string {
   return new Date(value).toISOString();
 }
 
-function journalInput(
-  run: NewRun,
-  includeUserResearch: boolean,
-): SaveAnalysisInput {
+function journalInput(run: NewRun, includeUserResearch: boolean): SaveAnalysisInput {
   return {
     game: {
       sourceGameId: run.game.id,
@@ -413,9 +393,7 @@ function journalInput(
   };
 }
 
-function toBet(
-  record: Awaited<ReturnType<JournalRepository["listBets"]>>[number],
-): ActualBet {
+function toBet(record: Awaited<ReturnType<JournalRepository["listBets"]>>[number]): ActualBet {
   return {
     id: record.id,
     analysisId: record.analysisId,
@@ -471,8 +449,7 @@ async function persistClosing(
   input: NewClosing,
   provenance: ClosingProvenance,
 ): Promise<ClosingObservation> {
-  if (!input.source.trim())
-    throw new Error("A closing observation requires a source.");
+  if (!input.source.trim()) throw new Error("A closing observation requires a source.");
   const open = await openSide(journal, boards, input);
   if (provenance === "archived-untimestamped") {
     const record = await journal.recordClosing({
@@ -572,17 +549,12 @@ async function openSide(
   const bets = await journal.listBets();
   const bet = bets.find((item) => item.id === input.subject.id);
   if (!bet) throw new Error(`Bet not found: ${input.subject.id}`);
-  if (!bet.contract)
-    throw new Error("This bet has no recorded contract to compare.");
+  if (!bet.contract) throw new Error("This bet has no recorded contract to compare.");
   const saved = bet.analysisId ? await journal.findRun(bet.analysisId) : null;
-  if (bet.analysisId && !saved)
-    throw new Error(`Analysis not found: ${bet.analysisId}`);
+  if (bet.analysisId && !saved) throw new Error(`Analysis not found: ${bet.analysisId}`);
   const board =
-    !bet.analysisId && bet.modelPickId
-      ? await boards.getBoardForPick(bet.modelPickId)
-      : null;
-  if (!bet.analysisId && !board)
-    throw new Error(`Model pick not found: ${bet.modelPickId}`);
+    !bet.analysisId && bet.modelPickId ? await boards.getBoardForPick(bet.modelPickId) : null;
+  if (!bet.analysisId && !board) throw new Error(`Model pick not found: ${bet.modelPickId}`);
   const game = saved
     ? { id: saved.game.sourceGameId, kickoff: saved.game.kickoffAt }
     : { id: board!.game.id, kickoff: board!.game.kickoff };
@@ -606,10 +578,7 @@ function toClosing(
   const subject = record.analysisId
     ? { kind: "analysis" as const, id: record.analysisId }
     : { kind: "bet" as const, id: record.betId! };
-  if (
-    record.provenance === "archived-untimestamped" ||
-    record.observedAt === null
-  ) {
+  if (record.provenance === "archived-untimestamped" || record.observedAt === null) {
     return {
       id: record.id,
       subject,
@@ -699,10 +668,7 @@ async function recordNeonSettlement(
   if (betId) {
     const bets = await journal.listBets();
     const bet = bets.find((item) => item.id === betId);
-    if (
-      !bet ||
-      (analysisId ? bet.analysisId !== analysisId : !bet.modelPickId)
-    ) {
+    if (!bet || (analysisId ? bet.analysisId !== analysisId : !bet.modelPickId)) {
       throw new Error(`Bet not found: ${betId}`);
     }
     if (!analysisId && bet.modelPickId) {
@@ -710,8 +676,7 @@ async function recordNeonSettlement(
       if (!board) throw new Error(`Model pick not found: ${bet.modelPickId}`);
     }
   }
-  if (!analysisId && !betId)
-    throw new Error("Choose the analysis or the bet to settle");
+  if (!analysisId && !betId) throw new Error("Choose the analysis or the bet to settle");
   if (input.correctsNoticeId) {
     if (!input.reason?.trim())
       return { kind: "conflict", error: "A correction requires a reason." };
@@ -726,12 +691,10 @@ async function recordNeonSettlement(
   const payloadKey = settlementPayloadKey(input);
   const existing = await journal.findSettlementNoticeByEvent(input.eventId);
   if (existing) {
-    if (existing.payloadKey === payloadKey)
-      return { kind: "duplicate", noticeId: existing.id };
+    if (existing.payloadKey === payloadKey) return { kind: "duplicate", noticeId: existing.id };
     return {
       kind: "conflict",
-      error:
-        "This settlement event identifier was already used with different inputs.",
+      error: "This settlement event identifier was already used with different inputs.",
     };
   }
   const id = randomUUID();
@@ -753,12 +716,10 @@ async function recordNeonSettlement(
   } catch (error) {
     if (isUniqueViolation(error)) {
       const raced = await journal.findSettlementNoticeByEvent(input.eventId);
-      if (raced?.payloadKey === payloadKey)
-        return { kind: "duplicate", noticeId: raced.id };
+      if (raced?.payloadKey === payloadKey) return { kind: "duplicate", noticeId: raced.id };
       return {
         kind: "conflict",
-        error:
-          "This settlement event identifier was already used with different inputs.",
+        error: "This settlement event identifier was already used with different inputs.",
       };
     }
     throw error;
@@ -806,15 +767,16 @@ async function readNeonSettlement(
   }
   const saved = await journal.findRun(analysisId);
   if (!saved) throw new Error(`Analysis not found: ${analysisId}`);
-  const notices = (await journal.listSettlementNotices(analysisId)).map(
-    (row): StoredNotice => ({ ...row, gameId: null, payloadKey: "" }),
-  );
+  const notices = (await journal.listSettlementNotices(analysisId)).map((row): StoredNotice => ({
+    ...row,
+    gameId: null,
+    payloadKey: "",
+  }));
   const assessment = gradeFromNotices(saved.offer, notices);
   if (!input.betId) return { assessment, bet: null };
   const bets = await journal.listBets();
   const bet = bets.find((item) => item.id === input.betId);
-  if (!bet?.contract || bet.analysisId !== analysisId)
-    return { assessment, bet: null };
+  if (!bet?.contract || bet.analysisId !== analysisId) return { assessment, bet: null };
   const contract = parseOffer({
     gameId: saved.game.sourceGameId,
     sportsbook: bet.sportsbook ?? saved.offer.sportsbook,
@@ -830,10 +792,5 @@ async function readNeonSettlement(
 }
 
 function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "23505"
-  );
+  return typeof error === "object" && error !== null && "code" in error && error.code === "23505";
 }
