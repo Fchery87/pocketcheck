@@ -4,11 +4,17 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `fixture-browser` mode loads a fixed forecasting model from checked-in test data and makes no outbound request
-- [ ] `/__verification` reports the fixture forecasting model in place of `model: "off"`, and the existing browser tests assert the new value
-- [ ] Startup rejects a non-fixture model path or configuration in `fixture-browser` mode, with a regression test
-- [ ] Existing research-flow acceptance still passes and still shows no released value conclusion
-- [ ] `docs/testing.md` describes the fixture forecasting model
-- [ ] `npm run verify` passes
+- [x] `fixture-browser` mode loads a fixed forecasting model from checked-in test data and makes no outbound request
+- [x] `/__verification` reports the fixture forecasting model in place of `model: "off"`, and the existing browser tests assert the new value
+- [x] Startup rejects a non-fixture model path or configuration in `fixture-browser` mode, with a regression test
+- [x] Existing research-flow acceptance still passes and still shows no released value conclusion
+- [x] `docs/testing.md` describes the fixture forecasting model
+- [x] `npm run verify` passes
+
+## Answer
+
+`fixture-browser` mode loads a checked-in, unreleased forecasting model artifact at `tests/fixtures/models/browser-forecasting-model.json`, fit from the synthetic fixture.
+Its checksum (`56bd99b398f9…`) is pinned in `src/lib/server/verification.ts` and in the research-flow browser spec, which asserts that `/__verification` reports it.
+Startup rejects anything else: `off`, another path, or an edited or re-released copy, even one with a recomputed checksum.
