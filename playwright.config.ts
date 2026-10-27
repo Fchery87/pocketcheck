@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { defineConfig } from "@playwright/test";
 import { browserFixture } from "./src/lib/server/verification.ts";
+import { browserPorts } from "./scripts/browser-port.ts";
 import { verificationEnv } from "./scripts/verification-env.ts";
 
-const origin = "http://127.0.0.1:42627";
+const { main: port, origin } = browserPorts(process.env);
 const journalId = process.env.POCKETCHECK_EXPECTED_JOURNAL_ID ?? `browser-${randomUUID()}`;
 process.env.POCKETCHECK_EXPECTED_JOURNAL_ID = journalId;
 
@@ -17,7 +18,7 @@ export default defineConfig({
       ...browserFixture,
       POCKETCHECK_TEST_JOURNAL_ID: journalId,
       HOST: "127.0.0.1",
-      PORT: "42627",
+      PORT: String(port),
       PROTOCOL_HEADER: "x-forwarded-proto",
     },
     url: `${origin}/__verification`,

@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import { browserFixture } from "../../src/lib/server/verification.ts";
 import { verificationEnv } from "../../scripts/verification-env.ts";
+import { browserPorts } from "../../scripts/browser-port.ts";
 
 interface Started {
   child: ChildProcess;
@@ -56,7 +57,7 @@ function stop(started: Started | undefined): void {
 test("the Node command binds to loopback by default and accepts its own forms", async ({
   playwright,
 }) => {
-  const port = 42628;
+  const port = browserPorts(process.env).launcher;
   const origin = `http://127.0.0.1:${port}`;
   let started: Started | undefined;
   const request = await playwright.request.newContext({ baseURL: origin });
@@ -79,7 +80,7 @@ test("the Node command binds to loopback by default and accepts its own forms", 
 test("the opt-in network run warns and accepts forms from its network origin", async ({
   playwright,
 }) => {
-  const port = 42628;
+  const port = browserPorts(process.env).launcher;
   // The phone addresses the computer by its network address.
   const networkHost = `192.0.2.10:${port}`;
   let started: Started | undefined;
@@ -98,7 +99,7 @@ test("the opt-in network run warns and accepts forms from its network origin", a
     expect(accepted.status()).toBe(200);
 
     const rejected = await request.post("/settings?/choose", {
-      headers: { host: networkHost, origin: "http://192.0.2.99:42628" },
+      headers: { host: networkHost, origin: `http://192.0.2.99:${port}` },
       form: { drafter: "fixture" },
     });
     expect(rejected.status()).toBe(403);
