@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 import { parseOffer, type Offer } from "#lib/domain/offer.ts";
 import { withChecksum, type ModelArtifact } from "#lib/server/models/artifact.ts";
+import { predictMean } from "#lib/server/models/fit.ts";
 import { releaseArtifact } from "#lib/server/models/release.ts";
 import {
   evaluateProspectiveForecasts,
@@ -311,6 +312,20 @@ describe("the model a run uses", () => {
     expect(forecast?.starters.away.state).toBe("unknown");
     expect(forecast?.marketEligibility.eligible).toBe(false);
     expect(forecast?.artifact.checksum).toBe(artifact.checksum);
+    // The frozen forecast records what moved the margin and the total, in points.
+    const row = { gameId: "next", kickoff: game.kickoff, features: forecast!.features } as never;
+    for (const [name, model] of [
+      ["margin", artifact.margin.model],
+      ["total", artifact.total.model],
+    ] as const) {
+      const drivers = forecast!.drivers![name];
+      expect(drivers.contributions).toHaveLength(13);
+      const sum = drivers.contributions.reduce(
+        (value, item) => value + item.points,
+        drivers.intercept,
+      );
+      expect(sum).toBeCloseTo(predictMean(model, row), 9);
+    }
   });
 
   it("is eligible only for a market released by the prospective protocol", async () => {

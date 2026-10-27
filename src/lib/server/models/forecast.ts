@@ -9,6 +9,7 @@ import {
 } from "./features.ts";
 import type { CompletedGame } from "./games.ts";
 import { offerProbabilities } from "./offer-probability.ts";
+import type { MeanContributions } from "./fit.ts";
 import { predictGame } from "./predict.ts";
 import { conservativeProbabilities, type UncertaintyAssessment } from "./uncertainty.ts";
 
@@ -47,6 +48,8 @@ export type ProspectiveForecast = {
   probabilities: OutcomeProbabilities;
   uncertainty: UncertaintyAssessment;
   policyVersion: string;
+  /** What moved the predicted margin and total, in points. Records frozen earlier omit it. */
+  drivers?: { margin: MeanContributions; total: MeanContributions };
 };
 
 export type ForecastInputs = {
@@ -108,6 +111,7 @@ export function freezeProspectiveForecast(input: ForecastInputs): ProspectiveFor
       probabilities,
     ),
     policyVersion: input.policyVersion,
+    drivers: predicted.drivers,
   };
 }
 

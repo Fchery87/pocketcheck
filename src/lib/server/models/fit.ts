@@ -23,21 +23,37 @@ export type LinearModel = {
 
 const NAMES = FEATURE_DEFINITIONS.map((feature) => feature.name);
 
-function dot(
-  coefficients: Record<FeatureName, number>,
-  row: FeatureRow,
-  model: LinearModel,
-): number {
-  let value = model.intercept;
-  for (const name of NAMES) {
-    const centered = (row.features[name] - model.featureMeans[name]) / model.featureScales[name];
-    value += coefficients[name] * centered;
-  }
-  return value;
+/** One feature's signed effect, in points, on a predicted mean. */
+export type FeatureContribution = {
+  feature: FeatureName;
+  /** The feature's value for this game. */
+  value: number;
+  /** Coefficient times the scaled deviation from the training mean. */
+  points: number;
+};
+
+export type MeanContributions = {
+  intercept: number;
+  /** In feature definition order. The intercept plus every effect is the predicted mean. */
+  contributions: FeatureContribution[];
+};
+
+export function meanContributions(model: LinearModel, row: FeatureRow): MeanContributions {
+  return {
+    intercept: model.intercept,
+    contributions: NAMES.map((name) => ({
+      feature: name,
+      value: row.features[name],
+      points:
+        (model.coefficients[name] * (row.features[name] - model.featureMeans[name])) /
+        model.featureScales[name],
+    })),
+  };
 }
 
 export function predictMean(model: LinearModel, row: FeatureRow): number {
-  return dot(model.coefficients, row, model);
+  const { intercept, contributions } = meanContributions(model, row);
+  return contributions.reduce((value, item) => value + item.points, intercept);
 }
 
 function solve(matrix: number[][], vector: number[]): number[] {

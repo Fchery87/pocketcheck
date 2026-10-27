@@ -5,6 +5,7 @@ import type { SavedForecast } from "./forecast-record.ts";
 import type { ModelPickCalculation } from "./model-pick.ts";
 import {
   gradeFromNotices,
+  type PrivateLean,
   type RunGame,
   type SettlementGrade,
   type SettlementNoticeKind,
@@ -68,6 +69,8 @@ export type GameBoard = {
   evidence: EvidenceItem[];
   gaps: string[];
   failureReason: string | null;
+  /** The user's own lean. Kept apart from the evidence, the forecast, and every model pick. */
+  lean: PrivateLean | null;
   createdAt: string;
   completedAt: string | null;
 };
@@ -75,7 +78,11 @@ export type GameBoard = {
 export type NewGameBoard = Pick<
   GameBoard,
   "request" | "parentId" | "game" | "sportsbook" | "observedAt" | "cutoffAt"
-> & { markets: Array<Pick<BoardMarket, "market" | "offers">> };
+> & {
+  /** Omitted means no lean. */
+  lean?: PrivateLean | null;
+  markets: Array<Pick<BoardMarket, "market" | "offers">>;
+};
 
 export type BeginBoardResult =
   | { kind: "created"; board: GameBoard }
@@ -227,6 +234,7 @@ export function createMemoryBoardStore(notices: StoredNotice[] = []): GameBoardS
         evidence: [],
         gaps: [],
         failureReason: null,
+        lean: input.lean ?? null,
         createdAt: new Date().toISOString(),
         completedAt: null,
       });

@@ -10,6 +10,8 @@
   let selectedId = $derived(form?.values?.gameId || data.games[0]?.id || "");
   const selected = $derived(data.games.find((game) => game.id === selectedId) ?? data.games[0]);
   let formElement: HTMLFormElement | undefined = $state();
+  const blankRow = () => ({ text: "", url: "", time: "", covers: "", team: "" });
+  let manualRows = $derived(form?.manual?.length ? form.manual : [blankRow()]);
 
   const parseOdds = (text: string) => {
     const odds = Number(text.trim().replace("−", "-"));
@@ -229,6 +231,62 @@
             {@render oddsStepper(side.price, side.testId, side.role)}
           </div>
         {/each}
+      </div>
+    </section>
+
+    <section class="pc-section" aria-labelledby="board-evidence-title">
+      <h2 id="board-evidence-title">Your evidence (optional)</h2>
+      <fieldset class="pc-evidence" data-testid="manual-evidence">
+        <legend class="sr-only">Your evidence (optional)</legend>
+        <p class="pc-hint">
+          A club injury report, a beat reporter's note, a forecast. A note stands in for a missing injury
+          report only within 24 hours of the cutoff, and for a forecast within 12. Leave the time blank if
+          the source does not say when it was published. Anything dated after now is excluded.
+        </p>
+        {#each manualRows as row, index (index)}
+          <div class="pc-evidence-row">
+            <label class="pc-field pc-wide">
+              Note
+              <textarea name="manualText" rows="2" data-testid="manual-text" defaultValue={row.text}></textarea>
+            </label>
+            <label class="pc-field">
+              Link
+              <input name="manualUrl" type="url" defaultValue={row.url} data-testid="manual-url" />
+            </label>
+            <label class="pc-field">
+              Published
+              <input name="manualTime" type="datetime-local" defaultValue={row.time} data-testid="manual-time" />
+            </label>
+            <label class="pc-field">
+              Team, if this stands in for that team's injury report
+              <input name="manualTeam" defaultValue={row.team ?? ""} maxlength="3" data-testid="manual-team" />
+            </label>
+            <label class="pc-field">
+              Stands in for
+              <select name="manualCovers" data-testid="manual-covers">
+                <option value="" selected={!row.covers}>nothing (extra context)</option>
+                <option value="injury-report" selected={row.covers === "injury-report"}>a missing injury report (last 24 hours)</option>
+                <option value="weather" selected={row.covers === "weather"}>a missing kickoff forecast (last 12 hours)</option>
+              </select>
+            </label>
+          </div>
+        {/each}
+        <Button class="justify-self-start" onclick={() => (manualRows = [...manualRows, blankRow()])}>Add another source</Button>
+      </fieldset>
+    </section>
+
+    <section class="pc-section" aria-labelledby="board-lean-title">
+      <h2 id="board-lean-title">Private lean (optional)</h2>
+      <p class="pc-hint">Kept apart from the evidence and every model pick. The forecasting model never sees it.</p>
+      <div class="pc-private">
+        <label class="pc-field">
+          Your lean
+          <input name="lean" defaultValue={value("lean")} data-testid="lean" />
+        </label>
+        <label class="pc-field">
+          Rationale
+          <input name="rationale" defaultValue={value("rationale")} data-testid="rationale" />
+        </label>
       </div>
     </section>
 

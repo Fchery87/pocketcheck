@@ -1,7 +1,11 @@
 import { fail, redirect } from "@sveltejs/kit";
 import { randomUUID } from "node:crypto";
 import { easternTime } from "#lib/format.ts";
-import { localInputValue, parseObservedAt } from "#lib/server/analysis/form.ts";
+import {
+  localInputValue,
+  parseManualEvidence,
+  parseObservedAt,
+} from "#lib/server/analysis/form.ts";
 import type { TieRule } from "#lib/domain/offer.ts";
 import { runGameBoard } from "#lib/server/analysis/board-run.ts";
 import { readSchedule, upcomingGames } from "#lib/server/analysis/schedule.ts";
@@ -23,6 +27,8 @@ const FIELDS = [
   "moneylineHome",
   "moneylineAway",
   "tieRule",
+  "lean",
+  "rationale",
   "spreadHomeLine",
   "spreadAwayLine",
   "spreadHome",
@@ -87,8 +93,11 @@ export const actions = {
   freeze: async ({ request }) => {
     const data = await request.formData();
     const values: Values = Object.fromEntries(FIELDS.map((name) => [name, field(data, name)]));
+    const manual = parseManualEvidence(data);
     // Every failure hands the entered values back so nothing has to be retyped.
-    const refuse = (status: number, error: string) => fail(status, { error, values });
+    const refuse = (status: number, error: string) =>
+      fail(status, { error, values, manual: manual.rows });
+    if (!manual.ok) return refuse(400, manual.error);
     const cutoffAt = values.cutoffAt ?? "";
     const nowIso = Number.isFinite(Date.parse(cutoffAt)) ? new Date(cutoffAt).toISOString() : now();
     const schedule = readSchedule(schedulePath());
@@ -149,6 +158,9 @@ export const actions = {
           over: n("totalOver"),
           under: n("totalUnder"),
         },
+        manualEvidence: manual.entries,
+        lean: values.lean,
+        rationale: values.rationale,
       },
       {
         store,

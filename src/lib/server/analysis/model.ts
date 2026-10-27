@@ -182,6 +182,7 @@ export function createArtifactForecast(input: {
       probabilities: frozen.probabilities,
       uncertainty: frozen.uncertainty,
       policyVersion: frozen.policyVersion,
+      ...(frozen.drivers ? { drivers: frozen.drivers } : {}),
     };
     return saved;
   };
