@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { Alert } from "#lib/components/ui/alert/index.ts";
+  import { Badge } from "#lib/components/ui/badge/index.ts";
+  import { Button } from "#lib/components/ui/button/index.ts";
   import { easternTime, signedLine } from "#lib/format.ts";
   import type { PageProps } from "./$types";
 
@@ -7,61 +10,62 @@
     `${assessment.game.away} at ${assessment.game.home}: ${assessment.offer.market} ${assessment.offer.selection} ${signedLine(assessment.offer.pointLine)} ${assessment.offer.americanOdds}`;
 </script>
 
-<main>
+<main class="pc-page pc-journal">
   <h1>Journal</h1>
-  <p>
-    <a href="/journal/export" data-testid="journal-export" download="pocketcheck-journal-v1.json">
+  <p class="pc-hint">
+    <Button href="/journal/export" data-testid="journal-export" download="pocketcheck-journal-v1.json">
       Download journal backup
-    </a>
+    </Button>
     Version 1 includes research, bets, attempts, and outcomes. It omits credentials and bulk source caches.
     Restoring version 1 checks the whole file first. A damaged or conflicting backup changes nothing.
   </p>
-  <form method="POST" action="?/restore" enctype="multipart/form-data" data-testid="restore-form">
+  <form class="pc-form" method="POST" action="?/restore" enctype="multipart/form-data" data-testid="restore-form">
     <label>
       Restore a version 1 backup
       <input name="backup" type="file" accept="application/json" required data-testid="restore-file" />
     </label>
-    <button type="submit">Restore journal</button>
+    <Button type="submit">Restore journal</Button>
   </form>
   {#if form?.restored}
-    <p data-testid="restore-recorded">Journal restored. Pending attempts stay readable and are not replayed.</p>
+    <p class="pc-success" data-testid="restore-recorded">Journal restored. Pending attempts stay readable and are not replayed.</p>
   {:else if form?.error && form?.restored === false}
-    <p data-testid="form-error">{form.error}</p>
+    <Alert data-testid="form-error">{form.error}</Alert>
   {/if}
   <h2>Assessments</h2>
   <p>Every completed assessment is listed, including passes. Refreshes are listed separately from their originals.</p>
-  <ul data-testid="assessments">
+  <ul class="pc-ledger pc-entries" data-testid="assessments">
     {#each data.assessments as assessment (assessment.id)}
       <li>
-        <a href="/analysis/{assessment.id}">{assessment.conclusion}</a>
-        <span>{label(assessment)}</span>
+        <a class="pc-entry-verdict" href="/analysis/{assessment.id}">{assessment.conclusion}</a>
+        <span class="pc-figure">{label(assessment)}</span>
         <span>at {assessment.offer.sportsbook}, analyzed {easternTime(assessment.createdAt)}</span>
         {#if assessment.assessmentRole.role === "primary"}
-          <span data-testid="assessment-role">primary: {assessment.assessmentRole.reason}</span>
+          <Badge data-testid="assessment-role">primary: {assessment.assessmentRole.reason}</Badge>
         {:else if assessment.assessmentRole.role === "refresh"}
-          <span data-testid="assessment-role">refresh: {assessment.assessmentRole.reason}</span>
+          <Badge data-testid="assessment-role">refresh: {assessment.assessmentRole.reason}</Badge>
         {:else if assessment.assessmentRole.role === "ineligible"}
-          <span data-testid="assessment-role">ineligible: {assessment.assessmentRole.reason}</span>
+          <Badge data-testid="assessment-role">ineligible: {assessment.assessmentRole.reason}</Badge>
         {:else}
-          <span data-testid="assessment-role">unclassified: {assessment.assessmentRole.reason}</span>
+          <Badge data-testid="assessment-role">unclassified: {assessment.assessmentRole.reason}</Badge>
         {/if}
         {#if assessment.reliesOnManualEvidence}<span>(relies on manual evidence)</span>{/if}
         {#if assessment.snapshotProvenance === "legacy-unknown"}
-          <span data-testid="legacy-snapshot-provenance">
+          <Badge variant="dashed" data-testid="legacy-snapshot-provenance">
             (original game details could not be confirmed)
-          </span>
+          </Badge>
         {/if}
       </li>
     {/each}
   </ul>
 
   <h2>Performance</h2>
-  <p>
+  <p class="pc-hint">
     System assessments and actual bets are separate. A refresh stays in the history and is not another
     independent assessment. Return uses only wins and losses. Push, void, unresolved, and missing closing
     observations are not zero.
   </p>
-  <section data-testid="assessment-summary">
+  <div class="pc-split">
+  <section class="pc-section pc-summary" data-testid="assessment-summary">
     <h3>Frozen primary assessments</h3>
     <p data-testid="assessment-counts">
       {data.performance.assessments.counts.primary} primary,
@@ -84,7 +88,7 @@
       {/if}
     </p>
   </section>
-  <section data-testid="bet-summary">
+  <section class="pc-section pc-summary" data-testid="bet-summary">
     <h3>Actual bets</h3>
     <p data-testid="bet-counts">
       {data.performance.bets.counts.bets} bets,
@@ -106,13 +110,14 @@
       {/if}
     </p>
   </section>
+  </div>
 
   <h2>Record an actual bet</h2>
-  <p>
+  <p class="pc-hint">
     Record the contract you placed. It can differ from the researched offer, and saving it does not
     change that research.
   </p>
-  <form method="POST" action="?/bet" data-testid="bet-form">
+  <form class="pc-form" method="POST" action="?/bet" data-testid="bet-form">
     <label>
       Analysis
       <select name="analysisId" required data-testid="bet-analysis">
@@ -169,14 +174,14 @@
       Stake units
       <input name="stakeUnits" required inputmode="decimal" />
     </label>
-    <button type="submit">Record bet</button>
+    <Button type="submit">Record bet</Button>
   </form>
   {#if form?.recorded && !form?.closingId}
-    <p data-testid="bet-recorded">Bet recorded</p>
+    <p class="pc-success" data-testid="bet-recorded">Bet recorded</p>
   {:else if form?.error && !form?.closingId}
-    <p data-testid="form-error">{form.error}</p>
+    <Alert data-testid="form-error">{form.error}</Alert>
   {/if}
-  <ul data-testid="bets">
+  <ul class="pc-ledger" data-testid="bets">
     {#each data.bets as bet (bet.id)}
       <li>
         {#if bet.contractProvenance === "captured"}
@@ -189,20 +194,20 @@
           <a href="/analysis/{bet.analysisId}">
             {bet.sportsbook} {bet.americanOdds} for {bet.stakeUnits} units
           </a>
-          <span data-testid="legacy-bet-provenance">
+          <Badge variant="dashed" data-testid="legacy-bet-provenance">
             placed {easternTime(bet.placedAt)}. The market, line, and rules of this placement were not recorded.
-          </span>
+          </Badge>
         {/if}
       </li>
     {/each}
   </ul>
   <h2>Settlement</h2>
-  <p>
+  <p class="pc-hint">
     Record a final score, postponement, void, or unresolved notice. The research offer and each actual
     bet are graded from their own contracts. A repeated event is ignored. A correction keeps the earlier
     notice and needs a reason.
   </p>
-  <form method="POST" action="?/settle">
+  <form class="pc-form" method="POST" action="?/settle">
     <label>
       Analysis
       <select name="analysisId" required data-testid="settle-analysis">
@@ -250,16 +255,16 @@
       Reason
       <input name="reason" data-testid="settle-reason" />
     </label>
-    <button type="submit">Record settlement</button>
+    <Button type="submit">Record settlement</Button>
   </form>
   {#if form?.settled}
-    <p data-testid="settlement-recorded">{form.duplicate ? "Settlement already recorded" : "Settlement recorded"}</p>
+    <p class="pc-success" data-testid="settlement-recorded">{form.duplicate ? "Settlement already recorded" : "Settlement recorded"}</p>
   {/if}
-  <ul data-testid="settlements">
+  <ul class="pc-ledger" data-testid="settlements">
     {#each data.settlements as row (row.analysisId)}
       <li>
-        <span data-testid="assessment-result">assessment {row.assessment.effective}</span>
-        <ol>
+        <Badge data-testid="assessment-result">assessment {row.assessment.effective}</Badge>
+        <ol class="pc-notices">
           {#each row.assessment.history as notice (notice.id)}
             <li data-testid="settlement-notice">
               <span data-testid="settlement-notice-id">{notice.id}</span>
@@ -271,20 +276,20 @@
         </ol>
         {#each row.bets as bet (bet.betId)}
           {#if bet.grade}
-            <span data-testid="bet-result">bet {bet.grade.effective}</span>
+            <Badge data-testid="bet-result">bet {bet.grade.effective}</Badge>
           {/if}
         {/each}
       </li>
     {/each}
   </ul>
   <h2>Closing observations</h2>
-  <p data-testid="closing-measure">
+  <p class="pc-hint" data-testid="closing-measure">
     A direct comparison is the change in decimal odds for the same market, side, point line, sportsbook,
     and rules. A different point line is line movement, not a change in odds. A missing observation is
     unavailable. It is not zero closing performance. An archived price without an observation time is not
     an executable offer and not a timestamped observation.
   </p>
-  <form method="POST" action="?/closing" data-testid="closing-form">
+  <form class="pc-form" method="POST" action="?/closing" data-testid="closing-form">
     <label>
       This close belongs to
       <select name="subjectKind" data-testid="closing-subject-kind">
@@ -353,14 +358,14 @@
       Source
       <input name="source" required data-testid="closing-source" />
     </label>
-    <button type="submit">Record closing observation</button>
+    <Button type="submit">Record closing observation</Button>
   </form>
   {#if form?.recorded}
-    <p data-testid="closing-recorded">Closing observation recorded</p>
+    <p class="pc-success" data-testid="closing-recorded">Closing observation recorded</p>
   {:else if form?.error}
-    <p data-testid="form-error">{form.error}</p>
+    <Alert data-testid="form-error">{form.error}</Alert>
   {/if}
-  <ul data-testid="closings">
+  <ul class="pc-ledger" data-testid="closings">
     {#each data.closings as closing (closing.id)}
       <li data-testid="closing-row">
         {#if closing.provenance === "archived-untimestamped"}
@@ -382,7 +387,7 @@
             ({closing.comparison.difference.toFixed(3)})
           </span>
         {:else}
-          <span data-testid="closing-unavailable">
+          <span class="pc-unknown" data-testid="closing-unavailable">
             Direct price comparison unavailable ({closing.comparison.reason}).
             {#if closing.comparison.lineMovement}
               Line moved from {signedLine(closing.comparison.lineMovement.openPointLine)} to
@@ -394,6 +399,6 @@
     {/each}
   </ul>
   {#if data.closings.length === 0}
-    <p data-testid="closing-missing">No closing observation. Closing performance is unavailable, not zero.</p>
+    <p class="pc-unknown" data-testid="closing-missing">No closing observation. Closing performance is unavailable, not zero.</p>
   {/if}
 </main>

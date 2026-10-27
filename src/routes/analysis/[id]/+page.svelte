@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { Alert } from "#lib/components/ui/alert/index.ts";
+  import { Badge } from "#lib/components/ui/badge/index.ts";
+  import { Button } from "#lib/components/ui/button/index.ts";
+  import { onMount } from "svelte";
   import { easternTime, percent, signedLine } from "#lib/format.ts";
   import type { PageProps } from "./$types";
 
@@ -41,11 +45,37 @@
     form.querySelector<HTMLElement>('[data-testid="submission-pending"]')?.removeAttribute("hidden");
     window.setTimeout(() => HTMLFormElement.prototype.submit.call(form), 50);
   };
+
+  // The frozen stamp animates once, right after the analysis was frozen.
+  let justFrozen = $state(false);
+  onMount(() => {
+    try {
+      justFrozen = sessionStorage.getItem("pocketcheck-just-frozen") === "1";
+      sessionStorage.removeItem("pocketcheck-just-frozen");
+    } catch {
+      justFrozen = false;
+    }
+  });
 </script>
 
-<main>
-  <h1>Report: {run.game.away} at {run.game.home}</h1>
-  <p>{easternTime(run.game.kickoff)}, {run.game.venue ?? "venue unknown"}</p>
+<main class="pc-page pc-report">
+  <h1 class="pc-report-title">
+    <span class="pc-kicker">Report:</span>
+    {run.game.away} <i>at</i> {run.game.home}
+  </h1>
+  <p class="pc-report-venue">{easternTime(run.game.kickoff)}, {run.game.venue ?? "venue unknown"}</p>
+  <div class="pc-report-notes">
+  {#if run.status === "completed"}
+    <span class="pc-frozen" data-just-frozen={justFrozen ? "" : undefined}>■ Frozen</span>
+  {/if}
+  <dl class="pc-report-times">
+    <dt>Decision cutoff</dt>
+    <dd>{easternTime(run.cutoffAt)}</dd>
+    <dt>Kickoff</dt>
+    <dd>{easternTime(run.game.kickoff)}</dd>
+    <dt>Price observed</dt>
+    <dd>{easternTime(run.offer.observedAt)}</dd>
+  </dl>
   {#if run.snapshotProvenance === "legacy-unknown"}
     <p data-testid="snapshot-provenance">
       This older record's game details were copied from the schedule during migration; its original
@@ -54,9 +84,10 @@
   {:else}
     <p data-testid="snapshot-provenance">Game and research offer captured with this report.</p>
   {/if}
-  <p data-testid="status">{run.status}</p>
+  <p class="pc-report-status">Status <span class="pc-figure" data-testid="status">{run.status}</span></p>
+  </div>
   {#if run.status !== "completed"}
-    <section data-testid="recovery">
+    <section class="pc-alert-block" data-testid="recovery">
       <h2>Attempt recovery</h2>
       <p>
         This attempt and its completed stages are retained. External work will not be replayed
@@ -66,37 +97,20 @@
     </section>
   {/if}
   {#if run.parentId}
-    <p>
+    <p class="pc-report-parent">
       Refresh of <a href="/analysis/{run.parentId}" data-testid="parent-link">an earlier report</a>. That report is unchanged.
     </p>
   {/if}
   {#if form?.error}
-    <p data-testid="form-error">{form.error}</p>
+    <Alert data-testid="form-error">{form.error}</Alert>
   {/if}
 
-  <section data-testid="offer">
-    <h2>Offer</h2>
-    <p data-testid="offer-contract">
-      {run.offer.sportsbook}: {run.offer.market}, {run.offer.selection}
-      {signedLine(run.offer.pointLine)}
-    </p>
-    <p data-testid="price">American odds {run.offer.americanOdds}</p>
-    <p>Decimal odds <span data-testid="decimal-odds">{data.decimalOdds.toFixed(4)}</span></p>
-    <p>
-      Break-even win probability, excluding pushes
-      <span data-testid="break-even">{percent(data.decisiveBreakEven)}</span>
-    </p>
-    <p data-testid="observed-at-display">Price observed {easternTime(run.offer.observedAt)}</p>
-    <p>Analyzed {easternTime(run.cutoffAt)}. Evidence after that time was excluded.</p>
-    {#if run.offer.rules.tie}
-      <p>Tie rule: {run.offer.rules.tie}. Overtime included.</p>
-    {/if}
-  </section>
-
+  <div class="pc-report-body">
+  <div class="pc-report-column">
   {#if run.policy}
-    <section data-testid="policy">
-      <h2>Conclusion</h2>
-      <p data-testid="conclusion">{run.policy.conclusion}</p>
+    <section class="pc-section pc-verdict" data-testid="policy">
+      <h2 class="pc-kicker">Conclusion, run in code</h2>
+      <p class="pc-verdict-word" data-testid="conclusion">{run.policy.conclusion}</p>
       {#if run.policy.reliesOnManualEvidence && run.policy.manualCoverage}
         <p data-testid="manual-coverage">
           This conclusion relies on your manual evidence for the
@@ -106,12 +120,10 @@
         </p>
       {/if}
       {#if run.policy.blockingReason}
-        <p>{run.policy.blockingReason}</p>
+        <p class="pc-verdict-reason"><span class="pc-hl">{run.policy.blockingReason}</span></p>
       {/if}
       <p>
-        Expected value {run.policy.expectedValuePerUnit === null
-          ? "unavailable"
-          : `${run.policy.expectedValuePerUnit.toFixed(4)} units per unit staked`}
+        Expected value {#if run.policy.expectedValuePerUnit === null}<span class="pc-unknown">unavailable</span>{:else}{run.policy.expectedValuePerUnit.toFixed(4)} units per unit staked{/if}
       </p>
       {#if run.policy.uncertainty}
         {@const uncertainty = run.policy.uncertainty}
@@ -132,13 +144,37 @@
           The conclusion changes at decimal odds below {run.policy.priceCutoff.decimalMinimum.toFixed(3)}.
         </p>
       {/if}
-      <p>{run.policy.label}</p>
-      <p>Policy {run.policy.policyVersion}</p>
+      <p class="pc-hint">{run.policy.label}</p>
+      <p class="pc-hint">Policy {run.policy.policyVersion}</p>
     </section>
   {/if}
 
-  <section data-testid="probability-model">
+  <section class="pc-section" data-testid="offer">
+    <h2>Research offer</h2>
+    <p class="pc-offer-line" data-testid="offer-contract">
+      {run.offer.sportsbook}: {run.offer.market}, {run.offer.selection}
+      {signedLine(run.offer.pointLine)}
+    </p>
+    <dl class="pc-figures">
+      <dt>American odds</dt>
+      <dd data-testid="price">{run.offer.americanOdds}</dd>
+      <dt>Decimal odds</dt>
+      <dd data-testid="decimal-odds">{data.decimalOdds.toFixed(4)}</dd>
+      <dt>Break-even win probability, excluding pushes</dt>
+      <dd data-testid="break-even">{percent(data.decisiveBreakEven)}</dd>
+      <dt>Price observed</dt>
+      <dd data-testid="observed-at-display">{easternTime(run.offer.observedAt)}</dd>
+      {#if run.offer.rules.tie}
+        <dt>Tie rule</dt>
+        <dd>{run.offer.rules.tie}, overtime included</dd>
+      {/if}
+    </dl>
+    <p class="pc-hint">Analyzed {easternTime(run.cutoffAt)}. Evidence after that time was excluded.</p>
+  </section>
+
+  <section class="pc-section pc-model" data-testid="probability-model">
     <h2>Model</h2>
+    <p class="pc-tags"><Badge variant="dashed">Experimental, not released</Badge></p>
     {#if run.probabilityModel === null}
       <p>This run was saved before PocketCheck recorded a probability model.</p>
     {:else if run.probabilityModel.status === "unavailable"}
@@ -186,10 +222,23 @@
     {/if}
   </section>
 
-  <section>
+  {#if run.lean}
+    <section class="pc-section" data-testid="user-lean">
+      <h2>Your lean, recorded before this report</h2>
+      <p><strong>{run.lean.text}</strong></p>
+      {#if run.lean.rationale}
+        <p>{run.lean.rationale}</p>
+      {/if}
+      <p class="pc-hint">Kept separate. It did not enter the evidence or the thesis.</p>
+    </section>
+  {/if}
+  </div>
+
+  <div class="pc-report-column">
+  <section class="pc-section">
     <h2>Evidence gaps</h2>
     {#if run.gaps.length > 0}
-      <ul data-testid="evidence-gaps">
+      <ul class="pc-ledger pc-gap-list" data-testid="evidence-gaps">
         {#each run.gaps as gap (gap)}
           <li>{gap}</li>
         {/each}
@@ -200,25 +249,25 @@
   </section>
 
   {#if report}
-    <section>
+    <section class="pc-section pc-thesis">
       <h2>Thesis</h2>
-      <p data-testid="drafter">
+      <p class="pc-kicker" data-testid="drafter">
         Drafted by {run.model}{fixture ? " (fixture drafter, no AI call)" : ` via ${run.provider}`}
       </p>
       <p data-testid="summary">{report.summary}</p>
-      <ul data-testid="claims">
+      <ul class="pc-ledger" data-testid="claims">
         {#each data.claims as claim, index (index)}
           <li>
-            <strong>{claim.stance}</strong>: {claim.text}
+            <strong>{claim.stance}:</strong> {claim.text}
             <span>[{claim.evidenceIds.join(", ")}]</span>
           </li>
         {/each}
       </ul>
     </section>
 
-    <section>
+    <section class="pc-section">
       <h2>Cited evidence</h2>
-      <ul data-testid="citations">
+      <ul class="pc-ledger pc-evidence-list" data-testid="citations">
         {#each data.citations as item (item.id)}
           <li>
             <code>{item.id}</code>
@@ -235,7 +284,7 @@
       </ul>
     </section>
 
-    <section>
+    <section class="pc-section">
       {#if drafterNotes.length > 0}
         <h2>The drafter also noted</h2>
         <ul data-testid="missing-evidence">
@@ -260,18 +309,18 @@
       </ul>
     </section>
   {:else if run.status === "failed"}
-    <section>
+    <section class="pc-section">
       <h2>Drafting failed</h2>
       <p data-testid="failure">{run.failureReason}</p>
       <p>The evidence and price mathematics are kept.</p>
     </section>
   {:else if run.status !== "completed"}
-    <section><h2>Report not completed</h2><p>This attempt has no finished report.</p></section>
+    <section class="pc-section"><h2>Report not completed</h2><p>This attempt has no finished report.</p></section>
   {/if}
 
-  <section>
+  <section class="pc-section">
     <h2>All evidence in this run</h2>
-    <ul data-testid="all-evidence">
+    <ul class="pc-ledger pc-evidence-list" data-testid="all-evidence">
       {#each run.evidence as item (item.id)}
         <li>
           <code>{item.id}</code>
@@ -286,23 +335,14 @@
     </ul>
   </section>
 
-  {#if run.lean}
-    <section data-testid="user-lean">
-      <h2>Your lean, recorded before this report</h2>
-      <p>{run.lean.text}</p>
-      {#if run.lean.rationale}
-        <p>{run.lean.rationale}</p>
-      {/if}
-    </section>
-  {/if}
-
   {#if !fixture}
-    <section data-testid="usage">
+    <section class="pc-section" data-testid="usage">
+      <h2>Provider usage</h2>
       {#if run.providerOutcomeAmbiguous}
-        <p data-testid="provider-outcome">
+        <Alert data-testid="provider-outcome">
           Provider completion is ambiguous. This request may already have been charged. Start a new
           attempt before sending another provider request. Completion is not exactly once.
-        </p>
+        </Alert>
       {/if}
       {#if run.usage}
         <p>
@@ -314,15 +354,13 @@
           {:else if run.usage.promptTokens === null || run.usage.completionTokens === null}
             (some token fields unknown)
           {/if}.
-          Cost {run.usage.costUsd === null
-            ? "unknown, not zero"
-            : `$${run.usage.costUsd.toFixed(4)}, as reported by ${run.provider}`}.
+          Cost {#if run.usage.costUsd === null}<span class="pc-unknown">unknown, not zero</span>{:else}${run.usage.costUsd.toFixed(4)}, as reported by {run.provider}{/if}.
         </p>
       {:else}
         <p>{run.provider} reported no usage for this run. Missing cost is unknown, not zero.</p>
       {/if}
       {#if run.providerRequests.length > 0}
-        <ul data-testid="provider-requests">
+        <ul class="pc-ledger" data-testid="provider-requests">
           {#each run.providerRequests as item (item.requestId + item.role)}
             <li>
               {item.role} {item.requestId}: {item.outcome}.
@@ -335,7 +373,10 @@
     </section>
   {/if}
 
-  <ol data-testid="progress">
+  </div>
+  </div>
+
+  <ol class="pc-progress" data-testid="progress" aria-label="Analysis stages completed">
     {#each run.stages as stage (stage)}
       <li>{stage}</li>
     {/each}
@@ -344,6 +385,7 @@
   <form
     method="POST"
     action="?/refresh"
+    class="pc-form pc-refresh"
     onsubmit={submitRefresh}
   >
     <input
@@ -365,7 +407,7 @@
     <input type="hidden" name="selection" value={run.offer.selection} />
     <p role="status" data-testid="submission-pending" hidden>Saving your new attempt…</p>
     <h2>{run.status === "completed" ? "Refresh at a new price" : "Start a new attempt"}</h2>
-    <p data-testid="refresh-keeps">
+    <p class="pc-hint" data-testid="refresh-keeps">
       Keeps {run.offer.market}, {run.offer.selection}. A different market or selection is a new analysis, not a refresh.
     </p>
     <label>
@@ -388,7 +430,7 @@
           data-testid="refresh-line"
         />
       </label>
-      <p data-testid="refresh-line-guidance">
+      <p class="pc-hint" data-testid="refresh-line-guidance">
         {run.offer.market === "spread"
           ? "The line belongs to the selected side. Changing the number does not change which side you researched."
           : "Over and under share this total. Changing the number does not change over or under."}
@@ -413,8 +455,8 @@
         data-testid="refresh-observed-at"
       />
     </label>
-    <button type="submit" data-testid="refresh">
+    <Button type="submit" variant="default" size="lg" class="justify-self-start" data-testid="refresh">
       {run.status === "completed" ? "Refresh" : "Start new attempt"}
-    </button>
+    </Button>
   </form>
 </main>

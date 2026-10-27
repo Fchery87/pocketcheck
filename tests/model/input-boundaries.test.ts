@@ -86,7 +86,8 @@ function signed(body: object) {
   };
 }
 
-describe("public release input boundary", () => {
+// Each case starts the release script in a new Node process, which is slow on a busy machine.
+describe("public release input boundary", { timeout: 30_000 }, () => {
   it.each([null, [], {}, "invalid"])("rejects malformed report root %j", (value) => {
     const result = release(value);
     expect(result.status, result.stderr).toBe(1);
