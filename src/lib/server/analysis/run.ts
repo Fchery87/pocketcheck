@@ -31,11 +31,10 @@ import type { RunUsage } from "./store.ts";
 import { noModel, type ModelSource, type RunModel } from "./model.ts";
 import type { SavedForecast } from "./forecast-record.ts";
 import { decidePolicy } from "./policy.ts";
-import { assembleEvidencePacket } from "../sources/packet.ts";
 import { createManualEvidence } from "../sources/manual.ts";
 import type { EvidenceItem, ScheduledGame } from "../sources/contracts.ts";
 import { noSources, type EvidenceCollector } from "./evidence.ts";
-import { coverMaterialGaps } from "./coverage.ts";
+import { gatherEvidence } from "./gather-evidence.ts";
 
 export type { ThesisDrafter };
 
@@ -84,27 +83,8 @@ export type AnalysisOutcome =
   | { ok: true; run: ResearchRun }
   | { ok: false; error: string; run?: ResearchRun };
 
-function scheduleEvidence(game: ScheduledGame, retrievedAt: string): EvidenceItem {
-  return {
-    id: `schedule:${game.id}`,
-    sourceId: "nflverse-schedule",
-    url: null,
-    retrievedAt,
-    publishedAt: "unknown",
-    origin: "automatic",
-    facts: {
-      home: game.home,
-      away: game.away,
-      kickoff: game.kickoff,
-      venue: game.venue.name,
-    },
-    excerpt: `${game.away} at ${game.home}, ${game.venue.name}`,
-    checksum: null,
-    factKey: `schedule:${game.id}`,
-  };
-}
-
-function snapshot(game: ScheduledGame): RunGame {
+/** The game as a saved record keeps it. */
+export function snapshot(game: ScheduledGame): RunGame {
   return {
     id: game.id,
     season: game.season,
@@ -356,39 +336,15 @@ export async function runAnalysis(
 
   try {
     await advance("collecting evidence");
-    const collected = await collect(request.game, request.nowIso);
-    const coverage = coverMaterialGaps(
-      collected.materialGaps,
-      [...(request.carriedEvidence ?? []), ...manual],
-      request.nowIso,
-    );
-    const packet = assembleEvidencePacket({
+    const gathered = await gatherEvidence({
       game: request.game,
-      decisionCutoff: request.nowIso,
-      items: [
-        scheduleEvidence(request.game, request.scheduleRetrievedAt ?? request.nowIso),
-        ...collected.items,
-        ...(request.carriedEvidence ?? []),
-        ...manual,
-      ],
-      gaps: collected.gaps,
+      nowIso: request.nowIso,
+      scheduleRetrievedAt: request.scheduleRetrievedAt ?? request.nowIso,
+      collect,
+      carried: request.carriedEvidence ?? [],
+      manual,
     });
-    const conflictGaps = packet.conflicts.map(
-      (conflict) => `Sources disagree on ${conflict.factKey}: ${conflict.itemIds.join(", ")}.`,
-    );
-    const late = packet.rejectedAfterCutoff;
-    const gaps = [
-      ...packet.gaps,
-      ...coverage.notes,
-      ...conflictGaps,
-      ...(late.length > 0
-        ? [
-            `Excluded ${late.length} evidence item${late.length === 1 ? "" : "s"} dated after the decision cutoff: ${late
-              .map((item) => item.excerpt ?? item.id)
-              .join("; ")}`,
-          ]
-        : []),
-    ];
+    const gaps = gathered.gaps;
     await advance("computing");
     const decimalOdds = americanToDecimal(offer.americanOdds);
     const decisiveBreakEven = breakEven(decimalOdds).decisive;
@@ -409,8 +365,8 @@ export async function runAnalysis(
     const policy = decidePolicy({
       offerValid: true,
       gameStarted: false,
-      materialEvidenceMissing: coverage.remaining.length > 0 || conflictGaps.length > 0,
-      manualCoverage: coverage.covered,
+      materialEvidenceMissing: gathered.materialEvidenceMissing,
+      manualCoverage: gathered.manualCoverage,
       releaseStatus: eligible ? "released-experimental" : "unreleased",
       releaseReason: probabilityModel.reason,
       probabilities:
@@ -422,7 +378,7 @@ export async function runAnalysis(
       decimalOdds,
     });
     const thesisPacket = buildThesisPacket({
-      items: packet.items,
+      items: gathered.items,
       gaps,
       decimalOdds,
       decisiveBreakEven,

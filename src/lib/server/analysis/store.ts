@@ -18,6 +18,7 @@ import type { AttemptRequest } from "./attempt.ts";
 import type { JournalExport } from "../db/repository.ts";
 import { assertRestorable } from "../db/repository.ts";
 import { classifyPregameRuns, type PregameRun } from "./primary.ts";
+import { createMemoryBoardStore, type GameBoardStore } from "./board-store.ts";
 
 /**
  * Research store contract.
@@ -380,7 +381,10 @@ export type ResearchStore = {
   restoreJournal: (backup: JournalExport) => Promise<JournalExport>;
 };
 
-export function createMemoryStore(): ResearchStore {
+/** The whole journal: research analyses, actual bets, and game boards. */
+export type JournalStore = ResearchStore & GameBoardStore;
+
+export function createMemoryStore(): JournalStore {
   const runs = new Map<string, ResearchRun>();
   const requests = new Map<string, string>();
   const bets: ActualBet[] = [];
@@ -410,7 +414,7 @@ export function createMemoryStore(): ResearchStore {
     };
   }
 
-  return {
+  const research: ResearchStore = {
     async beginAttempt(input) {
       const requestId = input.request?.id;
       const requestHash = input.request?.hash;
@@ -598,6 +602,7 @@ export function createMemoryStore(): ResearchStore {
       return memoryBackup(runs, bets, closings, notices);
     },
   };
+  return { ...research, ...createMemoryBoardStore() };
 }
 
 function recordMemoryBet(
