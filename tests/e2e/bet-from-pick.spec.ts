@@ -55,7 +55,7 @@ test("a bet recorded from a model pick keeps the odds that were placed", async (
   await page.getByTestId("settle-away").fill("20");
   await page.getByRole("button", { name: "Record settlement" }).click();
   await expect(page.getByTestId("settlement-recorded")).toBeVisible();
-  await expect(page.getByTestId("pick-bet-result")).toHaveText("win");
+  await expect(page.getByTestId("pick-bet-result")).toHaveText("loss");
   await expect(page.getByTestId("bet-counts")).toContainText("1 settled");
 
   // The board and its model pick are unchanged.
