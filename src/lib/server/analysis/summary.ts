@@ -1,15 +1,7 @@
 import { americanToDecimal, unitReturn } from "#lib/domain/odds.ts";
-import {
-  returnOnSettledStakes,
-  type StakeResult,
-} from "#lib/domain/performance.ts";
+import { returnOnSettledStakes, type StakeResult } from "#lib/domain/performance.ts";
 import type { Settlement } from "#lib/domain/settlement.ts";
-import type {
-  ActualBet,
-  ClosingObservation,
-  RunSummary,
-  SettlementGrade,
-} from "./store.ts";
+import type { ActualBet, ClosingObservation, RunSummary, SettlementGrade } from "./store.ts";
 
 export type ClosingState = "comparable" | "missing";
 
@@ -72,8 +64,7 @@ function countsFor(
     missingClosing: 0,
   };
   for (const row of rows) {
-    if (row.settlement === "win" || row.settlement === "loss")
-      counts.settled += 1;
+    if (row.settlement === "win" || row.settlement === "loss") counts.settled += 1;
     else if (row.settlement === "push") counts.push += 1;
     else if (row.settlement === "void") counts.void += 1;
     else counts.unresolved += 1;
@@ -96,10 +87,7 @@ function finished(
     unavailable,
     counts,
     denominators: {
-      returnOnSettledStakes: stakes.reduce(
-        (total, row) => total + row.stake,
-        0,
-      ),
+      returnOnSettledStakes: stakes.reduce((total, row) => total + row.stake, 0),
       closingComparisons,
     },
     roi: roi.available
@@ -229,13 +217,7 @@ export function profitFor(
   stake: number,
   americanOdds: number,
 ): number | null {
-  if (
-    result !== "win" &&
-    result !== "loss" &&
-    result !== "push" &&
-    result !== "void"
-  )
-    return null;
+  if (result !== "win" && result !== "loss" && result !== "push" && result !== "void") return null;
   return unitReturn({
     result,
     stake,
@@ -250,38 +232,28 @@ export function closingFor(
 ): ClosingState {
   const comparable = closings.some(
     (closing) =>
-      closing.subject.kind === kind &&
-      closing.subject.id === id &&
-      closing.comparison.available,
+      closing.subject.kind === kind && closing.subject.id === id && closing.comparison.available,
   );
   return comparable ? "comparable" : "missing";
 }
 
 /** Assemble the two journal views. Refreshes stay in history and out of the primary sample. */
 export function journalSummaries(input: {
-  assessments: Array<
-    RunSummary & { americanOdds: number; grade: SettlementGrade }
-  >;
+  assessments: Array<RunSummary & { americanOdds: number; grade: SettlementGrade }>;
   bets: Array<ActualBet & { grade: SettlementGrade | null }>;
   closings: ClosingObservation[];
 }): JournalPerformance {
   const trackedAssessments: TrackedAssessment[] = input.assessments
-    .filter(
-      (row) =>
-        row.assessmentRole.role === "primary" ||
-        row.assessmentRole.role === "refresh",
-    )
+    .filter((row) => row.assessmentRole.role === "primary" || row.assessmentRole.role === "refresh")
     .map((row) => {
-      const role =
-        row.assessmentRole.role === "refresh" ? "refresh" : "primary";
+      const role = row.assessmentRole.role === "refresh" ? "refresh" : "primary";
       const result = row.grade.effective;
       return {
         id: row.id,
         gameId: row.game.id,
         role,
         settlement: result === "unresolved" ? "unresolved" : result,
-        unitProfit:
-          role === "primary" ? profitFor(result, 1, row.americanOdds) : null,
+        unitProfit: role === "primary" ? profitFor(result, 1, row.americanOdds) : null,
         closing: closingFor(input.closings, "analysis", row.id),
       };
     });
@@ -292,9 +264,7 @@ export function journalSummaries(input: {
       stakeUnits: bet.stakeUnits,
       settlement: result,
       profit:
-        bet.market && bet.selection
-          ? profitFor(result, bet.stakeUnits, bet.americanOdds)
-          : null,
+        bet.market && bet.selection ? profitFor(result, bet.stakeUnits, bet.americanOdds) : null,
       closing: closingFor(input.closings, "bet", bet.id),
     };
   });

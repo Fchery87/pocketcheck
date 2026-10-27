@@ -2,10 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Market, Offer } from "#lib/domain/offer.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
 import type { SavedForecast } from "./forecast-record.ts";
-import type {
-  PickExplanationReport,
-  ProviderRequestRecord,
-} from "../providers/contracts.ts";
+import type { PickExplanationReport, ProviderRequestRecord } from "../providers/contracts.ts";
 import type { ModelPickCalculation } from "./model-pick.ts";
 import {
   chooseModelPickRole,
@@ -30,8 +27,7 @@ import {
  * immutable once it reaches a terminal status. Each model pick is append-only.
  */
 
-export type GameBoardStatus =
-  "pending" | "running" | "completed" | "failed" | "interrupted";
+export type GameBoardStatus = "pending" | "running" | "completed" | "failed" | "interrupted";
 
 /** The forecasting model that produced a model pick, kept apart from any drafter identity. */
 export type ForecastingModelIdentity = {
@@ -197,9 +193,7 @@ export type BoardSettlement = {
 export const SETTLEMENT_EVENT_CONFLICT =
   "This settlement event identifier was already used with different inputs.";
 
-export function gameSettlementPayloadKey(
-  input: RecordGameSettlementInput,
-): string {
+export function gameSettlementPayloadKey(input: RecordGameSettlementInput): string {
   return JSON.stringify({
     eventId: input.eventId,
     gameId: input.gameId,
@@ -217,16 +211,11 @@ function pickedOffer(market: BoardMarket): Offer | null {
   const pick = market.pick;
   if (!pick) return null;
   return (
-    market.offers.find(
-      (offer) => offer.selection === pick.calculation.pickedSelection,
-    ) ?? null
+    market.offers.find((offer) => offer.selection === pick.calculation.pickedSelection) ?? null
   );
 }
 
-export function gradeBoardMarkets(
-  board: GameBoard,
-  notices: StoredNotice[],
-): BoardSettlement {
+export function gradeBoardMarkets(board: GameBoard, notices: StoredNotice[]): BoardSettlement {
   return {
     gameId: board.game.id,
     markets: board.markets.map((market) => {
@@ -254,9 +243,7 @@ export type GameBoardStore = {
   finishBoard: (input: FinishBoardInput) => Promise<GameBoard>;
   getBoard: (id: string) => Promise<GameBoard | null>;
   /** Appends a game settlement notice. A correction names the earlier notice and gives a reason. */
-  recordGameSettlement: (
-    input: RecordGameSettlementInput,
-  ) => Promise<RecordGameSettlementResult>;
+  recordGameSettlement: (input: RecordGameSettlementInput) => Promise<RecordGameSettlementResult>;
   /** Grades each model pick on the board from the game's notices. Derived on read, never stored. */
   readBoardSettlement: (boardId: string) => Promise<BoardSettlement>;
   /** Boards that refresh this one, oldest first. A refresh never changes its parent. */
@@ -270,11 +257,7 @@ export type GameBoardStore = {
 export const BOARD_CONFLICT =
   "This board submission identifier was already used with different inputs.";
 
-const TERMINAL: readonly GameBoardStatus[] = [
-  "completed",
-  "failed",
-  "interrupted",
-];
+const TERMINAL: readonly GameBoardStatus[] = ["completed", "failed", "interrupted"];
 
 export function isTerminalBoard(status: GameBoardStatus): boolean {
   return TERMINAL.includes(status);
@@ -296,9 +279,7 @@ export type OpenPick = {
   rules: Offer["rules"];
 };
 
-export function createMemoryBoardStore(
-  notices: StoredNotice[] = [],
-): MemoryBoardStore {
+export function createMemoryBoardStore(notices: StoredNotice[] = []): MemoryBoardStore {
   const boards = new Map<string, GameBoard>();
   const submissions = new Map<string, string>();
   const finishChains = new Map<string, Promise<unknown>>();
@@ -359,21 +340,15 @@ export function createMemoryBoardStore(
       }
       const createdAt = new Date().toISOString();
       const markets = board.markets.map((market) => {
-        const result = input.markets.find(
-          (item) => item.market === market.market,
-        );
+        const result = input.markets.find((item) => item.market === market.market);
         if (!result) return market;
         if (market.pick || market.noPickReason !== null) {
           throw new Error(`The ${market.market} model pick is already frozen.`);
         }
         if (result.pick) {
           if (result.pick.parentPickId !== null) {
-            const parent = board.parentId
-              ? boards.get(board.parentId)
-              : undefined;
-            const expected = parent?.markets.find(
-              (item) => item.market === market.market,
-            )?.pick;
+            const parent = board.parentId ? boards.get(board.parentId) : undefined;
+            const expected = parent?.markets.find((item) => item.market === market.market)?.pick;
             if (!expected || expected.id !== result.pick.parentPickId) {
               throw new Error(
                 `The ${market.market} parent pick must be the parent board's pick in that market.`,
@@ -424,8 +399,7 @@ export function createMemoryBoardStore(
         if (isTerminalBoard(current.status)) return structuredClone(current);
         const completedAt = new Date().toISOString();
         const markets = current.markets.map((market) => {
-          if (!market.pick || market.pick.role.role !== "unclassified")
-            return market;
+          if (!market.pick || market.pick.role.role !== "unclassified") return market;
           const existing = [...boards.values()]
             .flatMap((item) => item.markets)
             .find(
@@ -453,8 +427,7 @@ export function createMemoryBoardStore(
           markets,
           status: input.status,
           failureReason: input.failureReason,
-          explanation:
-            input.status === "completed" ? (input.explanation ?? null) : null,
+          explanation: input.status === "completed" ? (input.explanation ?? null) : null,
           completedAt,
         });
         boards.set(current.id, updated);
@@ -474,26 +447,20 @@ export function createMemoryBoardStore(
       return board ? structuredClone(board) : null;
     },
     async recordGameSettlement(input) {
-      if (
-        ![...boards.values()].some((board) => board.game.id === input.gameId)
-      ) {
+      if (![...boards.values()].some((board) => board.game.id === input.gameId)) {
         throw new Error(`Game not found: ${input.gameId}`);
       }
       if (input.correctsNoticeId) {
         if (!input.reason?.trim()) {
           return { kind: "conflict", error: "A correction requires a reason." };
         }
-        const prior = notices.find(
-          (item) => item.id === input.correctsNoticeId,
-        );
+        const prior = notices.find((item) => item.id === input.correctsNoticeId);
         if (!prior || prior.gameId !== input.gameId) {
           throw new Error(`Settlement not found: ${input.correctsNoticeId}`);
         }
       }
       const payloadKey = gameSettlementPayloadKey(input);
-      const sameEvent = notices.filter(
-        (item) => item.eventId === input.eventId,
-      );
+      const sameEvent = notices.filter((item) => item.eventId === input.eventId);
       if (sameEvent.length > 0) {
         const match = sameEvent.find((item) => item.payloadKey === payloadKey);
         if (match) return { kind: "duplicate", noticeId: match.id };
@@ -539,9 +506,7 @@ export function createMemoryBoardStore(
     async listModelPicks() {
       const finished = [...boards.values()]
         .filter((board) => isTerminalBoard(board.status))
-        .sort((left, right) =>
-          (left.completedAt ?? "").localeCompare(right.completedAt ?? ""),
-        );
+        .sort((left, right) => (left.completedAt ?? "").localeCompare(right.completedAt ?? ""));
       return finished.flatMap((board): ListedModelPick[] => {
         const settlement = gradeBoardMarkets(
           board,
@@ -550,12 +515,9 @@ export function createMemoryBoardStore(
         return board.markets.flatMap((market) => {
           if (!market.pick) return [];
           const offer = market.offers.find(
-            (item) =>
-              item.selection === market.pick!.calculation.pickedSelection,
+            (item) => item.selection === market.pick!.calculation.pickedSelection,
           );
-          const grade = settlement.markets.find(
-            (item) => item.market === market.market,
-          )?.grade;
+          const grade = settlement.markets.find((item) => item.market === market.market)?.grade;
           if (!offer || !grade) return [];
           return [
             {
@@ -574,8 +536,7 @@ export function createMemoryBoardStore(
         for (const market of board.markets) {
           if (market.pick?.id !== pickId) continue;
           const offer = market.offers.find(
-            (item) =>
-              item.selection === market.pick!.calculation.pickedSelection,
+            (item) => item.selection === market.pick!.calculation.pickedSelection,
           );
           if (!offer) return null;
           return {

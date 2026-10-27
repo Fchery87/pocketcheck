@@ -17,17 +17,11 @@ import {
   type ModelPick,
   type NewGameBoard,
 } from "./board-store.ts";
-import {
-  chooseModelPickRole,
-  unclassifiedPickRole,
-} from "./model-pick-primary.ts";
+import { chooseModelPickRole, unclassifiedPickRole } from "./model-pick-primary.ts";
 import type { SavedForecast } from "./forecast-record.ts";
 import type { ModelPickCalculation } from "./model-pick.ts";
 import type { RunGame, RunUsage, StoredNotice } from "./store.ts";
-import type {
-  PickExplanationReport,
-  ProviderRequestRecord,
-} from "../providers/contracts.ts";
+import type { PickExplanationReport, ProviderRequestRecord } from "../providers/contracts.ts";
 
 type BoardRow = {
   id: string;
@@ -83,13 +77,8 @@ function iso(value: Date): string {
 
 /** Game boards in Neon. Same contract as the memory journal's boards. */
 export function createNeonBoardStore(sql: Sql): GameBoardStore {
-  async function read(
-    db: Sql | TransactionSql,
-    id: string,
-  ): Promise<GameBoard | null> {
-    const [board] = await db<
-      BoardRow[]
-    >`SELECT * FROM game_boards WHERE id = ${id}`;
+  async function read(db: Sql | TransactionSql, id: string): Promise<GameBoard | null> {
+    const [board] = await db<BoardRow[]>`SELECT * FROM game_boards WHERE id = ${id}`;
     if (!board) return null;
     const markets = await db<MarketRow[]>`
       SELECT market, offers, no_pick_reason FROM board_markets WHERE board_id = ${id}
@@ -103,8 +92,7 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore {
       WHERE p.board_id = ${id}
     `;
     const ordered = [...markets].sort(
-      (left, right) =>
-        MARKET_ORDER.indexOf(left.market) - MARKET_ORDER.indexOf(right.market),
+      (left, right) => MARKET_ORDER.indexOf(left.market) - MARKET_ORDER.indexOf(right.market),
     );
     return {
       id: board.id,
@@ -144,10 +132,7 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore {
     };
   }
 
-  async function require(
-    db: Sql | TransactionSql,
-    id: string,
-  ): Promise<GameBoard> {
+  async function require(db: Sql | TransactionSql, id: string): Promise<GameBoard> {
     const board = await read(db, id);
     if (!board) throw new Error(`Game board not found: ${id}`);
     return board;
@@ -158,8 +143,7 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore {
       SELECT id, request_hash FROM game_boards WHERE submission_id = ${submissionId}
     `;
     if (!row) return null;
-    if (row.request_hash !== hash)
-      return { kind: "conflict" as const, error: BOARD_CONFLICT };
+    if (row.request_hash !== hash) return { kind: "conflict" as const, error: BOARD_CONFLICT };
     return { kind: "existing" as const, board: await require(sql, row.id) };
   }
 
@@ -212,10 +196,7 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore {
       const id = await insert(input);
       if (id === null) {
         const raced = await existing(input.request.id, input.request.hash);
-        if (!raced)
-          throw new Error(
-            `Game board submission vanished: ${input.request.id}`,
-          );
+        if (!raced) throw new Error(`Game board submission vanished: ${input.request.id}`);
         return raced;
       }
       return { kind: "created", board: await require(sql, id) };
@@ -227,9 +208,7 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore {
         `;
         if (!board) throw new Error(`Game board not found: ${input.boardId}`);
         if (isTerminalBoard(board.status)) {
-          throw new Error(
-            "A finished game board cannot freeze new model picks.",
-          );
+          throw new Error("A finished game board cannot freeze new model picks.");
         }
         for (const result of input.markets) {
           const frozen = await tx<{ id: string }[]>`
@@ -284,9 +263,7 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore {
     },
     async finishBoard(input) {
       const explanation =
-        input.status === "completed" && input.explanation
-          ? input.explanation
-          : null;
+        input.status === "completed" && input.explanation ? input.explanation : null;
       await sql.begin(async (tx) => {
         const [board] = await tx<
           Array<{
@@ -388,11 +365,7 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore {
           )
         `;
       } catch (error) {
-        const code =
-          typeof error === "object" &&
-          error !== null &&
-          "code" in error &&
-          error.code;
+        const code = typeof error === "object" && error !== null && "code" in error && error.code;
         if (code !== "23505") throw error;
         const raced = await find();
         if (raced) return settle(raced);
@@ -466,12 +439,9 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore {
         for (const market of board.markets) {
           if (!market.pick) continue;
           const offer = market.offers.find(
-            (item) =>
-              item.selection === market.pick!.calculation.pickedSelection,
+            (item) => item.selection === market.pick!.calculation.pickedSelection,
           );
-          const grade = settlement.markets.find(
-            (item) => item.market === market.market,
-          )?.grade;
+          const grade = settlement.markets.find((item) => item.market === market.market)?.grade;
           if (!offer || !grade) continue;
           listed.push({
             pick: market.pick,
