@@ -1260,3 +1260,21 @@
     font-size: 1.5rem;
   }
 }
+
+@layer components {
+  .pc-board-form {
+    display: grid;
+    gap: 32px;
+    max-width: 760px;
+  }
+
+  /* A model pick card: set apart by one ink rule, never by colour. */
+  .pc-pick {
+    padding-left: 18px;
+    border-left: 3px solid var(--ink);
+  }
+
+  .pc-pick-sides {
+    align-items: start;
+  }
+}

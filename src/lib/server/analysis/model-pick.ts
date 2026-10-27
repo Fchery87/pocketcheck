@@ -65,7 +65,12 @@ export type ModelPickPriceCutoff =
       decimalOdds: number;
       americanOdds: number;
     }
-  | { available: false; reason: string };
+  | {
+      available: false;
+      /** True when no price is bad enough to lose the grade, because the side cannot lose. */
+      everyPriceKeeps: boolean;
+      reason: string;
+    };
 
 export type ModelPickCalculation = {
   version: typeof MODEL_PICK_VERSION;
@@ -119,15 +124,25 @@ function priceCutoff(picked: ModelPickSide, grade: StrengthGrade): ModelPickPric
   const probabilities = strong ? picked.conservativeProbabilities : picked.probabilities;
   const target = strong ? VALUE_THRESHOLD.conservativeExpectedValue : 0;
   const decimal = probabilities ? breakEvenPrice(probabilities, target) : null;
-  if (decimal === null || !(decimal > 1)) {
+  const cutoffGrade = strong ? "strong" : "lean";
+  if (decimal === null) {
     return {
       available: false,
-      reason: "The price cutoff is unavailable because the model gives this side no win chance.",
+      everyPriceKeeps: false,
+      reason:
+        "The price cutoff is unavailable because the forecasting model gives this side no win chance.",
+    };
+  }
+  if (!(decimal > 1)) {
+    return {
+      available: false,
+      everyPriceKeeps: true,
+      reason: `Any price keeps ${cutoffGrade}: the forecasting model gives this side no chance to lose.`,
     };
   }
   return {
     available: true,
-    grade: strong ? "strong" : "lean",
+    grade: cutoffGrade,
     keeps: grade !== "no edge",
     decimalOdds: decimal,
     americanOdds: decimalToAmerican(decimal),

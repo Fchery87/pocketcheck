@@ -216,6 +216,44 @@ describe("model pick strength grades", () => {
   }
 });
 
+describe("model pick price cutoff", () => {
+  it("says any price keeps the grade when the model gives the side no chance to lose", async () => {
+    const outcome = await runGameBoard(board(), {
+      store: createMemoryStore(),
+      collect: quiet,
+      model: scriptedModel({ home: { win: 0, loss: 1, push: 0 } }),
+    });
+    const calculation = outcome.board!.markets[0].pick!.calculation;
+    expect(calculation.pickedSelection).toBe("away");
+    expect(calculation.grade).toBe("lean");
+    expect(calculation.sides[1].expectedValue).toBeCloseTo(1.3, 9);
+    expect(calculation.priceCutoff).toEqual({
+      available: false,
+      everyPriceKeeps: true,
+      reason: "Any price keeps lean: the forecasting model gives this side no chance to lose.",
+    });
+  });
+
+  it("is unavailable when the model gives the picked side no win chance", async () => {
+    const outcome = await runGameBoard(
+      board({ moneyline: { home: 100, away: 100, tieRule: "push" } }),
+      {
+        store: createMemoryStore(),
+        collect: quiet,
+        model: scriptedModel({ home: { win: 0, loss: 0, push: 1 } }),
+      },
+    );
+    const calculation = outcome.board!.markets[0].pick!.calculation;
+    expect(calculation.grade).toBe("no edge");
+    expect(calculation.priceCutoff).toEqual({
+      available: false,
+      everyPriceKeeps: false,
+      reason:
+        "The price cutoff is unavailable because the forecasting model gives this side no win chance.",
+    });
+  });
+});
+
 describe("game board without a usable forecasting model", () => {
   const cases = [
     {
