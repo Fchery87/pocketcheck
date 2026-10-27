@@ -28,7 +28,7 @@ test("a final score grades the model pick and a correction regrades it with hist
   await page.waitForLoadState("networkidle");
 
   // PHI (home) wins, so the DAL (away) pick loses.
-  await page.getByTestId("settle-event").fill("browser-final-dal-phi");
+  await page.getByTestId("settle-event").fill("pick-final-dal-phi");
   await page.getByTestId("settle-home").fill("24");
   await page.getByTestId("settle-away").fill("21");
   await page.getByTestId("settle-submit").click();
@@ -37,7 +37,7 @@ test("a final score grades the model pick and a correction regrades it with hist
   const firstId = await card.getByTestId("pick-notice-id").first().textContent();
 
   // A correction names the earlier notice, gives a reason, and regrades the pick.
-  await page.getByTestId("settle-event").fill("browser-final-dal-phi-corrected");
+  await page.getByTestId("settle-event").fill("pick-final-dal-phi-corrected");
   await page.getByTestId("settle-home").fill("17");
   await page.getByTestId("settle-away").fill("20");
   await page.getByTestId("settle-corrects").fill(firstId!.trim());
@@ -57,13 +57,13 @@ test("a postponed notice leaves the pick unresolved and a reused event is refuse
   await freezeBoard(page, "2026_08_BAL_BUF", "Postponed Book");
   const card = page.getByTestId("model-pick-moneyline");
   await page.waitForLoadState("networkidle");
-  await page.getByTestId("settle-event").fill("browser-postponed-bal-buf");
+  await page.getByTestId("settle-event").fill("pick-postponed-bal-buf");
   await page.getByTestId("settle-kind").selectOption("postponed");
   await page.getByTestId("settle-submit").click();
   await expect(page.getByTestId("settlement-recorded")).toBeVisible();
   await expect(card.getByTestId("pick-result")).toHaveText("Unresolved");
 
-  await page.getByTestId("settle-event").fill("browser-postponed-bal-buf");
+  await page.getByTestId("settle-event").fill("pick-postponed-bal-buf");
   await page.getByTestId("settle-kind").selectOption("final");
   await page.getByTestId("settle-home").fill("30");
   await page.getByTestId("settle-away").fill("3");
