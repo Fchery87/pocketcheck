@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { networkInterfaces } from "node:os";
 import { expect, test } from "@playwright/test";
 import { browserFixture } from "../../src/lib/server/verification.ts";
 import { verificationEnv } from "../../scripts/verification-env.ts";
@@ -46,6 +47,15 @@ function startServer(env: Record<string, string>): Promise<Started> {
   });
 }
 
+function interfaceAddress(): string {
+  for (const addresses of Object.values(networkInterfaces())) {
+    for (const entry of addresses ?? []) {
+      if (entry.family === "IPv4" && !entry.internal) return entry.address;
+    }
+  }
+  return "127.0.0.1";
+}
+
 function stop(started: Started | undefined): void {
   started?.child.removeAllListeners("exit");
   started?.child.kill();
@@ -80,8 +90,9 @@ test("the opt-in network run warns and accepts forms from its network origin", a
   playwright,
 }) => {
   const port = 42628;
-  // The phone addresses the computer by its network address.
-  const networkHost = `192.0.2.10:${port}`;
+  // The phone addresses the computer by one of its network addresses. A machine
+  // with no network interface falls back to its loopback address.
+  const networkHost = `${interfaceAddress()}:${port}`;
   let started: Started | undefined;
   const request = await playwright.request.newContext({ baseURL: `http://127.0.0.1:${port}` });
   try {
@@ -90,6 +101,7 @@ test("the opt-in network run warns and accepts forms from its network origin", a
     const log = started;
     await expect.poll(() => log.stderr).toContain("no login");
     expect(log.stderr).toContain("0.0.0.0");
+    expect(log.stdout).toContain("Allowed hosts: localhost, 127.0.0.1, [::1]");
 
     const accepted = await request.post("/settings?/choose", {
       headers: { host: networkHost, origin: `http://${networkHost}` },
@@ -102,6 +114,48 @@ test("the opt-in network run warns and accepts forms from its network origin", a
       form: { drafter: "fixture" },
     });
     expect(rejected.status()).toBe(403);
+  } finally {
+    await request.dispose();
+    stop(started);
+  }
+});
+
+// A DNS-rebinding page resolves its own name to this computer, so the browser
+// sends that name as Host and a matching Origin. The launcher must refuse it
+// before SvelteKit sees the request, for reads as well as forms.
+test("the Node command refuses a host name it does not know", async ({ playwright }) => {
+  const port = 42628;
+  const rebound = `rebind.attacker.example:${port}`;
+  let started: Started | undefined;
+  const request = await playwright.request.newContext({ baseURL: `http://127.0.0.1:${port}` });
+  try {
+    started = await startServer({
+      HOST: "0.0.0.0",
+      PORT: String(port),
+      ALLOWED_HOSTS: "pocketcheck.local",
+    });
+    expect(started.stdout).toContain("pocketcheck.local");
+
+    const read = await request.get("/settings", {
+      headers: { host: rebound, origin: `http://${rebound}` },
+    });
+    expect(read.status()).toBe(421);
+    expect(read.headers()["content-type"]).toContain("text/plain");
+    expect(await read.text()).toContain("not an allowed host");
+
+    const write = await request.post("/settings?/choose", {
+      headers: { host: rebound, origin: `http://${rebound}` },
+      form: { drafter: "fixture" },
+    });
+    expect(write.status()).toBe(421);
+    expect(await write.text()).not.toContain("<html");
+
+    const listed = `pocketcheck.local:${port}`;
+    const named = await request.post("/settings?/choose", {
+      headers: { host: listed, origin: `http://${listed}` },
+      form: { drafter: "fixture" },
+    });
+    expect(named.status()).toBe(200);
   } finally {
     await request.dispose();
     stop(started);
