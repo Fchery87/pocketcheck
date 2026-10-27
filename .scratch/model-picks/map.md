@@ -8,6 +8,7 @@ Spec: [spec.md](spec.md). Integration branch: `feature/model-picks`.
 
 ## Decisions-so-far
 
+- [01](issues/01-browser-fixture-forecasting-model.md): browser verification runs a checked-in, unreleased fixture model (`tests/fixtures/models/browser-forecasting-model.json`) whose checksum is pinned; startup rejects any other model.
 - [02](issues/02-opt-in-phone-access.md): phone access is opt-in via `HOST=<lan-ip> npm start`; default stays `127.0.0.1`, with a no-login warning (`build/index.js` alone binds all interfaces).
 
 ## Fog
