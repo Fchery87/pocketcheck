@@ -15,7 +15,9 @@ async function makeStore() {
 
 describeStoreContract("Neon", makeStore);
 describeGameBoardContract("Neon", makeStore);
+import { describeModelPickPerformanceContract } from "../model-pick-performance-contract.ts";
 describePickBetContract("Neon", makeStore);
+describeModelPickPerformanceContract("Neon", makeStore);
 
 afterEach(async () => {
   const pending = open.splice(0);

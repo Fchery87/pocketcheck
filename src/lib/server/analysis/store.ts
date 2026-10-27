@@ -18,7 +18,7 @@ import type { AttemptRequest } from "./attempt.ts";
 import type { JournalExport } from "../db/repository.ts";
 import { assertRestorable } from "../db/repository.ts";
 import { classifyPregameRuns, type PregameRun } from "./primary.ts";
-import { createMemoryBoardStore, type GameBoardStore } from "./board-store.ts";
+import { createMemoryBoardStore, type GameBoardStore, type OpenPick } from "./board-store.ts";
 
 /**
  * Research store contract.
@@ -258,7 +258,7 @@ export type RecordBetResult =
   | { kind: "existing"; bet: ActualBet }
   | { kind: "conflict"; error: string };
 
-export type ClosingSubject = { kind: "analysis" | "bet"; id: string };
+export type ClosingSubject = { kind: "analysis" | "bet" | "model-pick"; id: string };
 
 export type ClosingProvenance = "observed" | "archived-untimestamped";
 
@@ -542,7 +542,10 @@ export function createMemoryStore(): JournalStore {
       return [...bets];
     },
     async recordClosing(input) {
-      const saved = recordMemoryClosing({ runs, bets, closings }, input);
+      const saved = recordMemoryClosing(
+        { runs, bets, closings, pickOpen: (pickId) => boardStore.pickContract(pickId) },
+        input,
+      );
       return { kind: "created", closing: structuredClone(saved) };
     },
     async listClosings() {
@@ -716,7 +719,11 @@ type OpenSide = {
 };
 
 function openSide(
-  state: { runs: Map<string, ResearchRun>; bets: ActualBet[] },
+  state: {
+    runs: Map<string, ResearchRun>;
+    bets: ActualBet[];
+    pickOpen?: (pickId: string) => OpenPick | null;
+  },
   subject: ClosingSubject,
 ): OpenSide {
   if (subject.kind === "analysis") {
@@ -732,6 +739,11 @@ function openSide(
       americanOdds: run.offer.americanOdds,
       rules: run.offer.rules,
     };
+  }
+  if (subject.kind === "model-pick") {
+    const open = state.pickOpen?.(subject.id);
+    if (!open) throw new Error(`Model pick not found: ${subject.id}`);
+    return open;
   }
   const bet = state.bets.find((item) => item.id === subject.id);
   if (!bet) throw new Error(`Bet not found: ${subject.id}`);
@@ -756,7 +768,12 @@ function openSide(
 }
 
 function recordMemoryClosing(
-  state: { runs: Map<string, ResearchRun>; bets: ActualBet[]; closings: ClosingObservation[] },
+  state: {
+    runs: Map<string, ResearchRun>;
+    bets: ActualBet[];
+    closings: ClosingObservation[];
+    pickOpen?: (pickId: string) => OpenPick | null;
+  },
   input: NewClosing,
   provenance: ClosingProvenance = "observed",
 ): ClosingObservation {

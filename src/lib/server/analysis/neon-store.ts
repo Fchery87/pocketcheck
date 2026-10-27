@@ -446,6 +446,7 @@ async function persistClosing(
     const record = await journal.recordClosing({
       analysisId: input.subject.kind === "analysis" ? input.subject.id : null,
       betId: input.subject.kind === "bet" ? input.subject.id : null,
+      modelPickId: input.subject.kind === "model-pick" ? input.subject.id : null,
       provenance,
       sportsbook: input.sportsbook.trim(),
       market: input.market,
@@ -485,6 +486,7 @@ async function persistClosing(
   const record = await journal.recordClosing({
     analysisId: input.subject.kind === "analysis" ? input.subject.id : null,
     betId: input.subject.kind === "bet" ? input.subject.id : null,
+    modelPickId: input.subject.kind === "model-pick" ? input.subject.id : null,
     provenance: "observed",
     sportsbook: contract.sportsbook,
     market: contract.market,
@@ -515,6 +517,11 @@ async function persistClosing(
 }
 
 async function openSide(journal: JournalRepository, input: NewClosing) {
+  if (input.subject.kind === "model-pick") {
+    const saved = await journal.findPickContract(input.subject.id);
+    if (!saved) throw new Error(`Model pick not found: ${input.subject.id}`);
+    return saved;
+  }
   if (input.subject.kind === "analysis") {
     const saved = await journal.findRun(input.subject.id);
     if (!saved) throw new Error(`Analysis not found: ${input.subject.id}`);
@@ -552,9 +559,11 @@ function toClosing(
   analyses: Map<string, ResearchRun | null>,
   bets: Map<string, Awaited<ReturnType<JournalRepository["listBets"]>>[number]>,
 ): ClosingObservation {
-  const subject = record.analysisId
-    ? { kind: "analysis" as const, id: record.analysisId }
-    : { kind: "bet" as const, id: record.betId! };
+  const subject = record.modelPickId
+    ? { kind: "model-pick" as const, id: record.modelPickId }
+    : record.analysisId
+      ? { kind: "analysis" as const, id: record.analysisId }
+      : { kind: "bet" as const, id: record.betId! };
   if (record.provenance === "archived-untimestamped" || record.observedAt === null) {
     return {
       id: record.id,
@@ -572,7 +581,9 @@ function toClosing(
     };
   }
   const openContract =
-    subject.kind === "bet"
+    subject.kind === "model-pick"
+      ? await journal.findPickContract(subject.id)
+      : subject.kind === "bet"
       ? (() => {
           const bet = bets.get(subject.id);
           return bet?.contract && bet.sportsbook

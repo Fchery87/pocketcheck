@@ -6,11 +6,15 @@
 
 **Status:** ready-for-agent
 
-- [ ] The primary model pick follows the analysis primary's tie and legacy rules; refreshes are never primary
-- [ ] Primary model pick forecasts are recorded as prospective forecasts without regeneration
-- [ ] The view breaks down by market and by grade, with settled, unresolved, push, void, and missing-close counts
-- [ ] Push and void return stake and leave the return denominator; unresolved and missing close show as unavailable, never zero
-- [ ] Closing comparisons use the same market, side, point line, sportsbook, and rules; a different line is line movement
-- [ ] Assessment and actual-bet summaries are unchanged
-- [ ] Store contract and run-level tests cover classification and counts
+- [x] The primary model pick follows the analysis primary's tie and legacy rules; refreshes are never primary
+- [x] Primary model pick forecasts are recorded as prospective forecasts without regeneration
+- [x] The view breaks down by market and by grade, with settled, unresolved, push, void, and missing-close counts
+- [x] Push and void return stake and leave the return denominator; unresolved and missing close show as unavailable, never zero
+- [x] Closing comparisons use the same market, side, point line, sportsbook, and rules; a different line is line movement
+- [x] Assessment and actual-bet summaries are unchanged
+- [x] Store contract and run-level tests cover classification and counts
 - [ ] `npm run verify` and `npm run verify:database` pass
+
+## Answer
+
+The earliest completed pregame model pick per game and market is frozen as primary when its board finishes, under protocol `prospective-2026-10-26`. The saved forecast is read back, not regenerated. Later boards and refreshes stay non-primary. Picks finished before roles existed stay unclassified. `/board/performance` counts only primaries, by market and grade. `npm run verify` is the application check. `npm run verify:database` was not run: `TEST_DATABASE_URL` is not set in this worktree and tests do not read `.env`.

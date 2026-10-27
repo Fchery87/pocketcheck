@@ -136,6 +136,7 @@ export type ClosingRecord = {
   id: string;
   analysisId: string | null;
   betId: string | null;
+  modelPickId: string | null;
   provenance: ClosingProvenance;
   sportsbook: string;
   market: BetContract["market"];
@@ -736,6 +737,7 @@ export class JournalRepository {
   async recordClosing(input: {
     analysisId?: string | null;
     betId?: string | null;
+    modelPickId?: string | null;
     provenance?: ClosingProvenance;
     sportsbook: string;
     market: BetContract["market"];
@@ -750,10 +752,10 @@ export class JournalRepository {
     const id = randomUUID();
     await this.sql`
       INSERT INTO closing_observations (
-        id, analysis_id, bet_id, provenance, sportsbook, market, selection, point_line,
+        id, analysis_id, bet_id, model_pick_id, provenance, sportsbook, market, selection, point_line,
         rules, american_odds, decimal_odds, observed_at, source
       ) VALUES (
-        ${id}, ${input.analysisId ?? null}, ${input.betId ?? null}, ${provenance},
+        ${id}, ${input.analysisId ?? null}, ${input.betId ?? null}, ${input.modelPickId ?? null}, ${provenance},
         ${input.sportsbook}, ${input.market}, ${input.selection}, ${input.pointLine},
         ${this.sql.json(input.rules as never)}, ${input.americanOdds},
         ${americanToDecimal(input.americanOdds)}, ${input.observedAt}, ${input.source}
@@ -769,6 +771,40 @@ export class JournalRepository {
       SELECT * FROM closing_observations ORDER BY created_at ASC
     `;
     return rows.map(mapClosing);
+  }
+
+  async findPickContract(pickId: string) {
+    const rows = await this.sql<
+      Array<{
+        source_game_id: string;
+        kickoff_at: Date;
+        sportsbook: string;
+        market: BetContract["market"];
+        offers: Array<{ selection: string; pointLine: number | null; americanOdds: number; rules: BetContract["rules"] }>;
+        picked: string;
+      }>
+    >`
+      SELECT g.source_game_id, b.kickoff_at, b.sportsbook, m.market, m.offers,
+        p.calculation->>'pickedSelection' AS picked
+      FROM model_picks p
+      JOIN game_boards b ON b.id = p.board_id
+      JOIN games g ON g.id = b.game_id
+      JOIN board_markets m ON m.board_id = b.id AND m.market = p.market
+      WHERE p.id = ${pickId}
+    `;
+    const row = rows[0];
+    const offer = row?.offers.find((item) => item.selection === row.picked);
+    if (!row || !offer) return null;
+    return {
+      gameId: row.source_game_id,
+      kickoffAt: iso(row.kickoff_at)!,
+      market: row.market,
+      selection: offer.selection as BetContract["selection"],
+      pointLine: offer.pointLine,
+      sportsbook: row.sportsbook,
+      americanOdds: offer.americanOdds,
+      rules: offer.rules,
+    };
   }
 
   async readClosing(id: string): Promise<ClosingRecord | null> {
@@ -1372,7 +1408,7 @@ export function assertRestorable(snapshot: JournalExport): void {
     throw new Error("Settlement notice correction relationships contain a cycle.");
   }
   for (const closing of snapshot.closings) {
-    if (!closing.analysisId && !closing.betId) {
+    if (!closing.analysisId && !closing.betId && !closing.modelPickId) {
       throw new Error(`Closing observation ${closing.id} is missing the record it observes.`);
     }
     if (closing.analysisId) {
@@ -1687,10 +1723,10 @@ async function restoreClosings(tx: RestoreTx, closings: ClosingRecord[]): Promis
     }
     await tx`
       INSERT INTO closing_observations (
-        id, analysis_id, bet_id, provenance, sportsbook, market, selection, point_line,
+        id, analysis_id, bet_id, model_pick_id, provenance, sportsbook, market, selection, point_line,
         rules, american_odds, decimal_odds, observed_at, source
       ) VALUES (
-        ${closing.id}, ${closing.analysisId}, ${closing.betId}, ${closing.provenance},
+        ${closing.id}, ${closing.analysisId}, ${closing.betId}, ${closing.modelPickId ?? null}, ${closing.provenance},
         ${closing.sportsbook}, ${closing.market}, ${closing.selection}, ${closing.pointLine},
         ${tx.json(closing.rules as never)}, ${closing.americanOdds}, ${closing.decimalOdds},
         ${closing.observedAt}, ${closing.source}
@@ -1898,6 +1934,7 @@ type ClosingRow = {
   id: string;
   analysis_id: string | null;
   bet_id: string | null;
+  model_pick_id: string | null;
   provenance: ClosingProvenance;
   sportsbook: string;
   market: BetContract["market"];
@@ -2051,6 +2088,7 @@ function mapClosing(row: ClosingRow): ClosingRecord {
     id: row.id,
     analysisId: row.analysis_id,
     betId: row.bet_id,
+    modelPickId: row.model_pick_id,
     provenance: row.provenance,
     sportsbook: row.sportsbook,
     market: row.market,
