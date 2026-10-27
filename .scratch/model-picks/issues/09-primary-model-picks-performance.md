@@ -17,4 +17,4 @@
 
 ## Answer
 
-The earliest completed pregame model pick per game and market is frozen as primary when its board finishes, under protocol `prospective-2026-10-26`. The saved forecast is read back, not regenerated. Later boards and refreshes stay non-primary. Picks finished before roles existed stay unclassified. `/board/performance` counts only primaries, by market and grade. `npm run verify` is the application check. `npm run verify:database` was not run: `TEST_DATABASE_URL` is not set in this worktree and tests do not read `.env`.
+The earliest completed pregame model pick per game and market is frozen as primary when its board finishes, under protocol `prospective-2026-10-26`. The saved forecast is read back, not regenerated. Later boards and refreshes stay non-primary. Picks finished before roles existed stay unclassified. `/board/performance` counts only primaries, by market and grade. `npm run verify` passed, including 30 browser tests. `npm run verify:database` was not run: `TEST_DATABASE_URL` is not set in this worktree, and the check does not read `.env`.
