@@ -10,6 +10,9 @@ Spec: [spec.md](spec.md). Integration branch: `feature/model-picks`.
 
 - [01](issues/01-browser-fixture-forecasting-model.md): browser verification runs a checked-in, unreleased fixture model (`tests/fixtures/models/browser-forecasting-model.json`) whose checksum is pinned; startup rejects any other model.
 - [02](issues/02-opt-in-phone-access.md): phone access is opt-in via `HOST=<lan-ip> npm start`; default stays `127.0.0.1`, with a no-login warning (`build/index.js` alone binds all interfaces).
+- Browser port: `POCKETCHECK_BROWSER_PORT` sets the browser server port and the `npm start` launcher uses that port plus one; the runner probes for a free pair when it is unset, so worktrees can verify at the same time.
+- Host allowlist: the `npm start` launcher answers 421 to any `Host` that is not loopback, one of this machine's interface addresses, or listed in `ALLOWED_HOSTS`, which closes the DNS-rebinding hole.
+- [03](issues/03-moneyline-game-board-tracer.md): a moneyline game board freezes with its own submission identifier and yields a versioned model pick (`model-pick-2026-10-27.1`) on `/board` and `/board/[id]`; migration 012 adds the records, and boards reject odds from -100 to +100.
 
 ## Fog
 

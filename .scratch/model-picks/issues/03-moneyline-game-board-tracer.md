@@ -11,14 +11,21 @@ The game board and its model pick are frozen in the journal (memory and Neon). T
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The model pick calculation is pure and versioned separately from the research policy. It picks the higher expected value, breaks ties by model win probability, then home with no edge
-- [ ] Grades: strong when conservative expected value exceeds the versioned threshold, lean when point expected value is positive, otherwise no edge. Table-tested at the boundaries
-- [ ] Released markets read "Released model pick"; unreleased read "Unvalidated model pick". The research analysis policy and its conclusions are unchanged
-- [ ] An unavailable or leaked forecasting model gives no model pick and a visible reason; the board still saves
-- [ ] The game board is a separate record from the analysis snapshot, with its own submission identifier, idempotency, and conflict rejection
-- [ ] Neon migrations apply with `npm run db:migrate`; the shared store contract covers save and readback on memory and Neon
-- [ ] Run-level tests (memory journal, scripted model source, fixture drafter) assert the saved board and pick
-- [ ] A browser test enters both moneylines and sees the pick card with the unvalidated label
-- [ ] `npm run verify` and `TEST_DATABASE_URL=... npm run verify:database` pass
+- [x] The model pick calculation is pure and versioned separately from the research policy. It picks the higher expected value, breaks ties by model win probability, then home with no edge
+- [x] Grades: strong when conservative expected value exceeds the versioned threshold, lean when point expected value is positive, otherwise no edge. Table-tested at the boundaries
+- [x] Released markets read "Released model pick"; unreleased read "Unvalidated model pick". The research analysis policy and its conclusions are unchanged
+- [x] An unavailable or leaked forecasting model gives no model pick and a visible reason; the board still saves
+- [x] The game board is a separate record from the analysis snapshot, with its own submission identifier, idempotency, and conflict rejection
+- [x] Neon migrations apply with `npm run db:migrate`; the shared store contract covers save and readback on memory and Neon
+- [x] Run-level tests (memory journal, scripted model source, fixture drafter) assert the saved board and pick
+- [x] A browser test enters both moneylines and sees the pick card with the unvalidated label
+- [x] `npm run verify` and `TEST_DATABASE_URL=... npm run verify:database` pass
+
+## Answer
+
+The pure model pick calculation lives in `src/lib/server/analysis/model-pick.ts` (version `model-pick-2026-10-27.1`), separate from the research policy.
+Game boards and model picks are frozen records with their own submission identifier, kept in the memory and Neon stores; migration `012_game_boards.sql` adds the tables.
+The `/board` form and the `/board/[id]` pick page show the pick card with the "Unvalidated model pick" label.
+Boards reject odds from -100 to +100, and an unavailable or leaked forecasting model gives no pick with a visible reason.
