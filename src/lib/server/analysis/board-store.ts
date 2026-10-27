@@ -106,6 +106,8 @@ export type GameBoardStore = {
   /** Moves a board to a terminal status. A finished board is returned unchanged. */
   finishBoard: (input: FinishBoardInput) => Promise<GameBoard>;
   getBoard: (id: string) => Promise<GameBoard | null>;
+  /** The board that holds a model pick, or null when no such pick exists. */
+  getBoardForPick: (pickId: string) => Promise<GameBoard | null>;
 };
 
 export const BOARD_CONFLICT =
@@ -208,6 +210,12 @@ export function createMemoryBoardStore(): GameBoardStore {
     },
     async getBoard(id) {
       const board = boards.get(id);
+      return board ? structuredClone(board) : null;
+    },
+    async getBoardForPick(pickId) {
+      const board = [...boards.values()].find((item) =>
+        item.markets.some((market) => market.pick?.id === pickId),
+      );
       return board ? structuredClone(board) : null;
     },
   };

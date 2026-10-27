@@ -129,6 +129,9 @@
           {pick.forecastingModel.version}, trained on games through
           {easternTime(pick.forecastingModel.trainingCutoff)}.
         </p>
+        <p>
+          <a href="/journal?pick={pick.id}#bet-form" data-testid="record-bet-from-pick">Record an actual bet from this model pick</a>
+        </p>
         <p class="pc-hint">
           Graded in code by <span class="pc-figure" data-testid="calculation-version">{calculation.version}</span>.
           The research analysis policy is separate and unchanged.

@@ -92,6 +92,7 @@ function runStatus(status: string): RunStatus {
 
 export function createNeonStore(sql: Sql): JournalStore {
   const journal = new JournalRepository(sql);
+  const boardStore = createNeonBoardStore(sql);
 
   async function getRun(id: string): Promise<ResearchRun | null> {
     const saved = await journal.findRun(id);
@@ -175,21 +176,30 @@ export function createNeonStore(sql: Sql): JournalStore {
       return getRun(id);
     },
     async recordBet(bet) {
-      const saved = await journal.findRun(bet.analysisId);
-      if (!saved) throw new Error(`Analysis not found: ${bet.analysisId}`);
+      if (!bet.analysisId === !bet.modelPickId) {
+        throw new Error("An actual bet belongs to one analysis or one model pick.");
+      }
+      const saved = bet.analysisId ? await journal.findRun(bet.analysisId) : null;
+      if (bet.analysisId && !saved) throw new Error(`Analysis not found: ${bet.analysisId}`);
+      const pickBoard = bet.modelPickId ? await boardStore.getBoardForPick(bet.modelPickId) : null;
+      if (bet.modelPickId && !pickBoard)
+        throw new Error(`Model pick not found: ${bet.modelPickId}`);
+      const game = saved
+        ? { id: saved.game.sourceGameId, kickoff: saved.game.kickoffAt }
+        : { id: pickBoard!.game.id, kickoff: pickBoard!.game.kickoff };
       if (!bet.submissionId) throw new Error("An actual bet requires a submission identifier.");
       if (!Number.isFinite(bet.stakeUnits) || bet.stakeUnits <= 0) {
         throw new Error("Stake must be a positive number of units");
       }
       const contract = parseOffer({
-        gameId: saved.game.sourceGameId,
+        gameId: game.id,
         sportsbook: bet.sportsbook,
         market: bet.market,
         selection: bet.selection,
         pointLine: bet.pointLine,
         americanOdds: bet.americanOdds,
         observedAt: bet.placedAt,
-        kickoffAt: saved.game.kickoffAt,
+        kickoffAt: game.kickoff,
         rules: bet.rules,
       });
       const stored: BetContract = {
@@ -198,12 +208,19 @@ export function createNeonStore(sql: Sql): JournalStore {
         pointLine: contract.pointLine,
         rules: contract.rules,
       };
-      const fingerprint = betFingerprint(bet.analysisId, contract, bet.stakeUnits, bet.placedAt);
+      const fingerprint = betFingerprint(
+        bet.analysisId,
+        bet.modelPickId,
+        contract,
+        bet.stakeUnits,
+        bet.placedAt,
+      );
       const prior = await journal.findBetBySubmissionId(bet.submissionId);
       try {
         const record = await journal.recordBet({
-          offerId: saved.offer.id,
+          offerId: saved?.offer.id,
           analysisId: bet.analysisId,
+          modelPickId: bet.modelPickId,
           submissionId: bet.submissionId,
           contract: stored,
           contractFingerprint: fingerprint,
@@ -222,7 +239,9 @@ export function createNeonStore(sql: Sql): JournalStore {
     },
     async listBets() {
       const records = await journal.listBets();
-      return records.filter((record) => record.analysisId !== null).map(toBet);
+      return records
+        .filter((record) => record.analysisId !== null || record.modelPickId)
+        .map(toBet);
     },
     async recordSettlement(input) {
       return recordNeonSettlement(journal, input);
@@ -264,7 +283,7 @@ export function createNeonStore(sql: Sql): JournalStore {
       return journal.restoreJournal(backup);
     },
   };
-  return { ...research, ...createNeonBoardStore(sql) };
+  return { ...research, ...boardStore };
 }
 
 function storedAssessmentRole(analysis: {
@@ -369,7 +388,8 @@ function journalInput(run: NewRun, includeUserResearch: boolean): SaveAnalysisIn
 function toBet(record: Awaited<ReturnType<JournalRepository["listBets"]>>[number]): ActualBet {
   return {
     id: record.id,
-    analysisId: record.analysisId!,
+    analysisId: record.analysisId,
+    modelPickId: record.modelPickId ?? null,
     submissionId: record.submissionId,
     contractProvenance: record.contract ? "captured" : "legacy-unknown",
     sportsbook: record.sportsbook ?? "",
@@ -384,7 +404,8 @@ function toBet(record: Awaited<ReturnType<JournalRepository["listBets"]>>[number
 }
 
 function betFingerprint(
-  analysisId: string,
+  analysisId: string | undefined,
+  modelPickId: string | undefined,
   contract: {
     sportsbook: string;
     market: string;
@@ -400,6 +421,7 @@ function betFingerprint(
     .update(
       JSON.stringify({
         analysisId,
+        modelPickId,
         sportsbook: contract.sportsbook,
         market: contract.market,
         selection: contract.selection,

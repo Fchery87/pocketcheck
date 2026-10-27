@@ -117,6 +117,8 @@ export type BetRecord = {
   id: string;
   offerId: string;
   analysisId: string | null;
+  /** The model pick this bet started from. Null for a bet that predates model picks. */
+  modelPickId?: string | null;
   submissionId: string | null;
   contract: BetContract | null;
   contractFingerprint: string | null;
@@ -782,8 +784,10 @@ export class JournalRepository {
   }
 
   async recordBet(input: {
-    offerId: string;
+    /** Required unless `modelPickId` is set, in which case the placed contract is saved as its own offer. */
+    offerId?: string;
     analysisId?: string | null;
+    modelPickId?: string | null;
     submissionId?: string | null;
     contract?: BetContract | null;
     contractFingerprint?: string | null;
@@ -805,18 +809,46 @@ export class JournalRepository {
     }
     const id = randomUUID();
     try {
-      await this.sql`
-        INSERT INTO bets (
-          id, offer_id, analysis_id, submission_id, contract, contract_fingerprint,
-          american_odds, decimal_odds, placed_at, stake_units, sportsbook
-        ) VALUES (
-          ${id}, ${input.offerId}, ${input.analysisId ?? null}, ${input.submissionId ?? null},
-          ${input.contract ? this.sql.json(input.contract as never) : null},
-          ${input.contractFingerprint ?? null}, ${input.americanOdds},
-          ${americanToDecimal(input.americanOdds)}, ${input.placedAt}, ${input.stakeUnits},
-          ${input.sportsbook ?? null}
-        )
-      `;
+      await this.sql.begin(async (tx) => {
+        let offerId = input.offerId;
+        if (input.modelPickId) {
+          const [pick] = await tx<{ game_id: string; kickoff_at: Date }[]>`
+            SELECT board.game_id, board.kickoff_at
+            FROM model_picks pick JOIN game_boards board ON board.id = pick.board_id
+            WHERE pick.id = ${input.modelPickId}
+          `;
+          if (!pick) throw new Error(`Model pick not found: ${input.modelPickId}`);
+          if (!input.contract || !input.sportsbook) {
+            throw new Error("A bet from a model pick requires its placed contract.");
+          }
+          offerId = randomUUID();
+          await tx`
+            INSERT INTO offers (
+              id, game_id, sportsbook, market, selection, point_line, american_odds, decimal_odds,
+              observed_at, entered_at, kickoff_at, rules, completed_at
+            ) VALUES (
+              ${offerId}, ${pick.game_id}, ${input.sportsbook}, ${input.contract.market},
+              ${input.contract.selection}, ${input.contract.pointLine}, ${input.americanOdds},
+              ${americanToDecimal(input.americanOdds)}, ${input.placedAt}, ${input.placedAt},
+              ${pick.kickoff_at}, ${tx.json(input.contract.rules as never)}, ${input.placedAt}
+            )
+          `;
+        }
+        if (!offerId) throw new Error("A bet requires a researched offer or a model pick.");
+        await tx`
+          INSERT INTO bets (
+            id, offer_id, analysis_id, model_pick_id, submission_id, contract, contract_fingerprint,
+            american_odds, decimal_odds, placed_at, stake_units, sportsbook
+          ) VALUES (
+            ${id}, ${offerId}, ${input.analysisId ?? null}, ${input.modelPickId ?? null},
+            ${input.submissionId ?? null},
+            ${input.contract ? tx.json(input.contract as never) : null},
+            ${input.contractFingerprint ?? null}, ${input.americanOdds},
+            ${americanToDecimal(input.americanOdds)}, ${input.placedAt}, ${input.stakeUnits},
+            ${input.sportsbook ?? null}
+          )
+        `;
+      });
     } catch (error) {
       if (input.submissionId && isUniqueViolation(error)) {
         const existing = await this.findBetBySubmissionId(input.submissionId);
@@ -1572,15 +1604,18 @@ async function restoreBets(tx: RestoreTx, bets: BetRecord[]): Promise<void> {
   for (const bet of bets) {
     const existing = await tx<BetRow[]>`SELECT * FROM bets WHERE id = ${bet.id}`;
     if (existing[0]) {
-      if (!sameRecord(mapBet(existing[0]), bet)) conflict("bet", bet.id);
+      if (!sameRecord(mapBet(existing[0]), { ...bet, modelPickId: bet.modelPickId ?? null })) {
+        conflict("bet", bet.id);
+      }
       continue;
     }
     await tx`
       INSERT INTO bets (
-        id, offer_id, analysis_id, submission_id, contract, contract_fingerprint,
+        id, offer_id, analysis_id, model_pick_id, submission_id, contract, contract_fingerprint,
         american_odds, decimal_odds, placed_at, stake_units, sportsbook
       ) VALUES (
-        ${bet.id}, ${bet.offerId}, ${bet.analysisId}, ${bet.submissionId ?? null},
+        ${bet.id}, ${bet.offerId}, ${bet.analysisId}, ${bet.modelPickId ?? null},
+        ${bet.submissionId ?? null},
         ${bet.contract ? tx.json(bet.contract as never) : null},
         ${bet.contractFingerprint ?? null}, ${bet.americanOdds}, ${bet.decimalOdds},
         ${bet.placedAt}, ${bet.stakeUnits}, ${bet.sportsbook ?? null}
@@ -1846,6 +1881,7 @@ type BetRow = {
   id: string;
   offer_id: string;
   analysis_id: string | null;
+  model_pick_id: string | null;
   submission_id: string | null;
   contract: BetContract | null;
   contract_fingerprint: string | null;
@@ -1996,6 +2032,7 @@ function mapBet(row: BetRow): BetRecord {
     id: row.id,
     offerId: row.offer_id,
     analysisId: row.analysis_id,
+    modelPickId: row.model_pick_id,
     submissionId: row.submission_id,
     contract: row.contract,
     contractFingerprint: row.contract_fingerprint,
