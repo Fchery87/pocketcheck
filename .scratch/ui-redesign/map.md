@@ -12,7 +12,7 @@ Spec: [spec.md](spec.md)
 ## Decisions so far
 
 - Stack: shadcn-svelte on Bits UI, Tailwind v4, Melt builders for the odds stepper, stage navigation, and theme switch.
-- Prototypes: three throwaway HTML pages in `prototypes/`, published as private Artifacts, showing Analyze and the analysis report.
+- Prototypes: three throwaway HTML pages, published as private Artifacts, showing Analyze and the analysis report. Removed after the redesign shipped; commit `157e0d4` still has them in `prototypes/`.
 - Directions: A Archive ledger, B Broadcast telemetry, C Field almanac.
 - Analyze: staged single page (Game, Offer, Your evidence, Private lean, Review) with a Research offer summary and a "Freeze & analyze" button.
 - Honesty: no profit signalling. Gaps, unknowns, and unavailable values never look like zero.

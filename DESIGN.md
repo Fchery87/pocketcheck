@@ -2,7 +2,7 @@
 
 The interface is a field almanac: an engineering pad with a pen and a highlighter. The record is the product, so the design makes frozen, sourced, and missing look different at a glance. It never makes anything look like winning.
 
-Approved on 2026-10-26 from prototype C (`.scratch/ui-redesign/prototypes/c.html`). Token values live in `src/app.css`. This file holds the rules those values serve. When the two disagree, fix whichever one broke the rule.
+Approved on 2026-10-26 from prototype C (`.scratch/ui-redesign/prototypes/c.html`, removed after the redesign shipped; recover it with `git show 157e0d4:.scratch/ui-redesign/prototypes/c.html`). Token values live in `src/app.css`. This file holds the rules those values serve. When the two disagree, fix whichever one broke the rule.
 
 ## Materials
 
