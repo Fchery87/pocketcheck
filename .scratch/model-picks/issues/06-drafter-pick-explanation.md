@@ -4,13 +4,19 @@
 
 **Blocked by:** 05
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The drafter contract gains a pick-explanation draft, implemented by all three drafters with no automatic fallback
-- [ ] The packet contains the frozen picks, numbers, drivers, evidence, and gaps, and excludes the private lean
-- [ ] Validation rejects text naming a different side, grade, or number; the run fails with the board and picks kept
-- [ ] The board attempt is saved before evidence collection and picks are saved before drafting; recovery reuses a saved provider response; ambiguous outcomes need a deliberate new attempt
-- [ ] Provider accounting sums the draft and repairs, and unknown usage stays unknown
-- [ ] Forecasting model identity (artifact checksum) and drafter identity are shown separately on the pick page
-- [ ] Run-level tests cover packet contents, contradiction failure, recovery, and accounting; the browser test sees the fixture explanation
-- [ ] `npm run verify` and `npm run verify:database` pass
+- [x] The drafter contract gains a pick-explanation draft, implemented by all three drafters with no automatic fallback
+- [x] The packet contains the frozen picks, numbers, drivers, evidence, and gaps, and excludes the private lean
+- [x] Validation rejects text naming a different side, grade, or number; the run fails with the board and picks kept
+- [x] The board attempt is saved before evidence collection and picks are saved before drafting; recovery reuses a saved provider response; ambiguous outcomes need a deliberate new attempt
+- [x] Provider accounting sums the draft and repairs, and unknown usage stays unknown
+- [x] Forecasting model identity (artifact checksum) and drafter identity are shown separately on the pick page
+- [x] Run-level tests cover packet contents, contradiction failure, recovery, and accounting; the browser test sees the fixture explanation
+- [x] `npm run verify` and `npm run verify:database` pass
+
+## Answer
+
+Picks are frozen before drafting, and the selected drafter (TheClawBay, DeepSeek, or the fixture drafter) then writes the explanation from a packet that has no lean parameter. A contradicting explanation leaves the board `failed` with picks kept and no explanation saved.
+Migration 017 adds the drafter identity, provider requests, outcome, usage, and explanation to `game_boards`. The pick page shows a "Who wrote what" section.
+Prose validation uses regex heuristics (an unsupplied percentage, signed price or line, grade, or side is rejected), so it catches stated numbers but not every paraphrase.
