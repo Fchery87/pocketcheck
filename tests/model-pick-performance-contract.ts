@@ -388,11 +388,15 @@ export function describeModelPickPerformanceContract(
         // Research and actual-bet summaries never see a model pick.
         const journal = journalSummaries({
           assessments: await Promise.all(
-            (await store.listCompleted()).map(async (run) => ({
-              ...run,
-              americanOdds: run.offer.americanOdds,
-              grade: (await store.readSettlement({ analysisId: run.id })).assessment,
-            })),
+            (await store.listCompleted()).map(async (run) => {
+              const grade = (await store.readSettlement({ analysisId: run.id })).assessment;
+              if (!grade) throw new Error(`Analysis not found: ${run.id}`);
+              return {
+                ...run,
+                americanOdds: run.offer.americanOdds,
+                grade,
+              };
+            }),
           ),
           bets: [],
           closings: await store.listClosings(),
