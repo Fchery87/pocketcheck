@@ -101,6 +101,7 @@ export function describeStoreContract(
       const inner = createFixtureDrafter();
       let drafts = 0;
       const drafter: ThesisDrafter = {
+        ...createFixtureDrafter(),
         ...inner,
         async draftThesis(input) {
           drafts += 1;
@@ -137,6 +138,7 @@ export function describeStoreContract(
       const inner = createFixtureDrafter();
       let drafts = 0;
       const drafter: ThesisDrafter = {
+        ...createFixtureDrafter(),
         ...inner,
         async draftThesis(input) {
           drafts += 1;
@@ -213,6 +215,7 @@ export function describeStoreContract(
       const inner = createFixtureDrafter();
       let drafts = 0;
       const drafter: ThesisDrafter = {
+        ...createFixtureDrafter(),
         ...inner,
         async draftThesis(packet) {
           drafts += 1;
@@ -297,6 +300,7 @@ export function describeStoreContract(
       const store = await makeStore();
       const inner = createFixtureDrafter();
       const drafter: ThesisDrafter = {
+        ...createFixtureDrafter(),
         ...inner,
         async draftThesis(input) {
           const drafted = await inner.draftThesis(input);
@@ -352,6 +356,7 @@ export function describeStoreContract(
     it("keeps first-request accounting when the repair request fails in transit", async () => {
       const store = await makeStore();
       const drafter: ThesisDrafter = {
+        ...createFixtureDrafter(),
         id: "fixture",
         modelId: "fixture-drafter",
         async draftThesis() {
@@ -424,6 +429,7 @@ export function describeStoreContract(
       const inner = createFixtureDrafter();
       let drafts = 0;
       const drafter: ThesisDrafter = {
+        ...createFixtureDrafter(),
         ...inner,
         async draftThesis(packet) {
           drafts += 1;
@@ -487,6 +493,7 @@ export function describeStoreContract(
       const input = { ...ask(), requestId: `${scopeOf()}:ticket06-ambiguous-provider` };
       let drafts = 0;
       const drafter: ThesisDrafter = {
+        ...createFixtureDrafter(),
         id: "fixture",
         modelId: "fixture-drafter",
         async draftThesis() {

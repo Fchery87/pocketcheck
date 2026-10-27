@@ -32,6 +32,7 @@ function capturingDrafter(): ThesisDrafter & { packets: ThesisPacket[] } {
   const inner = createFixtureDrafter();
   const packets: ThesisPacket[] = [];
   return {
+    ...inner,
     id: inner.id,
     modelId: inner.modelId,
     packets,

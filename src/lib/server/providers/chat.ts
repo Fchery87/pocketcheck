@@ -1,10 +1,16 @@
 import { validateThesisReport } from "../analysis/report-validation.ts";
 import { thesisRequestBody } from "../analysis/packet.ts";
 import {
+  pickExplanationRequestBody,
+  validatePickExplanation,
+} from "../analysis/pick-explanation.ts";
+import {
   ProviderError,
   classifyCatalogModel,
   parseCatalogPayload,
+  type DraftPickExplanationResult,
   type DraftThesisResult,
+  type PickExplanationPacket,
   type ModelTest,
   type ProviderErrorKind,
   type ModelCatalog,
@@ -102,18 +108,19 @@ function statusKind(status: number): ProviderErrorKind {
   return "transport";
 }
 
-function failedDraft(
-  packet: ThesisPacket,
+/** What both draft kinds share. The wrappers add their own packet. */
+type DraftCore<Report> = Omit<DraftThesisResult, "report" | "packet"> & { report: Report | null };
+
+function failedDraft<Report>(
   modelId: string,
-  patch: Partial<DraftThesisResult>,
-): DraftThesisResult {
+  patch: Partial<DraftCore<Report>>,
+): DraftCore<Report> {
   return {
     draftingFailed: true,
     repairAttempted: false,
     refusal: null,
     error: null,
     report: null,
-    packet,
     usage: null,
     usageCost: null,
     modelId,
@@ -228,16 +235,12 @@ export function createChatProvider(input: {
     return { status: "available" as const, modelId };
   }
 
-  async function complete(
-    modelId: string,
-    packet: ThesisPacket,
-    rejected?: string[],
-  ): Promise<Exchange> {
+  async function complete(body: string): Promise<Exchange> {
     let response;
     try {
       response = await request(
         "/chat/completions",
-        { method: "POST", body: thesisRequestBody({ modelId, packet, rejected }) },
+        { method: "POST", body },
         input.options.timeoutMs ?? DRAFT_TIMEOUT_MS,
       );
     } catch (error) {
@@ -262,23 +265,28 @@ export function createChatProvider(input: {
       };
     }
     const parsedBody = tryParse(response.text);
-    const body = parsedBody.ok ? parsedBody.value : null;
-    const usage = readUsage(body);
+    const parsedValue = parsedBody.ok ? parsedBody.value : null;
+    const usage = readUsage(parsedValue);
     return {
       ok: true,
-      requestId: readRequestId(body),
-      payload: { content: readContent(body), ...usage },
+      requestId: readRequestId(parsedValue),
+      payload: { content: readContent(parsedValue), ...usage },
     };
   }
 
-  async function draftThesis(draftInput: {
+  /**
+   * One draft and at most one repair, with no provider fallback. Every exchange becomes a
+   * request record, including a repair that fails in transit.
+   */
+  async function draftJson<Report>(args: {
     modelId: string;
     catalog: ModelCatalogEntry[];
-    packet: ThesisPacket;
-  }): Promise<DraftThesisResult> {
-    const status = selectionStatus(draftInput.modelId, draftInput.catalog);
+    body: (rejected?: string[]) => string;
+    validate: (value: unknown) => { ok: true; report: Report } | { ok: false; reasons: string[] };
+  }): Promise<DraftCore<Report>> {
+    const status = selectionStatus(args.modelId, args.catalog);
     if (status.status !== "available") {
-      return failedDraft(draftInput.packet, draftInput.modelId, {
+      return failedDraft(args.modelId, {
         refusal: status.status,
         error: {
           kind: "invalid_report",
@@ -291,17 +299,17 @@ export function createChatProvider(input: {
       });
     }
 
-    const first = await complete(draftInput.modelId, draftInput.packet);
+    const first = await complete(args.body());
     const firstRecord = requestRecord("draft", first);
     if (!first.ok) {
-      return failedDraft(draftInput.packet, draftInput.modelId, {
+      return failedDraft(args.modelId, {
         error: { kind: first.kind, status: first.status, message: first.message },
         providerRequests: [firstRecord],
       });
     }
 
     const parsed = tryParse(first.payload.content);
-    const validated = parsed.ok ? validateThesisReport(parsed.value, draftInput.packet) : null;
+    const validated = parsed.ok ? args.validate(parsed.value) : null;
     if (parsed.ok && validated?.ok) {
       return {
         draftingFailed: false,
@@ -309,11 +317,10 @@ export function createChatProvider(input: {
         refusal: null,
         error: null,
         report: validated.report,
-        packet: draftInput.packet,
         usage: first.payload.usage,
         usageCost: first.payload.usageCost,
         providerRequests: [firstRecord],
-        modelId: draftInput.modelId,
+        modelId: args.modelId,
       };
     }
 
@@ -322,21 +329,19 @@ export function createChatProvider(input: {
       : validated && !validated.ok
         ? validated.reasons
         : ["malformed report"];
-    const second = await complete(draftInput.modelId, draftInput.packet, rejected);
+    const second = await complete(args.body(rejected));
     const secondRecord = requestRecord("repair", second);
     if (!second.ok) {
-      return failedDraft(draftInput.packet, draftInput.modelId, {
+      return failedDraft(args.modelId, {
         repairAttempted: true,
         error: { kind: second.kind, status: second.status, message: second.message },
         providerRequests: [firstRecord, secondRecord],
       });
     }
     const repaired = tryParse(second.payload.content);
-    const repairedValidation = repaired.ok
-      ? validateThesisReport(repaired.value, draftInput.packet)
-      : null;
+    const repairedValidation = repaired.ok ? args.validate(repaired.value) : null;
     if (!repaired.ok || !repairedValidation?.ok) {
-      return failedDraft(draftInput.packet, draftInput.modelId, {
+      return failedDraft(args.modelId, {
         repairAttempted: true,
         error: {
           kind: "invalid_report",
@@ -357,12 +362,45 @@ export function createChatProvider(input: {
       refusal: null,
       error: null,
       report: repairedValidation.report,
-      packet: draftInput.packet,
       usage: second.payload.usage,
       usageCost: second.payload.usageCost,
       providerRequests: [firstRecord, secondRecord],
-      modelId: draftInput.modelId,
+      modelId: args.modelId,
     };
+  }
+
+  async function draftThesis(draftInput: {
+    modelId: string;
+    catalog: ModelCatalogEntry[];
+    packet: ThesisPacket;
+  }): Promise<DraftThesisResult> {
+    const core = await draftJson({
+      modelId: draftInput.modelId,
+      catalog: draftInput.catalog,
+      body: (rejected) =>
+        thesisRequestBody({ modelId: draftInput.modelId, packet: draftInput.packet, rejected }),
+      validate: (value) => validateThesisReport(value, draftInput.packet),
+    });
+    return { ...core, packet: draftInput.packet };
+  }
+
+  async function draftPickExplanation(draftInput: {
+    modelId: string;
+    catalog: ModelCatalogEntry[];
+    packet: PickExplanationPacket;
+  }): Promise<DraftPickExplanationResult> {
+    const core = await draftJson({
+      modelId: draftInput.modelId,
+      catalog: draftInput.catalog,
+      body: (rejected) =>
+        pickExplanationRequestBody({
+          modelId: draftInput.modelId,
+          packet: draftInput.packet,
+          rejected,
+        }),
+      validate: (value) => validatePickExplanation(value, draftInput.packet),
+    });
+    return { ...core, packet: draftInput.packet };
   }
 
   return {
@@ -372,6 +410,7 @@ export function createChatProvider(input: {
     testModel,
     selectionStatus,
     draftThesis,
+    draftPickExplanation,
   };
 }
 

@@ -243,10 +243,36 @@
           {/if}
         </div>
         <p class="pc-hint" data-testid="forecasting-model">
-          Forecasting model {pick.forecastingModel.checksum.slice(0, 12)}, version
+          Side chosen by forecasting model {pick.forecastingModel.checksum.slice(0, 12)}, version
           {pick.forecastingModel.version}, trained on games through
           {easternTime(pick.forecastingModel.trainingCutoff)}.
         </p>
+        {@const explained = board.explanation?.picks.find((item) => item.market === market.market)}
+        <div class="pc-explanation" data-testid="explanation-{market.market}">
+          <p class="pc-kicker">Explanation written by the drafter, not the forecasting model</p>
+          {#if explained}
+            <p data-testid="explanation-summary">{explained.summary}</p>
+            <p class="pc-kicker">The strongest case for the other side</p>
+            <p data-testid="explanation-other-side">{explained.otherSideCase}</p>
+            <ul class="pc-ledger" data-testid="explanation-claims">
+              {#each explained.claims as claim, index (index)}
+                <li>
+                  <strong>{claim.stance}:</strong>
+                  {claim.text}
+                  <span>[{claim.evidenceIds.join(", ")}]</span>
+                </li>
+              {/each}
+            </ul>
+          {:else if board.status === "failed"}
+            <p class="pc-hint" data-testid="explanation-missing">
+              <span class="pc-unknown">∅ No explanation</span> The drafter's text was not saved. The model pick above is unchanged.
+            </p>
+          {:else}
+            <p class="pc-hint" data-testid="explanation-missing">
+              <span class="pc-unknown">∅ No explanation</span> This board has no drafter explanation.
+            </p>
+          {/if}
+        </div>
         <p>
           <a href="/journal?pick={pick.id}#bet-form" data-testid="record-bet-from-pick">Record an actual bet from this model pick</a>
         </p>
@@ -282,6 +308,51 @@
       </p>
     </section>
   {/each}
+
+  {#if board.drafter}
+    {@const fixture = board.drafter.id === "fixture"}
+    <section class="pc-section" data-testid="drafter-section" aria-labelledby="drafter-title">
+      <h2 id="drafter-title">Who wrote what</h2>
+      <p data-testid="drafter">
+        Explanation drafted by {board.drafter.modelId}{fixture
+          ? " (fixture drafter, no AI call)"
+          : ` via ${board.drafter.id}`}. The drafter explains the frozen model picks. It cannot change a side, a grade, or a number.
+      </p>
+      {#if board.providerOutcomeAmbiguous}
+        <Alert data-testid="provider-outcome">
+          Provider completion is ambiguous. This request may already have been charged. Start a new
+          attempt before sending another provider request. Completion is not exactly once.
+        </Alert>
+      {/if}
+      {#if !fixture}
+        <div data-testid="usage">
+          {#if board.usage}
+            <p>
+              Known usage across {board.providerRequests.length === 1
+                ? "1 provider request"
+                : `${board.providerRequests.length} provider requests`}
+              {#if board.usage.partial}(partial){/if}:
+              {board.usage.totalTokens === null ? "total tokens unknown" : `${board.usage.totalTokens} tokens`}.
+              Cost {#if board.usage.costUsd === null}<span class="pc-unknown">unknown, not zero</span>{:else}${board.usage.costUsd.toFixed(4)}, as reported by {board.drafter.id}{/if}.
+            </p>
+          {:else}
+            <p>{board.drafter.id} reported no usage for this board. Missing cost is unknown, not zero.</p>
+          {/if}
+          {#if board.providerRequests.length > 0}
+            <ul class="pc-ledger" data-testid="provider-requests">
+              {#each board.providerRequests as item (item.requestId + item.role)}
+                <li>
+                  {item.role} {item.requestId}: {item.outcome}.
+                  {item.totalTokens === null ? "tokens unknown" : `${item.totalTokens} tokens`}.
+                  Cost {item.costKnown && item.costUsd !== null ? `$${item.costUsd.toFixed(4)}` : "unknown"}.
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        </div>
+      {/if}
+    </section>
+  {/if}
 
   <section class="pc-section" aria-labelledby="settle-title">
     <h2 id="settle-title">Settle this game</h2>

@@ -2,11 +2,13 @@ import { randomUUID } from "node:crypto";
 import type { Market, Offer } from "#lib/domain/offer.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
 import type { SavedForecast } from "./forecast-record.ts";
+import type { PickExplanationReport, ProviderRequestRecord } from "../providers/contracts.ts";
 import type { ModelPickCalculation } from "./model-pick.ts";
 import {
   gradeFromNotices,
   type PrivateLean,
   type RunGame,
+  type RunUsage,
   type SettlementGrade,
   type SettlementNoticeKind,
   type StoredNotice,
@@ -71,8 +73,28 @@ export type GameBoard = {
   failureReason: string | null;
   /** The user's own lean. Kept apart from the evidence, the forecast, and every model pick. */
   lean: PrivateLean | null;
+  /** The drafter chosen for this board's explanation, kept apart from the forecasting model. */
+  drafter: BoardDrafter | null;
+  /** Durable provider exchanges for the explanation, including a repair. */
+  providerRequests: ProviderRequestRecord[];
+  /** True when a sent request has no durable completion and must not be retried automatically. */
+  providerOutcomeAmbiguous: boolean;
+  /** Combined usage across every known provider request. Null when none was reported. */
+  usage: RunUsage | null;
+  /** The drafter's validated explanation. Null until a draft passes validation. */
+  explanation: PickExplanationReport | null;
   createdAt: string;
   completedAt: string | null;
+};
+
+export type BoardDrafter = { id: string; modelId: string };
+
+/** What a board saves once the drafter has answered, before the answer is validated. */
+export type BoardDraftAttempt = {
+  boardId: string;
+  providerRequests: ProviderRequestRecord[];
+  providerOutcomeAmbiguous: boolean;
+  usage: RunUsage | null;
 };
 
 export type NewGameBoard = Pick<
@@ -81,6 +103,8 @@ export type NewGameBoard = Pick<
 > & {
   /** Omitted means no lean. */
   lean?: PrivateLean | null;
+  /** Omitted means no drafter is named for this board. */
+  drafter?: BoardDrafter | null;
   markets: Array<Pick<BoardMarket, "market" | "offers">>;
 };
 
@@ -109,6 +133,8 @@ export type FinishBoardInput = {
   boardId: string;
   status: "completed" | "failed";
   failureReason: string | null;
+  /** Saved with a completed board only. A failed board keeps its picks and no explanation. */
+  explanation?: PickExplanationReport | null;
 };
 
 /**
@@ -185,6 +211,11 @@ export type GameBoardStore = {
   beginBoard: (input: NewGameBoard) => Promise<BeginBoardResult>;
   /** Saves evidence, gaps, and the frozen model picks. Each market is frozen once. */
   freezeModelPicks: (input: FreezeModelPicksInput) => Promise<GameBoard>;
+  /**
+   * Saves the provider exchanges and usage right after the drafter answers, before validation, so
+   * a later failure can finalize from the saved response. Refused once the board is finished.
+   */
+  saveBoardDraft: (input: BoardDraftAttempt) => Promise<GameBoard>;
   /** Moves a board to a terminal status. A finished board is returned unchanged. */
   finishBoard: (input: FinishBoardInput) => Promise<GameBoard>;
   getBoard: (id: string) => Promise<GameBoard | null>;
@@ -239,6 +270,11 @@ export function createMemoryBoardStore(notices: StoredNotice[] = []): GameBoardS
         gaps: [],
         failureReason: null,
         lean: input.lean ?? null,
+        drafter: input.drafter ?? null,
+        providerRequests: [],
+        providerOutcomeAmbiguous: false,
+        usage: null,
+        explanation: null,
         createdAt: new Date().toISOString(),
         completedAt: null,
       });
@@ -294,15 +330,30 @@ export function createMemoryBoardStore(notices: StoredNotice[] = []): GameBoardS
       boards.set(board.id, updated);
       return structuredClone(updated);
     },
+    async saveBoardDraft(input) {
+      const board = require(input.boardId);
+      if (isTerminalBoard(board.status)) {
+        throw new Error("A finished game board cannot save a new draft.");
+      }
+      const updated: GameBoard = structuredClone({
+        ...board,
+        providerRequests: input.providerRequests,
+        providerOutcomeAmbiguous: input.providerOutcomeAmbiguous,
+        usage: input.usage,
+      });
+      boards.set(board.id, updated);
+      return structuredClone(updated);
+    },
     async finishBoard(input) {
       const board = require(input.boardId);
       if (isTerminalBoard(board.status)) return structuredClone(board);
-      const updated: GameBoard = {
+      const updated: GameBoard = structuredClone({
         ...board,
         status: input.status,
         failureReason: input.failureReason,
+        explanation: input.status === "completed" ? (input.explanation ?? null) : null,
         completedAt: new Date().toISOString(),
-      };
+      });
       boards.set(board.id, updated);
       return structuredClone(updated);
     },
