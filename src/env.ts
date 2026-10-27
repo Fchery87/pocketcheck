@@ -35,7 +35,7 @@ export const variables = defineEnvVars({
   POCKETCHECK_MODEL_ARTIFACT: {
     schema: optional,
     description:
-      "Model artifact path, or off. Defaults to data/artifacts/baseline.json. The browser suite sets off.",
+      "Model artifact path, or off. Defaults to data/artifacts/baseline.json. The browser suite sets the checked-in fixture model.",
   },
   POCKETCHECK_WEATHER: {
     schema: optional,
