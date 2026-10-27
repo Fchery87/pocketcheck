@@ -53,6 +53,8 @@ export async function resolveDrafter(input: {
       modelId: choice.modelId,
       // The provider refuses a model that was removed or has not passed a test.
       draftThesis: (draft) => provider.draftThesis({ ...draft, catalog: entries }),
+      draftPickExplanation: (draft) =>
+        provider.draftPickExplanation({ ...draft, catalog: entries }),
     },
   };
 }

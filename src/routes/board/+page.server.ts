@@ -18,6 +18,7 @@ import {
   now,
   researchStore,
   schedulePath,
+  thesisDrafter,
 } from "#lib/server/config.ts";
 import type { Actions, PageServerLoad } from "./$types";
 
@@ -187,6 +188,8 @@ export const actions = {
       if (error instanceof ConfigError) return refuse(503, error.message);
       throw error;
     }
+    const drafting = await thesisDrafter();
+    if (!drafting.ok) return refuse(503, drafting.error);
     const result = await runGameBoard(
       {
         game,
@@ -222,6 +225,7 @@ export const actions = {
         collect: evidenceCollector(),
         model: modelSource(),
         forecast: forecastSource(),
+        drafter: drafting.drafter,
       },
     );
     if (result.board) redirect(303, `/board/${result.board.id}`);

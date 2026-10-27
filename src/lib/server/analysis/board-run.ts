@@ -9,13 +9,22 @@ import {
 import type { Market, Offer } from "#lib/domain/offer.ts";
 import type { ScheduledGame } from "../sources/contracts.ts";
 import type { FrozenMarketResult, GameBoard, GameBoardStore } from "./board-store.ts";
+import type { PickDrafter } from "../providers/contracts.ts";
+import { createFixtureDrafter } from "./fixture-drafter.ts";
+import { buildPickExplanationPacket, validatePickExplanation } from "./pick-explanation.ts";
 import { noSources, type EvidenceCollector } from "./evidence.ts";
 import { gameHasStarted } from "./games.ts";
 import { gatherEvidence } from "./gather-evidence.ts";
 import { noModel, type ModelSource, type RunModel } from "./model.ts";
 import { calculateModelPick } from "./model-pick.ts";
 import { redactText } from "./redact.ts";
-import { snapshot, type ForecastSource, type ManualEvidenceInput } from "./run.ts";
+import {
+  combineProviderUsage,
+  providerRequestsOf,
+  snapshot,
+  type ForecastSource,
+  type ManualEvidenceInput,
+} from "./run.ts";
 import type { PrivateLean } from "./store.ts";
 import { createManualEvidence } from "../sources/manual.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
@@ -46,6 +55,8 @@ export type GameBoardDependencies = {
   collect?: EvidenceCollector;
   model?: ModelSource;
   forecast?: ForecastSource;
+  /** Explains the frozen picks. Defaults to the fixture drafter, as for a research run. */
+  drafter?: PickDrafter;
 };
 
 export type GameBoardOutcome =
@@ -146,13 +157,80 @@ async function pickMarket(input: {
   };
 }
 
+const AMBIGUOUS =
+  "Provider completion is ambiguous: the request was sent but no completed response was saved. Start a new attempt before sending another provider request.";
+
+function parseResponse(response: unknown): unknown {
+  if (typeof response !== "string") return response;
+  try {
+    return JSON.parse(response);
+  } catch {
+    return null;
+  }
+}
+
+/** The saved provider response to finalize from: the last repair, else the last draft. */
+function durableExplanation(board: GameBoard): unknown {
+  if (board.providerOutcomeAmbiguous) return null;
+  const completed = board.providerRequests.filter(
+    (item) => item.outcome === "completed" && item.response !== null && item.response !== undefined,
+  );
+  const repair = [...completed].reverse().find((item) => item.role === "repair");
+  const chosen = repair ?? completed.at(-1);
+  const value = chosen ? parseResponse(chosen.response) : null;
+  return value && typeof value === "object" ? value : null;
+}
+
+function packetOf(board: GameBoard) {
+  return buildPickExplanationPacket({
+    game: board.game,
+    markets: board.markets,
+    evidence: board.evidence,
+    gaps: board.gaps,
+  });
+}
+
+/**
+ * Checks a drafted explanation against the frozen picks and finishes the board. A contradiction
+ * fails the board visibly and keeps its picks.
+ */
+async function finishWithExplanation(
+  store: GameBoardStore,
+  board: GameBoard,
+  drafted: unknown,
+): Promise<GameBoardOutcome> {
+  const checked = validatePickExplanation(drafted, packetOf(board));
+  if (!checked.ok) {
+    const reason = checked.reasons.join("; ");
+    const failed = await store.finishBoard({
+      boardId: board.id,
+      status: "failed",
+      failureReason: reason,
+    });
+    return { ok: false, error: reason, board: failed };
+  }
+  const finished = await store.finishBoard({
+    boardId: board.id,
+    status: "completed",
+    failureReason: null,
+    explanation: checked.report,
+  });
+  return { ok: true, board: finished };
+}
+
 /**
  * Freezes a game board and one model pick per entered market. The board is saved before
- * evidence collection and its model picks before it finishes, so a later failure keeps them.
+ * evidence collection and its model picks before drafting, so a later failure keeps them.
  */
 export async function runGameBoard(
   request: GameBoardRequest,
-  { store, collect = noSources, model = noModel, forecast }: GameBoardDependencies,
+  {
+    store,
+    collect = noSources,
+    model = noModel,
+    forecast,
+    drafter = createFixtureDrafter(),
+  }: GameBoardDependencies,
 ): Promise<GameBoardOutcome> {
   if (gameHasStarted(request.game, request.nowIso)) {
     return { ok: false, error: "The game has already started" };
@@ -225,6 +303,7 @@ export async function runGameBoard(
     observedAt: request.observedAt,
     markets,
     scheduleRetrievedAt,
+    drafter: { provider: drafter.id, modelId: drafter.modelId },
   };
   const hash = createHash("sha256").update(JSON.stringify(identity)).digest("hex");
   const begun = await store.beginBoard({
@@ -236,19 +315,28 @@ export async function runGameBoard(
     cutoffAt: request.nowIso,
     markets,
     lean,
+    drafter: { id: drafter.id, modelId: drafter.modelId },
   });
   if (begun.kind === "conflict") return { ok: false, error: begun.error };
   if (begun.kind === "existing") {
     const board = begun.board;
     if (board.status === "completed") return { ok: true, board };
+    if (board.status !== "failed") {
+      // A saved provider response is finalized without another paid request.
+      const durable = durableExplanation(board);
+      if (durable) return finishWithExplanation(store, board, durable);
+    }
     const error =
       board.status === "failed"
         ? (board.failureReason ?? "This board failed. Start a new board to retry.")
-        : "This board was already started and was not replayed. Start a new board to retry.";
+        : board.providerOutcomeAmbiguous
+          ? AMBIGUOUS
+          : "This board was already started and was not replayed. Start a new board to retry.";
     return { ok: false, error, board };
   }
 
   const boardId = begun.board.id;
+  let durableSaved = false;
   try {
     const gathered = await gatherEvidence({
       game: request.game,
@@ -278,19 +366,43 @@ export async function runGameBoard(
           : picked,
       );
     }
-    await store.freezeModelPicks({
+    const frozen = await store.freezeModelPicks({
       boardId,
       evidence: gathered.items,
       gaps: gathered.gaps,
       markets: results,
     });
-    const board = await store.finishBoard({
-      boardId,
-      status: "completed",
-      failureReason: null,
+    const packet = packetOf(frozen);
+    if (packet.picks.length === 0) {
+      const board = await store.finishBoard({ boardId, status: "completed", failureReason: null });
+      return { ok: true, board };
+    }
+
+    const drafted = await drafter.draftPickExplanation({
+      modelId: drafter.modelId,
+      catalog: [],
+      packet,
     });
-    return { ok: true, board };
+    const providerRequests = providerRequestsOf(drafted);
+    const ambiguous = providerRequests.some((item) => item.outcome === "ambiguous");
+    const withDraft = await store.saveBoardDraft({
+      boardId,
+      providerRequests,
+      providerOutcomeAmbiguous: ambiguous,
+      usage: combineProviderUsage(providerRequests),
+    });
+    durableSaved = durableExplanation(withDraft) !== null;
+    if (ambiguous || drafted.draftingFailed || !drafted.report) {
+      const reason = ambiguous
+        ? AMBIGUOUS
+        : redactText(drafted.error?.message ?? "The drafter returned no explanation.");
+      const board = await store.finishBoard({ boardId, status: "failed", failureReason: reason });
+      return { ok: false, error: reason, board };
+    }
+    return await finishWithExplanation(store, withDraft, drafted.report);
   } catch (error) {
+    // A saved provider response survives for a retry with the same submission identifier.
+    if (durableSaved) throw error;
     const reason = redactText(error instanceof Error ? error.message : String(error));
     const board = await store.finishBoard({
       boardId,

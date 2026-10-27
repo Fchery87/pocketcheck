@@ -23,6 +23,9 @@ function fakeProvider(id: ProviderId, seen: ModelCatalogEntry[][]): ThesisProvid
       throw new Error("not used");
     },
     selectionStatus: () => ({ status: "available", modelId: "x" }),
+    draftPickExplanation: async () => {
+      throw new Error("not used");
+    },
     draftThesis: async (input) => {
       seen.push(input.catalog);
       return {

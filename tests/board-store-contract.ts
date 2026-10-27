@@ -3,6 +3,12 @@ import { loadFixtureGames } from "#lib/server/analysis/games.ts";
 import { runGameBoard, type GameBoardRequest } from "#lib/server/analysis/board-run.ts";
 import { runAnalysis } from "#lib/server/analysis/run.ts";
 import type { JournalStore } from "#lib/server/analysis/store.ts";
+import { createFixtureDrafter } from "#lib/server/analysis/fixture-drafter.ts";
+import type {
+  DraftPickExplanationResult,
+  PickDrafter,
+  PickExplanationPacket,
+} from "#lib/server/providers/contracts.ts";
 import { quiet, scriptedModel } from "./board-fixtures.ts";
 
 const NOW = "2026-10-25T16:00:00.000Z";
@@ -565,6 +571,174 @@ export function describeGameBoardContract(
         await store.recordGameSettlement(final("nopick", 24, 21));
         const read = await store.readBoardSettlement(outcome.board!.id);
         expect(read.markets).toEqual([{ market: "moneyline", pick: null, grade: null }]);
+      });
+    });
+
+    describe("drafter explanation", () => {
+      const scripted = (
+        answer: (packet: PickExplanationPacket) => Promise<DraftPickExplanationResult>,
+      ): PickDrafter => ({
+        id: "scripted",
+        modelId: "scripted-model",
+        draftPickExplanation: async ({ packet }) => answer(packet),
+      });
+      const fixture = (packet: PickExplanationPacket) =>
+        createFixtureDrafter().draftPickExplanation({
+          modelId: "fixture-drafter",
+          catalog: [],
+          packet,
+        });
+      const exchange = (id: string, role: "draft" | "repair", response: unknown) => ({
+        requestId: id,
+        role,
+        outcome: "completed" as const,
+        response,
+        promptTokens: 100,
+        completionTokens: 50,
+        totalTokens: 150,
+        costUsd: 0.01,
+        costKnown: true,
+      });
+
+      it("returns the drafter, the explanation, the exchanges, and the usage as they were saved", async () => {
+        const store = await makeStore();
+        const drafter = scripted(async (packet) => {
+          const drafted = await fixture(packet);
+          return {
+            ...drafted,
+            repairAttempted: true,
+            providerRequests: [
+              exchange("one", "draft", JSON.stringify({ picks: [] })),
+              exchange("two", "repair", drafted.report),
+            ],
+          };
+        });
+        const outcome = await runGameBoard(ask(), {
+          store,
+          collect: quiet,
+          model: model(),
+          drafter,
+        });
+        expect(outcome.ok, outcome.ok ? "" : outcome.error).toBe(true);
+        if (!outcome.ok) return;
+        const saved = (await store.getBoard(outcome.board.id))!;
+        expect(saved).toEqual(outcome.board);
+        expect(saved.drafter).toEqual({ id: "scripted", modelId: "scripted-model" });
+        expect(saved.explanation!.picks[0]).toMatchObject({ market: "moneyline", side: "home" });
+        expect(saved.providerRequests.map((item) => item.requestId)).toEqual(["one", "two"]);
+        expect(saved.providerOutcomeAmbiguous).toBe(false);
+        expect(saved.usage).toEqual({
+          promptTokens: 200,
+          completionTokens: 100,
+          totalTokens: 300,
+          costUsd: 0.02,
+          partial: false,
+        });
+        expect(saved.markets[0]!.pick!.forecastingModel.checksum).toBe("f".repeat(64));
+      });
+
+      it("keeps the board and pick, with no explanation, when the text contradicts the pick", async () => {
+        const store = await makeStore();
+        const drafter = scripted(async (packet) => {
+          const drafted = await fixture(packet);
+          drafted.report!.picks[0]!.side = "away";
+          return { ...drafted, providerRequests: [exchange("bad", "draft", drafted.report)] };
+        });
+        const outcome = await runGameBoard(ask(), {
+          store,
+          collect: quiet,
+          model: model(),
+          drafter,
+        });
+        expect(outcome.ok).toBe(false);
+        const saved = (await store.getBoard(outcome.board!.id))!;
+        expect(saved.status).toBe("failed");
+        expect(saved.explanation).toBeNull();
+        expect(saved.failureReason).toMatch(/frozen side/);
+        expect(saved.markets[0]!.pick!.calculation.pickedSelection).toBe("home");
+        expect(saved.providerRequests).toHaveLength(1);
+        expect(saved.usage).toMatchObject({ totalTokens: 150 });
+      });
+
+      it("keeps an ambiguous outcome and sends nothing on a replay", async () => {
+        const store = await makeStore();
+        let calls = 0;
+        const drafter = scripted(async (packet) => {
+          calls += 1;
+          return {
+            ...(await fixture(packet)),
+            draftingFailed: true,
+            report: null,
+            error: { kind: "timeout" as const, status: null, message: "timed out" },
+            providerRequests: [
+              {
+                ...exchange("late", "draft", null),
+                outcome: "ambiguous" as const,
+                costUsd: null,
+                costKnown: false,
+              },
+            ],
+          };
+        });
+        const input = ask({ requestId: "ambiguous" });
+        const first = await runGameBoard(input, { store, collect: quiet, model: model(), drafter });
+        expect(first.ok).toBe(false);
+        const saved = (await store.getBoard(first.board!.id))!;
+        expect(saved.providerOutcomeAmbiguous).toBe(true);
+        expect(saved.markets[0]!.pick).not.toBeNull();
+        const replay = await runGameBoard(input, {
+          store,
+          collect: quiet,
+          model: model(),
+          drafter,
+        });
+        expect(replay.ok).toBe(false);
+        expect(calls).toBe(1);
+      });
+
+      it("refuses a new draft on a finished board", async () => {
+        const store = await makeStore();
+        const outcome = await runGameBoard(ask(), { store, collect: quiet, model: model() });
+        await expect(
+          store.saveBoardDraft({
+            boardId: outcome.board!.id,
+            providerRequests: [],
+            providerOutcomeAmbiguous: false,
+            usage: null,
+          }),
+        ).rejects.toThrow();
+        expect((await store.getBoard(outcome.board!.id))!.explanation).toEqual(
+          outcome.board!.explanation,
+        );
+      });
+
+      it("finalizes from a saved response after a failed finish, without a second request", async () => {
+        const store = await makeStore();
+        let calls = 0;
+        const drafter = scripted(async (packet) => {
+          calls += 1;
+          const drafted = await fixture(packet);
+          return { ...drafted, providerRequests: [exchange("kept", "draft", drafted.report)] };
+        });
+        const finish = store.finishBoard.bind(store);
+        let failures = 1;
+        store.finishBoard = async (input) => {
+          if (failures-- > 0) throw new Error("connection lost");
+          return finish(input);
+        };
+        const input = ask({ requestId: "recover" });
+        await expect(
+          runGameBoard(input, { store, collect: quiet, model: model(), drafter }),
+        ).rejects.toThrow("connection lost");
+        const retried = await runGameBoard(input, {
+          store,
+          collect: quiet,
+          model: model(),
+          drafter,
+        });
+        expect(retried.ok, retried.ok ? "" : retried.error).toBe(true);
+        expect(calls).toBe(1);
+        expect((await store.getBoard(retried.board!.id))!.explanation).not.toBeNull();
       });
     });
 

@@ -150,7 +150,13 @@ async function finalizeFromDurable(
   return { ok: true, run };
 }
 
-function providerRequestsOf(drafted: DraftThesisResult): ProviderRequestRecord[] {
+export function providerRequestsOf(drafted: {
+  providerRequests?: ProviderRequestRecord[];
+  repairAttempted: boolean;
+  usage: DraftThesisResult["usage"];
+  usageCost: number | null;
+  report: unknown;
+}): ProviderRequestRecord[] {
   if (drafted.providerRequests) return drafted.providerRequests;
   if (!drafted.usage && drafted.usageCost === null) return [];
   return [

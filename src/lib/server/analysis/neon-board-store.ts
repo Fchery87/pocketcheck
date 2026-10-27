@@ -18,7 +18,8 @@ import {
 } from "./board-store.ts";
 import type { SavedForecast } from "./forecast-record.ts";
 import type { ModelPickCalculation } from "./model-pick.ts";
-import type { RunGame, StoredNotice } from "./store.ts";
+import type { RunGame, RunUsage, StoredNotice } from "./store.ts";
+import type { PickExplanationReport, ProviderRequestRecord } from "../providers/contracts.ts";
 
 type BoardRow = {
   id: string;
@@ -35,6 +36,12 @@ type BoardRow = {
   failure_reason: string | null;
   lean_text: string | null;
   lean_rationale: string | null;
+  drafter_id: string | null;
+  drafter_model_id: string | null;
+  provider_requests: ProviderRequestRecord[];
+  provider_outcome_ambiguous: boolean;
+  usage: RunUsage | null;
+  explanation: PickExplanationReport | null;
   completed_at: Date | null;
   created_at: Date;
 };
@@ -99,6 +106,14 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore {
         board.lean_text === null
           ? null
           : { text: board.lean_text, rationale: board.lean_rationale ?? "" },
+      drafter:
+        board.drafter_id === null
+          ? null
+          : { id: board.drafter_id, modelId: board.drafter_model_id ?? "" },
+      providerRequests: board.provider_requests,
+      providerOutcomeAmbiguous: board.provider_outcome_ambiguous,
+      usage: board.usage,
+      explanation: board.explanation,
       createdAt: iso(board.created_at),
       completedAt: board.completed_at ? iso(board.completed_at) : null,
     };
@@ -138,12 +153,14 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore {
       const inserted = await tx<{ id: string }[]>`
         INSERT INTO game_boards (
           id, submission_id, request_hash, parent_id, game_id, game, sportsbook,
-          observed_at, kickoff_at, cutoff_at, status, lean_text, lean_rationale
+          observed_at, kickoff_at, cutoff_at, status, lean_text, lean_rationale,
+          drafter_id, drafter_model_id
         ) VALUES (
           ${id}, ${input.request.id}, ${input.request.hash}, ${input.parentId},
           ${gameRow!.id}, ${tx.json(game as never)}, ${input.sportsbook},
           ${input.observedAt}, ${game.kickoff}, ${input.cutoffAt}, 'pending',
-          ${input.lean?.text ?? null}, ${input.lean ? input.lean.rationale : null}
+          ${input.lean?.text ?? null}, ${input.lean ? input.lean.rationale : null},
+          ${input.drafter?.id ?? null}, ${input.drafter?.modelId ?? null}
         )
         ON CONFLICT (submission_id) DO NOTHING
         RETURNING id
@@ -216,10 +233,28 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore {
       });
       return require(sql, input.boardId);
     },
+    async saveBoardDraft(input) {
+      const updated = await sql<{ id: string }[]>`
+        UPDATE game_boards
+        SET provider_requests = ${sql.json(input.providerRequests as never)},
+          provider_outcome_ambiguous = ${input.providerOutcomeAmbiguous},
+          usage = ${input.usage ? sql.json(input.usage as never) : null}
+        WHERE id = ${input.boardId} AND completed_at IS NULL
+        RETURNING id
+      `;
+      if (updated.length === 0) {
+        await require(sql, input.boardId);
+        throw new Error("A finished game board cannot save a new draft.");
+      }
+      return require(sql, input.boardId);
+    },
     async finishBoard(input) {
+      const explanation =
+        input.status === "completed" && input.explanation ? input.explanation : null;
       await sql`
         UPDATE game_boards
         SET status = ${input.status}, failure_reason = ${input.failureReason},
+          explanation = ${explanation ? sql.json(explanation as never) : null},
           completed_at = now()
         WHERE id = ${input.boardId} AND completed_at IS NULL
       `;

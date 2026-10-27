@@ -1,4 +1,11 @@
-import type { DraftThesisResult, ThesisDrafter, ThesisPacket } from "../providers/contracts.ts";
+import type {
+  DraftPickExplanationResult,
+  DraftThesisResult,
+  PickExplanationPacket,
+  PickExplanationSideFacts,
+  ThesisDrafter,
+  ThesisPacket,
+} from "../providers/contracts.ts";
 
 /** Deterministic drafter for tests and the local research walkthrough. No network, no AI. */
 export function createFixtureDrafter(): ThesisDrafter {
@@ -46,6 +53,51 @@ export function createFixtureDrafter(): ThesisDrafter {
           changeConditions: ["A different American price requires a new report."],
           decimalOdds: input.packet.decimalOdds,
           decisiveBreakEven: input.packet.decisiveBreakEven,
+        },
+      };
+    },
+    async draftPickExplanation(input: {
+      modelId: string;
+      packet: PickExplanationPacket;
+    }): Promise<DraftPickExplanationResult> {
+      const cited = input.packet.items[0]?.id;
+      const percent = (value: number) => `${(value * 100).toFixed(1)}%`;
+      const priced = (side: PickExplanationSideFacts) =>
+        `${side.americanOdds > 0 ? "+" : ""}${side.americanOdds}`;
+      return {
+        draftingFailed: false,
+        repairAttempted: false,
+        refusal: null,
+        error: null,
+        usage: null,
+        usageCost: null,
+        modelId: input.modelId,
+        packet: input.packet,
+        report: {
+          picks: input.packet.picks.map((pick) => ({
+            market: pick.market,
+            side: pick.picked.selection,
+            grade: pick.grade,
+            americanOdds: pick.picked.americanOdds,
+            pointLine: pick.picked.pointLine,
+            summary: `The forecasting model chose ${pick.picked.label} in the ${pick.market} market at ${priced(pick.picked)}. It gives that side ${percent(pick.picked.modelWinProbability)} to win, against ${percent(pick.picked.noVigProbability)} implied by the prices once the margin is removed. The fixture drafter only explains this model pick and cites the supplied schedule evidence.`,
+            otherSideCase: `${pick.other.label} at ${priced(pick.other)} implies ${percent(pick.other.noVigProbability)}, and the schedule evidence says nothing that shows the forecasting model is right about this game.`,
+            claims: cited
+              ? [
+                  {
+                    text: "The schedule evidence identifies the matchup and kickoff the forecasting model priced.",
+                    stance: "supporting" as const,
+                    evidenceIds: [cited],
+                  },
+                  {
+                    text: "The schedule evidence says nothing about injuries, form, or weather, so it cannot show the entered price is wrong.",
+                    stance: "opposing" as const,
+                    evidenceIds: [cited],
+                  },
+                ]
+              : [],
+            missingInputs: [...input.packet.gaps],
+          })),
         },
       };
     },

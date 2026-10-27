@@ -1,4 +1,6 @@
+import type { Market, SideSelection } from "#lib/domain/offer.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
+import type { ModelPickRelease, ModelPickTieBreak, StrengthGrade } from "../analysis/model-pick.ts";
 
 export type ProviderId = "theclawbay" | "deepseek";
 
@@ -65,6 +67,53 @@ export type ThesisReport = ThesisCalculations & {
   changeConditions: string[];
 };
 
+/** One side of a frozen model pick, as the drafter sees it. */
+export type PickExplanationSideFacts = {
+  selection: SideSelection;
+  /** The team code for home and away, else over or under. */
+  label: string;
+  pointLine: number | null;
+  americanOdds: number;
+  modelWinProbability: number;
+  noVigProbability: number;
+  expectedValue: number;
+};
+
+export type PickExplanationFacts = {
+  market: Market;
+  grade: StrengthGrade;
+  release: ModelPickRelease;
+  tieBreak: ModelPickTieBreak;
+  materialEvidenceMissing: boolean;
+  picked: PickExplanationSideFacts;
+  other: PickExplanationSideFacts;
+  /** The largest forecast drivers in points, for the market's own mean. */
+  drivers: Array<{ feature: string; points: number }>;
+};
+
+/** Frozen model picks to explain. It has no private lean field and no way to carry one. */
+export type PickExplanationPacket = {
+  game: { home: string; away: string };
+  picks: PickExplanationFacts[];
+  items: EvidenceItem[];
+  gaps: string[];
+};
+
+export type PickExplanationEntry = {
+  market: Market;
+  side: SideSelection;
+  grade: StrengthGrade;
+  americanOdds: number;
+  pointLine: number | null;
+  summary: string;
+  /** The strongest case for the side the forecasting model did not pick. */
+  otherSideCase: string;
+  claims: ThesisClaim[];
+  missingInputs: string[];
+};
+
+export type PickExplanationReport = { picks: PickExplanationEntry[] };
+
 export type UsageRecord = {
   promptTokens: number | null;
   completionTokens: number | null;
@@ -120,6 +169,11 @@ export type DraftThesisResult = {
   modelId: string;
 };
 
+export type DraftPickExplanationResult = Omit<DraftThesisResult, "report" | "packet"> & {
+  report: PickExplanationReport | null;
+  packet: PickExplanationPacket;
+};
+
 export type ThesisProvider = {
   id: ProviderId;
   baseUrl: string;
@@ -136,14 +190,24 @@ export type ThesisProvider = {
     catalog: ModelCatalogEntry[];
     packet: ThesisPacket;
   }) => Promise<DraftThesisResult>;
+  /** Explains frozen model picks. Same refusal, repair, and accounting rules as `draftThesis`. */
+  draftPickExplanation: (input: {
+    modelId: string;
+    catalog: ModelCatalogEntry[];
+    packet: PickExplanationPacket;
+  }) => Promise<DraftPickExplanationResult>;
 };
 
-/** What a research run needs from whatever drafts its thesis, including the fixture drafter. */
+/** What a run needs from whatever drafts its text, including the fixture drafter. */
 export type ThesisDrafter = {
   id: string;
   modelId: string;
   draftThesis: ThesisProvider["draftThesis"];
+  draftPickExplanation: ThesisProvider["draftPickExplanation"];
 };
+
+/** The part of a drafter a game board run needs. */
+export type PickDrafter = Pick<ThesisDrafter, "id" | "modelId" | "draftPickExplanation">;
 
 export type ProviderOptions = {
   apiKey: string;
