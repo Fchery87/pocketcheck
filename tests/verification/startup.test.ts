@@ -1,9 +1,14 @@
 import { expect, it } from "vite-plus/test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { browserFixture } from "../../src/lib/server/verification.ts";
+import {
+  assertBrowserFixture,
+  browserFixture,
+  browserFixtureModel,
+} from "../../src/lib/server/verification.ts";
+import { withChecksum, type ModelArtifact } from "../../src/lib/server/models/artifact.ts";
 
 for (const [key, value] of Object.entries({
   POCKETCHECK_TEST_MODE: "live",
@@ -63,4 +68,55 @@ it("rejects a synthetic local env file before starting a configured-provider jou
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+it("refuses a model that is off instead of the fixture forecasting model", () => {
+  const result = spawnSync(
+    process.execPath,
+    ["--experimental-strip-types", "scripts/browser-server.ts"],
+    {
+      encoding: "utf8",
+      env: {
+        PATH: process.env.PATH,
+        ...browserFixture,
+        POCKETCHECK_TEST_JOURNAL_ID: "browser-negative",
+        POCKETCHECK_MODEL_ARTIFACT: "off",
+      },
+    },
+  );
+  expect(result.status).not.toBe(0);
+  expect(result.stderr).toContain(
+    "Unsafe browser verification configuration: POCKETCHECK_MODEL_ARTIFACT",
+  );
+  expect(result.stdout).not.toContain("Listening");
+});
+
+it("pins the checked-in fixture forecasting model", () => {
+  expect(browserFixture.POCKETCHECK_MODEL_ARTIFACT).toBe(
+    "tests/fixtures/models/browser-forecasting-model.json",
+  );
+  expect(browserFixtureModel()).toEqual({
+    artifact: "tests/fixtures/models/browser-forecasting-model.json",
+    checksum: "56bd99b398f9912e0eda6f598323843cbfaa626e3c7c2fa01917dfc7ffab7d76",
+    releaseStatus: "unreleased",
+    trainingCutoff: "2024-09-22T17:00:00Z",
+  });
+});
+
+it("refuses an altered fixture forecasting model", () => {
+  const env = { ...browserFixture, POCKETCHECK_TEST_JOURNAL_ID: "browser-negative" };
+  const original = readFileSync(browserFixture.POCKETCHECK_MODEL_ARTIFACT, "utf8");
+  const { checksum: _checksum, ...body } = JSON.parse(original) as ModelArtifact;
+  // A released copy with a valid recomputed checksum is still not the pinned fixture.
+  const released = JSON.stringify(
+    withChecksum({ ...body, releaseStatus: "released-experimental" }),
+  );
+  // An edit that leaves the old checksum fails the artifact's own checksum.
+  const edited = original.replace('"unreleased"', '"released-experimental"');
+  for (const contents of [released, edited, "not json"]) {
+    expect(() => assertBrowserFixture(env, () => contents)).toThrow(
+      "Unsafe browser verification configuration: POCKETCHECK_MODEL_ARTIFACT",
+    );
+  }
+  expect(() => assertBrowserFixture(env, () => original)).not.toThrow();
 });

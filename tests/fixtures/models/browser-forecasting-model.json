@@ -1,0 +1,1095 @@
+{
+  "kind": "pocketcheck-baseline",
+  "version": 4,
+  "releaseStatus": "unreleased",
+  "releasedMarkets": [],
+  "datasetHash": "f886030f47b376f648a5f16781eb5c831edcfe64db14bb748bd0dd1238fc7cbb",
+  "trainingCutoff": "2024-09-22T17:00:00Z",
+  "chronology": {
+    "version": "result-availability-v1",
+    "fallback": "kickoff-plus-24-hours",
+    "cutoff": "strictly-before",
+    "kickoffGroups": "intact"
+  },
+  "featureDefinitions": [
+    {
+      "name": "home_prior_margin",
+      "description": "Home team's recency-weighted point margin in games strictly before this kickoff, shrunk toward 0. See featureParameters."
+    },
+    {
+      "name": "away_prior_margin",
+      "description": "Away team's recency-weighted point margin in games strictly before this kickoff, shrunk toward 0."
+    },
+    {
+      "name": "home_prior_points_for",
+      "description": "Home team's recency-weighted points scored in strictly prior games, shrunk toward the league mean of strictly prior games."
+    },
+    {
+      "name": "away_prior_points_for",
+      "description": "Away team's recency-weighted points scored, shrunk toward the league mean."
+    },
+    {
+      "name": "home_prior_points_against",
+      "description": "Home team's recency-weighted points allowed, shrunk toward the league mean."
+    },
+    {
+      "name": "away_prior_points_against",
+      "description": "Away team's recency-weighted points allowed, shrunk toward the league mean."
+    },
+    {
+      "name": "home_rest_days",
+      "description": "Days since the home team's previous kickoff in the same season. 7 for its first game of a season."
+    },
+    {
+      "name": "away_rest_days",
+      "description": "Days since the away team's previous kickoff in the same season. 7 for its first game of a season."
+    },
+    {
+      "name": "home_qb_share",
+      "description": "Share of the home team's last 8 games started by this game's starting quarterback. When the starter is not known, the team's most frequent recent starter. 1 before a team's first game."
+    },
+    {
+      "name": "away_qb_share",
+      "description": "The same quarterback share for the away team."
+    },
+    {
+      "name": "home_qb_rating",
+      "description": "Recency-weighted team margin in every strictly earlier game the home starter started, for any team, shrunk toward qbReplacement. The same starter rule as home_qb_share."
+    },
+    {
+      "name": "away_qb_rating",
+      "description": "The same quarterback rating for the away team's starter."
+    },
+    {
+      "name": "home_indicator",
+      "description": "1 when the game is not neutral, otherwise 0."
+    }
+  ],
+  "featureParameters": {
+    "gameDecay": 0.94,
+    "seasonCarry": 0.5,
+    "priorWeight": 2,
+    "qbDecay": 0.97,
+    "qbPriorWeight": 4,
+    "qbReplacement": -3
+  },
+  "residualSource": "in-sample",
+  "fitParameters": {
+    "ridge": 1,
+    "residualBandwidth": 1.5,
+    "residualFolds": 5
+  },
+  "baseRates": {
+    "moneyline": {
+      "win": 0.5,
+      "loss": 0.25,
+      "push": 0.25
+    }
+  },
+  "uncertainty": {
+    "method": "walk-forward-calibration",
+    "options": {
+      "binWidth": 0.05,
+      "confidence": 0.9,
+      "resamples": 1000,
+      "seed": 20261025,
+      "minimumSides": 60
+    },
+    "markets": {
+      "moneyline": [
+        {
+          "lower": 0,
+          "upper": 0.05,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.05,
+          "upper": 0.1,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.1,
+          "upper": 0.15,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.15,
+          "upper": 0.2,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.2,
+          "upper": 0.25,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.25,
+          "upper": 0.3,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.3,
+          "upper": 0.35,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.35,
+          "upper": 0.4,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.4,
+          "upper": 0.45,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.45,
+          "upper": 0.5,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.5,
+          "upper": 0.55,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.55,
+          "upper": 0.6,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.6,
+          "upper": 0.65,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.65,
+          "upper": 0.7,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.7,
+          "upper": 0.75,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.75,
+          "upper": 0.8,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.8,
+          "upper": 0.85,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.85,
+          "upper": 0.9,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.9,
+          "upper": 0.95,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.95,
+          "upper": 1,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        }
+      ],
+      "spread": [
+        {
+          "lower": 0,
+          "upper": 0.05,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.05,
+          "upper": 0.1,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.1,
+          "upper": 0.15,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.15,
+          "upper": 0.2,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.2,
+          "upper": 0.25,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.25,
+          "upper": 0.3,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.3,
+          "upper": 0.35,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.35,
+          "upper": 0.4,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.4,
+          "upper": 0.45,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.45,
+          "upper": 0.5,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.5,
+          "upper": 0.55,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.55,
+          "upper": 0.6,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.6,
+          "upper": 0.65,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.65,
+          "upper": 0.7,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.7,
+          "upper": 0.75,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.75,
+          "upper": 0.8,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.8,
+          "upper": 0.85,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.85,
+          "upper": 0.9,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.9,
+          "upper": 0.95,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.95,
+          "upper": 1,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        }
+      ],
+      "total": [
+        {
+          "lower": 0,
+          "upper": 0.05,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.05,
+          "upper": 0.1,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.1,
+          "upper": 0.15,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.15,
+          "upper": 0.2,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.2,
+          "upper": 0.25,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.25,
+          "upper": 0.3,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.3,
+          "upper": 0.35,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.35,
+          "upper": 0.4,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.4,
+          "upper": 0.45,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.45,
+          "upper": 0.5,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.5,
+          "upper": 0.55,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.55,
+          "upper": 0.6,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.6,
+          "upper": 0.65,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.65,
+          "upper": 0.7,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.7,
+          "upper": 0.75,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.75,
+          "upper": 0.8,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.8,
+          "upper": 0.85,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.85,
+          "upper": 0.9,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.9,
+          "upper": 0.95,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        },
+        {
+          "lower": 0.95,
+          "upper": 1,
+          "sides": 0,
+          "slates": 0,
+          "meanPredicted": null,
+          "observedRate": null,
+          "conservativeRate": null
+        }
+      ]
+    }
+  },
+  "margin": {
+    "model": {
+      "intercept": -0.25000000000000017,
+      "coefficients": {
+        "home_prior_margin": -3.348603157932111,
+        "away_prior_margin": -4.230503309066844,
+        "home_prior_points_for": -0.9300206916318526,
+        "away_prior_points_for": -0.97279066597199,
+        "home_prior_points_against": -0.5531434456764656,
+        "away_prior_points_against": -0.5964888121878797,
+        "home_rest_days": 0,
+        "away_rest_days": -4.641235887593899,
+        "home_qb_share": 0,
+        "away_qb_share": 0,
+        "home_qb_rating": 0,
+        "away_qb_rating": 0,
+        "home_indicator": 0
+      },
+      "featureMeans": {
+        "home_prior_margin": -0.5833333333333334,
+        "away_prior_margin": 0.5833333333333334,
+        "home_prior_points_for": 9.833333333333334,
+        "away_prior_points_for": 10.416666666666668,
+        "home_prior_points_against": 10.416666666666668,
+        "away_prior_points_against": 9.833333333333334,
+        "home_rest_days": 7,
+        "away_rest_days": 7,
+        "home_qb_share": 1,
+        "away_qb_share": 1,
+        "home_qb_rating": -3,
+        "away_qb_rating": -3,
+        "home_indicator": 1
+      },
+      "featureScales": {
+        "home_prior_margin": 1.0103629710818451,
+        "away_prior_margin": 1.0103629710818451,
+        "home_prior_points_for": 9.839687212734177,
+        "away_prior_points_for": 10.427327877585258,
+        "home_prior_points_against": 10.427327877585258,
+        "away_prior_points_against": 9.839687212734177,
+        "home_rest_days": 1,
+        "away_rest_days": 0.08838834764831845,
+        "home_qb_share": 1,
+        "away_qb_share": 1,
+        "home_qb_rating": 1,
+        "away_qb_rating": 1,
+        "home_indicator": 1
+      }
+    },
+    "residuals": {
+      "residuals": [
+        3.6909369836210013, -3.3090630163789987, 1.4499877009809996, -1.8318616682230022
+      ],
+      "bandwidth": 1.5,
+      "support": {
+        "min": -21,
+        "max": 21
+      },
+      "keyWeights": [
+        {
+          "points": -40,
+          "weight": 0.9999999999481437
+        },
+        {
+          "points": -39,
+          "weight": 0.9999999995949411
+        },
+        {
+          "points": -38,
+          "weight": 0.9999999971687409
+        },
+        {
+          "points": -37,
+          "weight": 0.9999999822913206
+        },
+        {
+          "points": -36,
+          "weight": 0.9999999008853708
+        },
+        {
+          "points": -35,
+          "weight": 0.9999995035971324
+        },
+        {
+          "points": -34,
+          "weight": 0.9999977752801807
+        },
+        {
+          "points": -33,
+          "weight": 0.9999910780586102
+        },
+        {
+          "points": -32,
+          "weight": 0.9999679829298279
+        },
+        {
+          "points": -31,
+          "weight": 0.999897191565849
+        },
+        {
+          "points": -30,
+          "weight": 0.9997046278784077
+        },
+        {
+          "points": -29,
+          "weight": 0.9992408266716981
+        },
+        {
+          "points": -28,
+          "weight": 0.9982548259022588
+        },
+        {
+          "points": -27,
+          "weight": 0.9964130185769915
+        },
+        {
+          "points": -26,
+          "weight": 0.9934096863362403
+        },
+        {
+          "points": -25,
+          "weight": 0.9891755240558741
+        },
+        {
+          "points": -24,
+          "weight": 0.984093697461061
+        },
+        {
+          "points": -23,
+          "weight": 0.979048968857575
+        },
+        {
+          "points": -22,
+          "weight": 0.9751774076054921
+        },
+        {
+          "points": -21,
+          "weight": 1.168046475778401
+        },
+        {
+          "points": -20,
+          "weight": 0.973795899706015
+        },
+        {
+          "points": -19,
+          "weight": 0.9757003262296814
+        },
+        {
+          "points": -18,
+          "weight": 0.9777128309519648
+        },
+        {
+          "points": -17,
+          "weight": 0.9785015056365485
+        },
+        {
+          "points": -16,
+          "weight": 0.9774610359583374
+        },
+        {
+          "points": -15,
+          "weight": 0.9749858962952557
+        },
+        {
+          "points": -14,
+          "weight": 0.9721421709423007
+        },
+        {
+          "points": -13,
+          "weight": 1.1639639873026657
+        },
+        {
+          "points": -12,
+          "weight": 0.96889461527261
+        },
+        {
+          "points": -11,
+          "weight": 0.9686192604058894
+        },
+        {
+          "points": -10,
+          "weight": 0.9685226071858236
+        },
+        {
+          "points": -9,
+          "weight": 0.9682131821500873
+        },
+        {
+          "points": -8,
+          "weight": 0.9677614657765915
+        },
+        {
+          "points": -7,
+          "weight": 1.160886490069079
+        },
+        {
+          "points": -6,
+          "weight": 0.9670168657280599
+        },
+        {
+          "points": -5,
+          "weight": 0.9658767109603842
+        },
+        {
+          "points": -4,
+          "weight": 0.9630878551861269
+        },
+        {
+          "points": -3,
+          "weight": 0.9584029875905967
+        },
+        {
+          "points": -2,
+          "weight": 0.9527870661381207
+        },
+        {
+          "points": -1,
+          "weight": 0.9481492158866414
+        },
+        {
+          "points": 0,
+          "weight": 1.166921846731314
+        },
+        {
+          "points": 1,
+          "weight": 0.9481492158866414
+        },
+        {
+          "points": 2,
+          "weight": 0.9527870661381207
+        },
+        {
+          "points": 3,
+          "weight": 0.9584029875905967
+        },
+        {
+          "points": 4,
+          "weight": 0.9630878551861269
+        },
+        {
+          "points": 5,
+          "weight": 0.9658767109603842
+        },
+        {
+          "points": 6,
+          "weight": 0.9670168657280599
+        },
+        {
+          "points": 7,
+          "weight": 1.160886490069079
+        },
+        {
+          "points": 8,
+          "weight": 0.9677614657765915
+        },
+        {
+          "points": 9,
+          "weight": 0.9682131821500873
+        },
+        {
+          "points": 10,
+          "weight": 0.9685226071858236
+        },
+        {
+          "points": 11,
+          "weight": 0.9686192604058894
+        },
+        {
+          "points": 12,
+          "weight": 0.96889461527261
+        },
+        {
+          "points": 13,
+          "weight": 1.1639639873026657
+        },
+        {
+          "points": 14,
+          "weight": 0.9721421709423007
+        },
+        {
+          "points": 15,
+          "weight": 0.9749858962952557
+        },
+        {
+          "points": 16,
+          "weight": 0.9774610359583374
+        },
+        {
+          "points": 17,
+          "weight": 0.9785015056365485
+        },
+        {
+          "points": 18,
+          "weight": 0.9777128309519648
+        },
+        {
+          "points": 19,
+          "weight": 0.9757003262296814
+        },
+        {
+          "points": 20,
+          "weight": 0.973795899706015
+        },
+        {
+          "points": 21,
+          "weight": 1.168046475778401
+        },
+        {
+          "points": 22,
+          "weight": 0.9751774076054921
+        },
+        {
+          "points": 23,
+          "weight": 0.979048968857575
+        },
+        {
+          "points": 24,
+          "weight": 0.984093697461061
+        },
+        {
+          "points": 25,
+          "weight": 0.9891755240558741
+        },
+        {
+          "points": 26,
+          "weight": 0.9934096863362403
+        },
+        {
+          "points": 27,
+          "weight": 0.9964130185769915
+        },
+        {
+          "points": 28,
+          "weight": 0.9982548259022588
+        },
+        {
+          "points": 29,
+          "weight": 0.9992408266716981
+        },
+        {
+          "points": 30,
+          "weight": 0.9997046278784077
+        },
+        {
+          "points": 31,
+          "weight": 0.999897191565849
+        },
+        {
+          "points": 32,
+          "weight": 0.9999679829298279
+        },
+        {
+          "points": 33,
+          "weight": 0.9999910780586102
+        },
+        {
+          "points": 34,
+          "weight": 0.9999977752801807
+        },
+        {
+          "points": 35,
+          "weight": 0.9999995035971324
+        },
+        {
+          "points": 36,
+          "weight": 0.9999999008853708
+        },
+        {
+          "points": 37,
+          "weight": 0.9999999822913206
+        },
+        {
+          "points": 38,
+          "weight": 0.9999999971687409
+        },
+        {
+          "points": 39,
+          "weight": 0.9999999995949411
+        },
+        {
+          "points": 40,
+          "weight": 0.9999999999481437
+        }
+      ]
+    }
+  },
+  "total": {
+    "model": {
+      "intercept": 40.75,
+      "coefficients": {
+        "home_prior_margin": -0.029396671704489456,
+        "away_prior_margin": 0.02939667170448942,
+        "home_prior_points_for": 0.05088365012730734,
+        "away_prior_points_for": 0.05086447038829941,
+        "home_prior_points_against": 0.050864470388295016,
+        "away_prior_points_against": 0.0508836501273119,
+        "home_rest_days": 0,
+        "away_rest_days": 6.522799582659183e-18,
+        "home_qb_share": 0,
+        "away_qb_share": 0,
+        "home_qb_rating": 0,
+        "away_qb_rating": 0,
+        "home_indicator": 0
+      },
+      "featureMeans": {
+        "home_prior_margin": -0.5833333333333334,
+        "away_prior_margin": 0.5833333333333334,
+        "home_prior_points_for": 9.833333333333334,
+        "away_prior_points_for": 10.416666666666668,
+        "home_prior_points_against": 10.416666666666668,
+        "away_prior_points_against": 9.833333333333334,
+        "home_rest_days": 7,
+        "away_rest_days": 7,
+        "home_qb_share": 1,
+        "away_qb_share": 1,
+        "home_qb_rating": -3,
+        "away_qb_rating": -3,
+        "home_indicator": 1
+      },
+      "featureScales": {
+        "home_prior_margin": 1.0103629710818451,
+        "away_prior_margin": 1.0103629710818451,
+        "home_prior_points_for": 9.839687212734177,
+        "away_prior_points_for": 10.427327877585258,
+        "home_prior_points_against": 10.427327877585258,
+        "away_prior_points_against": 9.839687212734177,
+        "home_rest_days": 1,
+        "away_rest_days": 0.08838834764831845,
+        "home_qb_share": 1,
+        "away_qb_share": 1,
+        "home_qb_rating": 1,
+        "away_qb_rating": 1,
+        "home_indicator": 1
+      }
+    },
+    "residuals": {
+      "residuals": [
+        0.4872708677585962, -0.5127291322414038, 0.012729132241389607, 0.012729132241396712
+      ],
+      "bandwidth": 1.5,
+      "support": {
+        "min": -21,
+        "max": 21
+      },
+      "keyWeights": []
+    }
+  },
+  "checksum": "56bd99b398f9912e0eda6f598323843cbfaa626e3c7c2fa01917dfc7ffab7d76"
+}
