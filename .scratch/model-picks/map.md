@@ -14,11 +14,15 @@ Spec: [spec.md](spec.md). Integration branch: `feature/model-picks`.
 - Host allowlist: the `npm start` launcher answers 421 to any `Host` that is not loopback, one of this machine's interface addresses, or listed in `ALLOWED_HOSTS`, which closes the DNS-rebinding hole.
 - [03](issues/03-moneyline-game-board-tracer.md): a moneyline game board freezes with its own submission identifier and yields a versioned model pick (`model-pick-2026-10-27.1`) on `/board` and `/board/[id]`; migration 012 adds the records, and boards reject odds from -100 to +100.
 
+- [05](issues/05-model-pick-reasons.md): model pick cards show forecast drivers and gaps; manual evidence and the private lean are saved apart from the pick (migration 013), and a refresh carries both from its parent.
+- [07](issues/07-game-board-refresh.md): a refresh is a linked child board whose pick links to the parent pick are trigger-enforced (migration 015); the parent never changes.
+- [08](issues/08-settlement-grades-model-picks.md): settlement notices for model picks are keyed to the game (migration 014); grades are derived on read and corrections name the earlier notice.
+- [10](issues/10-actual-bet-from-model-pick.md): an actual bet stores an optional `model_pick_id` (migration 016); settlement of pick bets is left to ticket 13.
+
 - 04: American odds under 100 in absolute value are rejected in every flow (analyses used to accept -50).
 
 ## Fog
 
-- Settlement keying for model picks (game vs. board) is decided in ticket 08.
 - Whether boards need export version 2 is decided in ticket 11.
 
 ## Tickets

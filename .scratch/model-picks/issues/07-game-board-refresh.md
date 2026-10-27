@@ -4,12 +4,18 @@
 
 **Blocked by:** 04
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A refresh creates a linked child board with its own submission identifier
-- [ ] Each child model pick references the parent model pick in the same market when one exists
-- [ ] The parent board, picks, and explanations read back unchanged
-- [ ] A refresh uses the same validation as a new board and keeps typed values on rejection
-- [ ] The pick page shows the parent and child side by side or linked
-- [ ] Store contract and run-level tests cover linking and immutability
-- [ ] `npm run verify` and `npm run verify:database` pass
+- [x] A refresh creates a linked child board with its own submission identifier
+- [x] Each child model pick references the parent model pick in the same market when one exists
+- [x] The parent board, picks, and explanations read back unchanged
+- [x] A refresh uses the same validation as a new board and keeps typed values on rejection
+- [x] The pick page shows the parent and child side by side or linked
+- [x] Store contract and run-level tests cover linking and immutability
+- [x] `npm run verify` and `npm run verify:database` pass
+
+## Answer
+
+A refresh creates a linked child board with its own submission identifier, and each child pick names the parent pick in the same market.
+The links are enforced by database triggers, and the parent board, picks, and explanations read back unchanged.
+Migration 015 adds the refresh links; the board page shows the parent and its refreshes.

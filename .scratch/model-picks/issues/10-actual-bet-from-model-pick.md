@@ -4,11 +4,17 @@
 
 **Blocked by:** 04
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Prefilled values are editable and validated independently, like any actual bet
-- [ ] The actual bet stores an optional model pick reference; existing bets without one are unaffected
-- [ ] Saving the bet never changes the board or the model pick
-- [ ] Repeated submission identifiers return the same bet; reuse with different terms is a conflict
-- [ ] The browser test records a bet from a pick with edited odds and sees the placed odds saved
-- [ ] `npm run verify` and `npm run verify:database` pass
+- [x] Prefilled values are editable and validated independently, like any actual bet
+- [x] The actual bet stores an optional model pick reference; existing bets without one are unaffected
+- [x] Saving the bet never changes the board or the model pick
+- [x] Repeated submission identifiers return the same bet; reuse with different terms is a conflict
+- [x] The browser test records a bet from a pick with edited odds and sees the placed odds saved
+- [x] `npm run verify` and `npm run verify:database` pass
+
+## Answer
+
+A bet can be recorded from a model pick with prefilled, editable, independently validated terms, and saving never changes the board or the pick.
+The bet stores an optional model_pick_id (migration 016), repeated submission identifiers return the same bet, and reuse with different terms conflicts.
+Settlement of pick bets is left to ticket 13.
