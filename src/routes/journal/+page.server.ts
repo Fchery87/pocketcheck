@@ -72,6 +72,7 @@ export const load: PageServerLoad = async ({ url }) => {
         rows.push({ betId: bet.id, grade: read.bet });
       }
       const read = await journal.readSettlement({ analysisId: assessment.id });
+      if (!read.assessment) throw new Error(`Analysis not found: ${assessment.id}`);
       return {
         analysisId: assessment.id,
         assessment: read.assessment,

@@ -1178,7 +1178,7 @@ export function describeStoreContract(
       if (settled.kind !== "recorded") throw new Error("expected a recorded settlement");
 
       const read = await store.readSettlement({ analysisId: run.id, betId: recorded.bet.id });
-      expect(read.assessment).toMatchObject({
+      expect(read.assessment!).toMatchObject({
         result: "push",
         effective: "push",
         history: [{ id: settled.noticeId, result: "push" }],
@@ -1218,8 +1218,8 @@ export function describeStoreContract(
         error: expect.stringMatching(/different inputs/i),
       });
       const read = await store.readSettlement({ analysisId: run.id });
-      expect(read.assessment.history).toHaveLength(1);
-      expect(read.assessment.effective).toBe("win");
+      expect(read.assessment!.history).toHaveLength(1);
+      expect(read.assessment!.effective).toBe("win");
     });
 
     it("keeps a postponement unresolved until a later final score is recorded", async () => {
@@ -1235,8 +1235,8 @@ export function describeStoreContract(
       });
       expect(postponed.kind).toBe("recorded");
       const open = await store.readSettlement({ analysisId: run.id });
-      expect(open.assessment.effective).toBe("unresolved");
-      expect(open.assessment.history).toHaveLength(1);
+      expect(open.assessment!.effective).toBe("unresolved");
+      expect(open.assessment!.history).toHaveLength(1);
 
       const final = await store.recordSettlement({
         eventId: "final-after-postponement",
@@ -1249,8 +1249,8 @@ export function describeStoreContract(
       });
       expect(final.kind).toBe("recorded");
       const closed = await store.readSettlement({ analysisId: run.id });
-      expect(closed.assessment.history.map((row) => row.result)).toEqual(["unresolved", "win"]);
-      expect(closed.assessment.effective).toBe("win");
+      expect(closed.assessment!.history.map((row) => row.result)).toEqual(["unresolved", "win"]);
+      expect(closed.assessment!.effective).toBe("win");
     });
 
     it("keeps the earlier notice when a correction supplies a reason", async () => {
@@ -1294,13 +1294,13 @@ export function describeStoreContract(
       });
       expect(corrected.kind).toBe("recorded");
       const read = await store.readSettlement({ analysisId: run.id });
-      expect(read.assessment.history.map((row) => row.result)).toEqual(["loss", "win"]);
-      expect(read.assessment.history[1]).toMatchObject({
+      expect(read.assessment!.history.map((row) => row.result)).toEqual(["loss", "win"]);
+      expect(read.assessment!.history[1]).toMatchObject({
         correctsId: first.noticeId,
         reason: "official score correction",
       });
-      expect(read.assessment.effective).toBe("win");
-      expect(read.assessment.history[0]?.id).toBe(first.noticeId);
+      expect(read.assessment!.effective).toBe("win");
+      expect(read.assessment!.history[0]?.id).toBe(first.noticeId);
     });
 
     it("rejects a bet for an analysis that does not exist", async () => {
@@ -1413,9 +1413,9 @@ export function describeStoreContract(
         analysisId: parent.run.id,
         betId: placed.bet.id,
       });
-      expect(grade.assessment.history.map((row) => row.id)).toContain(first.noticeId);
+      expect(grade.assessment!.history.map((row) => row.id)).toContain(first.noticeId);
       expect(
-        grade.assessment.history.some((row) => row.reason === "official score correction"),
+        grade.assessment!.history.some((row) => row.reason === "official score correction"),
       ).toBe(true);
     });
 

@@ -555,7 +555,7 @@ export function describeGameBoardContract(
           kind: "conflict",
         });
         const read = await store.readSettlement({ analysisId: run.id });
-        expect(read.assessment.history).toHaveLength(1);
+        expect(read.assessment!.history).toHaveLength(1);
       });
 
       it("rejects a notice for a game that has no board", async () => {
