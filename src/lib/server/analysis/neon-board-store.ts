@@ -315,6 +315,14 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore {
       }));
       return gradeBoardMarkets(board, notices);
     },
+    async listRefreshes(parentId) {
+      const rows = await sql<{ id: string }[]>`
+        SELECT id FROM game_boards WHERE parent_id = ${parentId} ORDER BY created_at, id
+      `;
+      const boards: GameBoard[] = [];
+      for (const row of rows) boards.push(await require(sql, row.id));
+      return boards;
+    },
   };
 }
 

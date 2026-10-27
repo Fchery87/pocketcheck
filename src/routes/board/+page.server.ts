@@ -7,6 +7,7 @@ import {
   parseObservedAt,
 } from "#lib/server/analysis/form.ts";
 import type { TieRule } from "#lib/domain/offer.ts";
+import type { GameBoard } from "#lib/server/analysis/board-store.ts";
 import { runGameBoard } from "#lib/server/analysis/board-run.ts";
 import { readSchedule, upcomingGames } from "#lib/server/analysis/schedule.ts";
 import {
@@ -37,6 +38,7 @@ const FIELDS = [
   "totalOver",
   "totalUnder",
   "requestId",
+  "parentId",
   "cutoffAt",
   "scheduleRetrievedAt",
 ] as const;
@@ -66,8 +68,58 @@ function line(raw: string): { ok: true; value: number | undefined } | { ok: fals
   return { ok: true, value };
 }
 
-export const load: PageServerLoad = () => {
+const signed = (value: number) => (value > 0 ? `+${value}` : String(value));
+
+/** The typed values of a frozen board, so a refresh starts from its prices. */
+function prefill(board: GameBoard): Values {
+  const values: Values = {
+    gameId: board.game.id,
+    sportsbook: board.sportsbook,
+    parentId: board.id,
+  };
+  for (const { market, offers } of board.markets) {
+    const [first, second] = offers;
+    if (market === "moneyline") {
+      values.moneylineHome = signed(first.americanOdds);
+      values.moneylineAway = signed(second.americanOdds);
+      values.tieRule = first.rules.tie ?? undefined;
+    } else if (market === "spread") {
+      values.spreadHomeLine = signed(first.pointLine ?? 0);
+      values.spreadAwayLine = signed(second.pointLine ?? 0);
+      values.spreadHome = signed(first.americanOdds);
+      values.spreadAway = signed(second.americanOdds);
+    } else {
+      values.totalLine = String(first.pointLine ?? "");
+      values.totalOver = signed(first.americanOdds);
+      values.totalUnder = signed(second.americanOdds);
+    }
+  }
+  return values;
+}
+
+export const load: PageServerLoad = async ({ url }) => {
   const nowIso = now();
+  const refreshId = url.searchParams.get("refresh");
+  let refresh: { values: Values; away: string; home: string; kickoffLabel: string } | null = null;
+  let refreshError: string | null = null;
+  if (refreshId) {
+    try {
+      const parent = await researchStore().getBoard(refreshId);
+      if (parent?.status === "completed") {
+        refresh = {
+          values: prefill(parent),
+          away: parent.game.away,
+          home: parent.game.home,
+          kickoffLabel: easternTime(parent.game.kickoff),
+        };
+      } else {
+        refreshError = "Only a frozen game board can be refreshed.";
+      }
+    } catch (error) {
+      if (!(error instanceof ConfigError)) throw error;
+      refreshError = error.message;
+    }
+  }
   const schedule = readSchedule(schedulePath());
   const games = schedule.ok
     ? upcomingGames(schedule.games, nowIso).map((game) => ({
@@ -83,6 +135,8 @@ export const load: PageServerLoad = () => {
     games,
     scheduleError: schedule.ok ? null : schedule.reason,
     scheduleRetrievedAt: schedule.ok ? schedule.retrievedAt : null,
+    refresh,
+    refreshError,
     observedDefault: localInputValue(nowIso),
     requestId: randomUUID(),
     cutoffAt: nowIso,
@@ -136,6 +190,7 @@ export const actions = {
     const result = await runGameBoard(
       {
         game,
+        parentId: values.parentId || null,
         requestId: values.requestId || randomUUID(),
         nowIso,
         scheduleRetrievedAt: values.scheduleRetrievedAt || schedule.retrievedAt,

@@ -234,6 +234,131 @@ export function describeGameBoardContract(
       expect((await store.getBoard(without.board!.id))?.lean).toBeNull();
     });
 
+    it("reads a refreshed board back linked to its parent, with the parent unchanged", async () => {
+      const store = await makeStore();
+      const parent = (
+        await runGameBoard(ask({ requestId: "parent" }), {
+          store,
+          collect: quiet,
+          model: model(),
+        })
+      ).board!;
+      const frozen = await store.getBoard(parent.id);
+      const child = await runGameBoard(
+        ask({
+          requestId: "child",
+          parentId: parent.id,
+          sportsbook: "Later Book",
+          observedAt: "2026-10-25T15:45:00.000Z",
+          moneyline: { home: -170, away: 150, tieRule: "push" },
+        }),
+        { store, collect: quiet, model: model() },
+      );
+      expect(child.ok, child.ok ? "" : child.error).toBe(true);
+      const saved = await store.getBoard(child.board!.id);
+      expect(saved).toEqual(child.board);
+      expect(saved?.id).not.toBe(parent.id);
+      expect(saved?.request.id).not.toBe(parent.request.id);
+      expect(saved?.parentId).toBe(parent.id);
+      expect(saved?.sportsbook).toBe("Later Book");
+      expect(saved?.markets[0]?.pick?.parentPickId).toBe(frozen?.markets[0]?.pick?.id);
+      expect(await store.getBoard(parent.id)).toEqual(frozen);
+      expect(await store.listRefreshes(parent.id)).toEqual([saved]);
+      expect(await store.listRefreshes(saved!.id)).toEqual([]);
+    });
+
+    it("keeps the parent's manual evidence and private lean in a refresh", async () => {
+      const store = await makeStore();
+      const deps = { store, collect: quiet, model: model() };
+      const parent = (
+        await runGameBoard(
+          ask({
+            requestId: "keep-parent",
+            lean: "Dallas on the road",
+            rationale: "Pace of their offense",
+            manualEvidence: [
+              {
+                text: "Club report: no starters out.",
+                url: "",
+                sourceTime: "2026-10-25T14:00:00.000Z",
+                covers: "injury-report",
+                team: "PHI",
+              },
+            ],
+          }),
+          deps,
+        )
+      ).board!;
+      const child = await runGameBoard(
+        ask({
+          requestId: "keep-child",
+          parentId: parent.id,
+          sportsbook: "Later Book",
+          observedAt: "2026-10-25T15:45:00.000Z",
+        }),
+        deps,
+      );
+      expect(child.ok, child.ok ? "" : child.error).toBe(true);
+      const saved = await store.getBoard(child.board!.id);
+      expect(saved?.lean).toEqual(parent.lean);
+      expect(saved?.evidence.filter((item) => item.origin === "manual")).toEqual(
+        parent.evidence.filter((item) => item.origin === "manual"),
+      );
+      expect(saved?.evidence.filter((item) => item.origin === "manual")).toHaveLength(1);
+      const own = await runGameBoard(
+        ask({
+          requestId: "own-lean",
+          parentId: parent.id,
+          sportsbook: "Third Book",
+          observedAt: "2026-10-25T15:50:00.000Z",
+          lean: "Philadelphia",
+        }),
+        deps,
+      );
+      expect((await store.getBoard(own.board!.id))?.lean).toEqual({
+        text: "Philadelphia",
+        rationale: "",
+      });
+    });
+
+    it("rejects a model pick whose parent pick is not the parent board's pick in that market", async () => {
+      const store = await makeStore();
+      const deps = { store, collect: quiet, model: model() };
+      const first = (await runGameBoard(ask({ requestId: "first" }), deps)).board!;
+      const second = (await runGameBoard(ask({ requestId: "second" }), deps)).board!;
+      const stray = await runGameBoard(ask({ requestId: "stray", parentId: first.id }), deps);
+      const template = stray.board!.markets[0]!.pick!;
+      const begun = await store.beginBoard({
+        request: { id: `${scopeOf()}:forged`, hash: "forged" },
+        parentId: first.id,
+        game: first.game,
+        sportsbook: "Board Book",
+        observedAt: "2026-10-25T15:30:00.000Z",
+        cutoffAt: NOW,
+        markets: first.markets.map(({ market, offers }) => ({ market, offers })),
+      });
+      if (begun.kind !== "created") throw new Error("expected a created board");
+      await expect(
+        store.freezeModelPicks({
+          boardId: begun.board.id,
+          evidence: [],
+          gaps: [],
+          markets: [
+            {
+              market: "moneyline",
+              pick: {
+                parentPickId: second.markets[0]!.pick!.id,
+                forecastingModel: template.forecastingModel,
+                calculation: template.calculation,
+                forecast: null,
+              },
+            },
+          ],
+        }),
+      ).rejects.toThrow();
+      expect((await store.getBoard(begun.board.id))?.markets[0]?.pick).toBeNull();
+    });
+
     describe("settlement", () => {
       const threeMarkets = () =>
         ask({

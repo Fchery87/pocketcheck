@@ -20,7 +20,18 @@ export const load: PageServerLoad = async ({ params }) => {
   const board = uuid.test(params.id) ? await journal.getBoard(params.id) : null;
   if (!board) error(404, "Game board not found");
   const settlement = await journal.readBoardSettlement(board.id);
-  return { board, settlement };
+  const parent = board.parentId ? await journal.getBoard(board.parentId) : null;
+  const refreshes = await journal.listRefreshes(board.id);
+  return {
+    board,
+    settlement,
+    parent,
+    refreshes: refreshes.map((item) => ({
+      id: item.id,
+      sportsbook: item.sportsbook,
+      observedAt: item.observedAt,
+    })),
+  };
 };
 
 export const actions = {

@@ -5,9 +5,14 @@
   import type { PageProps } from "./$types";
 
   let { data, form }: PageProps = $props();
+  const prefilled = $derived(data.refresh?.values as Record<string, string> | undefined);
+  /** Typed values win, then the board being refreshed, then the default. */
   const value = (name: string, fallback = "") =>
-    (form?.values as Record<string, string> | undefined)?.[name] ?? fallback;
-  let selectedId = $derived(form?.values?.gameId || data.games[0]?.id || "");
+    (form?.values as Record<string, string> | undefined)?.[name] ??
+    prefilled?.[name] ??
+    fallback;
+  let selectedId = $derived(value("gameId") || data.games[0]?.id || "");
+  const isRefresh = $derived(value("parentId") !== "");
   const selected = $derived(data.games.find((game) => game.id === selectedId) ?? data.games[0]);
   let formElement: HTMLFormElement | undefined = $state();
   const blankRow = () => ({ text: "", url: "", time: "", covers: "", team: "" });
@@ -74,7 +79,16 @@
 
 
 <main class="pc-page pc-board-entry">
-  <h1>Game board</h1>
+  <h1>{isRefresh ? "Refresh game board" : "Game board"}</h1>
+  {#if isRefresh && selected}
+    <p class="pc-hint" data-testid="refresh-note">
+      New prices for {selected.away} at {selected.home}. The board you are refreshing stays exactly as it
+      was, and this one links to it. You can change the sportsbook, lines, odds, and time, and add or drop markets.
+    </p>
+  {/if}
+  {#if data.refreshError}
+    <Alert data-testid="refresh-error">{data.refreshError}</Alert>
+  {/if}
   <p class="pc-hint">
     Enter both sides of any of the moneyline, spread, and total exactly as your sportsbook lists them. Leave a market blank to skip it. The forecasting model
     names the side it prefers and grades it in code. A model pick is not a bet and not a research
@@ -106,6 +120,7 @@
     }}
   >
     <input type="hidden" name="requestId" value={value("requestId", data.requestId)} />
+    <input type="hidden" name="parentId" value={value("parentId")} />
     <input type="hidden" name="cutoffAt" value={value("cutoffAt", data.cutoffAt)} />
     <input
       type="hidden"
@@ -119,14 +134,19 @@
 
     <section class="pc-section" aria-labelledby="board-game-title">
       <h2 id="board-game-title">Game</h2>
-      <label class="pc-field">
-        Game
-        <select name="gameId" data-testid="board-game" bind:value={selectedId}>
-          {#each data.games as game (game.id)}
-            <option value={game.id}>Week {game.week}: {game.away} at {game.home}, {game.kickoffLabel}</option>
-          {/each}
-        </select>
-      </label>
+      {#if isRefresh && selected}
+        <input type="hidden" name="gameId" value={selectedId} />
+        <p data-testid="board-game-fixed">{selected.away} at {selected.home}, {selected.kickoffLabel}</p>
+      {:else}
+        <label class="pc-field">
+          Game
+          <select name="gameId" data-testid="board-game" bind:value={selectedId}>
+            {#each data.games as game (game.id)}
+              <option value={game.id}>Week {game.week}: {game.away} at {game.home}, {game.kickoffLabel}</option>
+            {/each}
+          </select>
+        </label>
+      {/if}
       {#if selected}
         <p class="pc-matchup-facts">
           <span>{selected.kickoffLabel}</span>
@@ -291,7 +311,7 @@
     </section>
 
     <Button type="submit" size="lg" class="justify-self-start" data-testid="freeze-board" disabled={!selected}>
-      Freeze board
+      {isRefresh ? "Freeze refreshed board" : "Freeze board"}
     </Button>
   </form>
 </main>

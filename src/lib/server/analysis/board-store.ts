@@ -192,6 +192,8 @@ export type GameBoardStore = {
   recordGameSettlement: (input: RecordGameSettlementInput) => Promise<RecordGameSettlementResult>;
   /** Grades each model pick on the board from the game's notices. Derived on read, never stored. */
   readBoardSettlement: (boardId: string) => Promise<BoardSettlement>;
+  /** Boards that refresh this one, oldest first. A refresh never changes its parent. */
+  listRefreshes: (parentId: string) => Promise<GameBoard[]>;
 };
 
 export const BOARD_CONFLICT =
@@ -260,6 +262,15 @@ export function createMemoryBoardStore(notices: StoredNotice[] = []): GameBoardS
           throw new Error(`The ${market.market} model pick is already frozen.`);
         }
         if (result.pick) {
+          if (result.pick.parentPickId !== null) {
+            const parent = board.parentId ? boards.get(board.parentId) : undefined;
+            const expected = parent?.markets.find((item) => item.market === market.market)?.pick;
+            if (!expected || expected.id !== result.pick.parentPickId) {
+              throw new Error(
+                `The ${market.market} parent pick must be the parent board's pick in that market.`,
+              );
+            }
+          }
           const pick: ModelPick = {
             ...result.pick,
             id: randomUUID(),
@@ -341,6 +352,12 @@ export function createMemoryBoardStore(notices: StoredNotice[] = []): GameBoardS
         board,
         notices.filter((item) => item.gameId === board.game.id),
       );
+    },
+    async listRefreshes(parentId) {
+      return [...boards.values()]
+        .filter((board) => board.parentId === parentId)
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+        .map((board) => structuredClone(board));
     },
   };
 }

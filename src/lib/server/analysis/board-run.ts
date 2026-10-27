@@ -173,6 +173,26 @@ export async function runGameBoard(
     throw error;
   }
 
+  let parentPicks = new Map<Market, string>();
+  let carried: EvidenceItem[] = [];
+  let parentLean: PrivateLean | null = null;
+  if (request.parentId) {
+    const parent = await store.getBoard(request.parentId);
+    if (!parent) return { ok: false, error: "The board to refresh was not found." };
+    if (parent.game.id !== request.game.id) {
+      return { ok: false, error: "A refresh must be for the same game as the board it refreshes." };
+    }
+    if (parent.status !== "completed") {
+      return { ok: false, error: "Only a frozen board can be refreshed." };
+    }
+    // A refresh keeps the parent's manual evidence and private lean unless it enters its own lean.
+    carried = parent.evidence.filter((item) => item.origin === "manual");
+    parentLean = parent.lean;
+    parentPicks = new Map(
+      parent.markets.flatMap((market) => (market.pick ? [[market.market, market.pick.id]] : [])),
+    );
+  }
+
   let manual: EvidenceItem[];
   try {
     manual = (request.manualEvidence ?? []).map((entry) =>
@@ -191,11 +211,12 @@ export async function runGameBoard(
   const leanText = request.lean?.trim() ?? "";
   const leanRationale = request.rationale?.trim() ?? "";
   const lean: PrivateLean | null =
-    leanText || leanRationale ? { text: leanText, rationale: leanRationale } : null;
+    leanText || leanRationale ? { text: leanText, rationale: leanRationale } : parentLean;
 
   const scheduleRetrievedAt = request.scheduleRetrievedAt ?? request.nowIso;
   const identity = {
     manualEvidence: manual,
+    carriedEvidence: carried.map((item) => item.id),
     lean,
     game: snapshot(request.game),
     parentId: request.parentId ?? null,
@@ -234,21 +255,27 @@ export async function runGameBoard(
       nowIso: request.nowIso,
       scheduleRetrievedAt,
       collect,
-      carried: [],
+      carried,
       manual,
     });
     const results: FrozenMarketResult[] = [];
     for (const entry of markets) {
+      const picked = await pickMarket({
+        market: entry.market,
+        offers: entry.offers,
+        game: request.game,
+        nowIso: request.nowIso,
+        materialEvidenceMissing: gathered.materialEvidenceMissing,
+        model,
+        forecast,
+      });
       results.push(
-        await pickMarket({
-          market: entry.market,
-          offers: entry.offers,
-          game: request.game,
-          nowIso: request.nowIso,
-          materialEvidenceMissing: gathered.materialEvidenceMissing,
-          model,
-          forecast,
-        }),
+        picked.pick
+          ? {
+              ...picked,
+              pick: { ...picked.pick, parentPickId: parentPicks.get(entry.market) ?? null },
+            }
+          : picked,
       );
     }
     await store.freezeModelPicks({
