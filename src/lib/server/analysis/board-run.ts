@@ -1,5 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
-import { BoardError, parseGameBoard, type BoardMoneylineInput } from "#lib/domain/board.ts";
+import {
+  BoardError,
+  parseGameBoard,
+  type BoardMoneylineInput,
+  type BoardSpreadInput,
+  type BoardTotalInput,
+} from "#lib/domain/board.ts";
 import type { Market, Offer } from "#lib/domain/offer.ts";
 import type { ScheduledGame } from "../sources/contracts.ts";
 import type { FrozenMarketResult, GameBoard, GameBoardStore } from "./board-store.ts";
@@ -22,6 +28,8 @@ export type GameBoardRequest = {
   sportsbook: string;
   observedAt: string;
   moneyline?: BoardMoneylineInput;
+  spread?: BoardSpreadInput;
+  total?: BoardTotalInput;
   parentId?: string | null;
 };
 
@@ -82,7 +90,10 @@ async function pickMarket(input: {
   if (first!.status !== "computed") return { market, noPickReason: first!.reason };
   if (second!.status !== "computed") return { market, noPickReason: second!.reason };
   if (first.artifact.checksum !== second.artifact.checksum) {
-    return { market, noPickReason: "The two sides were priced by different forecasting models." };
+    return {
+      market,
+      noPickReason: "The two sides were priced by different forecasting models.",
+    };
   }
   const leaked = leakReason(first, game, nowIso);
   if (leaked) return { market, noPickReason: leaked };
@@ -91,8 +102,16 @@ async function pickMarket(input: {
   const calculation = calculateModelPick({
     market,
     sides: [
-      { offer: offers[0], probabilities: first.probabilities, conservative: conservative(first) },
-      { offer: offers[1], probabilities: second.probabilities, conservative: conservative(second) },
+      {
+        offer: offers[0],
+        probabilities: first.probabilities,
+        conservative: conservative(first),
+      },
+      {
+        offer: offers[1],
+        probabilities: second.probabilities,
+        conservative: conservative(second),
+      },
     ],
     released: first.eligible && second.eligible,
     materialEvidenceMissing: input.materialEvidenceMissing,
@@ -106,7 +125,13 @@ async function pickMarket(input: {
     market,
     pick: {
       parentPickId: null,
-      forecastingModel: { checksum, version, trainingCutoff, releaseStatus, releasedMarkets },
+      forecastingModel: {
+        checksum,
+        version,
+        trainingCutoff,
+        releaseStatus,
+        releasedMarkets,
+      },
       calculation,
       forecast,
     },
@@ -132,6 +157,8 @@ export async function runGameBoard(
       sportsbook: request.sportsbook,
       observedAt: request.observedAt,
       moneyline: request.moneyline,
+      spread: request.spread,
+      total: request.total,
     });
   } catch (error) {
     if (error instanceof BoardError) return { ok: false, error: error.message };
@@ -199,11 +226,19 @@ export async function runGameBoard(
       gaps: gathered.gaps,
       markets: results,
     });
-    const board = await store.finishBoard({ boardId, status: "completed", failureReason: null });
+    const board = await store.finishBoard({
+      boardId,
+      status: "completed",
+      failureReason: null,
+    });
     return { ok: true, board };
   } catch (error) {
     const reason = redactText(error instanceof Error ? error.message : String(error));
-    const board = await store.finishBoard({ boardId, status: "failed", failureReason: reason });
+    const board = await store.finishBoard({
+      boardId,
+      status: "failed",
+      failureReason: reason,
+    });
     return { ok: false, error: reason, board };
   }
 }

@@ -59,6 +59,38 @@ export function describeGameBoardContract(
       });
     });
 
+    it("returns a three-market board with a model pick and push probability per market", async () => {
+      const store = await makeStore();
+      const outcome = await runGameBoard(
+        ask({
+          spread: { homeLine: -3.5, awayLine: 3.5, home: -110, away: -110 },
+          total: { overLine: 44.5, underLine: 44.5, over: -105, under: -115 },
+        }),
+        {
+          store,
+          collect: quiet,
+          model: scriptedModel({ home: { win: 0.55, loss: 0.43, push: 0.02 } }),
+        },
+      );
+      expect(outcome.ok, outcome.ok ? "" : outcome.error).toBe(true);
+      if (!outcome.ok) return;
+      const saved = await store.getBoard(outcome.board.id);
+      expect(saved).toEqual(outcome.board);
+      expect(saved?.markets.map((market) => market.market)).toEqual([
+        "moneyline",
+        "spread",
+        "total",
+      ]);
+      expect(saved?.markets[1]?.offers.map((offer) => offer.pointLine)).toEqual([-3.5, 3.5]);
+      expect(saved?.markets[2]?.offers.map((offer) => [offer.selection, offer.pointLine])).toEqual([
+        ["over", 44.5],
+        ["under", 44.5],
+      ]);
+      for (const market of saved?.markets ?? []) {
+        expect(market.pick?.calculation.sides[0].probabilities.push).toBe(0.02);
+      }
+    });
+
     it("returns a board without a model pick with its reason", async () => {
       const store = await makeStore();
       const outcome = await runGameBoard(ask(), { store, collect: quiet });
