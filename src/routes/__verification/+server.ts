@@ -2,7 +2,7 @@ import { error, json } from "@sveltejs/kit";
 import * as env from "$app/env/private";
 import { createMemoryStore } from "#lib/server/analysis/store.ts";
 import { now, replaceMemoryJournal, researchStore, settingsStore } from "#lib/server/config.ts";
-import { assertBrowserFixture } from "#lib/server/verification.ts";
+import { assertBrowserFixture, browserFixtureModel } from "#lib/server/verification.ts";
 
 export async function GET() {
   if (!env.POCKETCHECK_TEST_MODE) error(404);
@@ -16,7 +16,7 @@ export async function GET() {
     schedule: env.POCKETCHECK_SCHEDULE_CSV,
     injuries: env.POCKETCHECK_INJURY_CSV,
     weather: env.POCKETCHECK_WEATHER,
-    model: env.POCKETCHECK_MODEL_ARTIFACT,
+    model: browserFixtureModel(),
     drafter: drafter.provider,
     analyses: (await researchStore().listCompleted()).length,
   });

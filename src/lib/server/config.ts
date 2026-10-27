@@ -32,8 +32,9 @@ import { fetchKickoffForecast } from "./sources/nws.ts";
  * tests cannot import.
  *
  * POCKETCHECK_JOURNAL=memory, POCKETCHECK_NOW, POCKETCHECK_SCHEDULE_CSV,
- * POCKETCHECK_INJURY_CSV, POCKETCHECK_WEATHER=off, and POCKETCHECK_MODEL_ARTIFACT=off exist so the browser suite is
- * deterministic and offline. Normal use sets none of them.
+ * POCKETCHECK_INJURY_CSV, POCKETCHECK_WEATHER=off, and POCKETCHECK_MODEL_ARTIFACT exist so the
+ * browser suite is deterministic and offline; it points the model at a checked-in fixture
+ * artifact. Normal use sets none of them.
  */
 
 export class ConfigError extends Error {
