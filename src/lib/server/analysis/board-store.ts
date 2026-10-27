@@ -3,7 +3,13 @@ import type { Market, Offer } from "#lib/domain/offer.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
 import type { SavedForecast } from "./forecast-record.ts";
 import type { ModelPickCalculation } from "./model-pick.ts";
-import type { RunGame } from "./store.ts";
+import {
+  gradeFromNotices,
+  type RunGame,
+  type SettlementGrade,
+  type SettlementNoticeKind,
+  type StoredNotice,
+} from "./store.ts";
 
 /**
  * Game board store contract.
@@ -98,6 +104,75 @@ export type FinishBoardInput = {
   failureReason: string | null;
 };
 
+/**
+ * A final score is a fact about the game, not about one board, so a game settlement notice is
+ * keyed to the game's source identifier. Every board of that game, including a refresh, is graded
+ * by the same notices and an event identifier yields one grade. Analysis notices stay keyed to
+ * their analysis and share the same event identifier space, so one event never grades twice.
+ */
+export type RecordGameSettlementInput = {
+  eventId: string;
+  /** The game's source identifier, as in `RunGame.id`. */
+  gameId: string;
+  kind: SettlementNoticeKind;
+  homeScore?: number | null;
+  awayScore?: number | null;
+  recordedAt: string;
+  source: string;
+  reason?: string | null;
+  correctsNoticeId?: string | null;
+};
+
+export type RecordGameSettlementResult =
+  | { kind: "recorded"; noticeId: string }
+  | { kind: "duplicate"; noticeId: string }
+  | { kind: "conflict"; error: string };
+
+export type BoardSettlement = {
+  gameId: string;
+  /** Each market in board order. The grade is null when the market has no model pick. */
+  markets: Array<{ market: Market; pick: ModelPick | null; grade: SettlementGrade | null }>;
+};
+
+export const SETTLEMENT_EVENT_CONFLICT =
+  "This settlement event identifier was already used with different inputs.";
+
+export function gameSettlementPayloadKey(input: RecordGameSettlementInput): string {
+  return JSON.stringify({
+    eventId: input.eventId,
+    gameId: input.gameId,
+    kind: input.kind,
+    homeScore: input.homeScore ?? null,
+    awayScore: input.awayScore ?? null,
+    source: input.source,
+    reason: input.reason ?? null,
+    correctsNoticeId: input.correctsNoticeId ?? null,
+  });
+}
+
+/** The picked side's own contract: the board offer whose selection the model pick named. */
+function pickedOffer(market: BoardMarket): Offer | null {
+  const pick = market.pick;
+  if (!pick) return null;
+  return (
+    market.offers.find((offer) => offer.selection === pick.calculation.pickedSelection) ?? null
+  );
+}
+
+export function gradeBoardMarkets(board: GameBoard, notices: StoredNotice[]): BoardSettlement {
+  return {
+    gameId: board.game.id,
+    markets: board.markets.map((market) => {
+      const offer = pickedOffer(market);
+      return {
+        market: market.market,
+        pick: market.pick,
+        grade: offer ? gradeFromNotices(offer, notices) : null,
+      };
+    }),
+  };
+}
+
 export type GameBoardStore = {
   /** Saves a pending board with its entered prices. Same id and inputs return the saved board. */
   beginBoard: (input: NewGameBoard) => Promise<BeginBoardResult>;
@@ -106,6 +181,10 @@ export type GameBoardStore = {
   /** Moves a board to a terminal status. A finished board is returned unchanged. */
   finishBoard: (input: FinishBoardInput) => Promise<GameBoard>;
   getBoard: (id: string) => Promise<GameBoard | null>;
+  /** Appends a game settlement notice. A correction names the earlier notice and gives a reason. */
+  recordGameSettlement: (input: RecordGameSettlementInput) => Promise<RecordGameSettlementResult>;
+  /** Grades each model pick on the board from the game's notices. Derived on read, never stored. */
+  readBoardSettlement: (boardId: string) => Promise<BoardSettlement>;
 };
 
 export const BOARD_CONFLICT =
@@ -117,7 +196,7 @@ export function isTerminalBoard(status: GameBoardStatus): boolean {
   return TERMINAL.includes(status);
 }
 
-export function createMemoryBoardStore(): GameBoardStore {
+export function createMemoryBoardStore(notices: StoredNotice[] = []): GameBoardStore {
   const boards = new Map<string, GameBoard>();
   const submissions = new Map<string, string>();
 
@@ -209,6 +288,51 @@ export function createMemoryBoardStore(): GameBoardStore {
     async getBoard(id) {
       const board = boards.get(id);
       return board ? structuredClone(board) : null;
+    },
+    async recordGameSettlement(input) {
+      if (![...boards.values()].some((board) => board.game.id === input.gameId)) {
+        throw new Error(`Game not found: ${input.gameId}`);
+      }
+      if (input.correctsNoticeId) {
+        if (!input.reason?.trim()) {
+          return { kind: "conflict", error: "A correction requires a reason." };
+        }
+        const prior = notices.find((item) => item.id === input.correctsNoticeId);
+        if (!prior || prior.gameId !== input.gameId) {
+          throw new Error(`Settlement not found: ${input.correctsNoticeId}`);
+        }
+      }
+      const payloadKey = gameSettlementPayloadKey(input);
+      const sameEvent = notices.filter((item) => item.eventId === input.eventId);
+      if (sameEvent.length > 0) {
+        const match = sameEvent.find((item) => item.payloadKey === payloadKey);
+        if (match) return { kind: "duplicate", noticeId: match.id };
+        return { kind: "conflict", error: SETTLEMENT_EVENT_CONFLICT };
+      }
+      const saved: StoredNotice = {
+        id: randomUUID(),
+        eventId: input.eventId,
+        analysisId: null,
+        gameId: input.gameId,
+        betId: null,
+        kind: input.kind,
+        homeScore: input.homeScore ?? null,
+        awayScore: input.awayScore ?? null,
+        source: input.source,
+        reason: input.reason ?? null,
+        correctsId: input.correctsNoticeId ?? null,
+        recordedAt: input.recordedAt,
+        payloadKey,
+      };
+      notices.push(saved);
+      return { kind: "recorded", noticeId: saved.id };
+    },
+    async readBoardSettlement(boardId) {
+      const board = require(boardId);
+      return gradeBoardMarkets(
+        board,
+        notices.filter((item) => item.gameId === board.game.id),
+      );
     },
   };
 }

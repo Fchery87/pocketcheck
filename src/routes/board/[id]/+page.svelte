@@ -4,8 +4,14 @@
   import type { SideSelection } from "#lib/domain/offer.ts";
   import type { PageProps } from "./$types";
 
-  let { data }: PageProps = $props();
+  import { Alert } from "#lib/components/ui/alert/index.ts";
+  import { Button } from "#lib/components/ui/button/index.ts";
+
+  let { data, form }: PageProps = $props();
   const board = $derived(data.board);
+  const grades = $derived(data.settlement.markets);
+  const resultWord = (result: string) =>
+    ({ win: "Won", loss: "Lost", push: "Push", void: "Void" })[result] ?? "Unresolved";
 
   const signed = (value: number) => (value > 0 ? `+${value}` : String(value));
   const units = (value: number) => `${value >= 0 ? "+" : "-"}${Math.abs(value).toFixed(4)}`;
@@ -69,6 +75,32 @@
           {team(picked.selection)} {market.market}{lined(picked.pointLine)} {signed(picked.americanOdds)}
         </p>
         <p class="pc-verdict-word" data-testid="strength-grade">{calculation.grade}</p>
+        {@const graded = grades.find((item) => item.market === market.market)?.grade}
+        {#if graded}
+          <div data-testid="settlement-{market.market}">
+            <p class="pc-kicker">Result of the picked side's own contract</p>
+            <p class="pc-verdict-word" data-testid="pick-result">
+              {#if graded.history.length === 0}
+                <span class="pc-unknown">∅ Not settled</span>
+              {:else}
+                {resultWord(graded.effective)}
+              {/if}
+            </p>
+            {#if graded.history.length > 0}
+              <ol class="pc-notices">
+                {#each graded.history as notice (notice.id)}
+                  <li data-testid="pick-notice">
+                    <span class="pc-figure">{resultWord(notice.result)}</span>
+                    {easternTime(notice.recordedAt)}
+                    {#if notice.correctsId}, corrects <span class="pc-figure">{notice.correctsId}</span>{/if}
+                    {#if notice.reason}, {notice.reason}{/if}
+                    <span class="pc-hint" data-testid="pick-notice-id">{notice.id}</span>
+                  </li>
+                {/each}
+              </ol>
+            {/if}
+          </div>
+        {/if}
         <p data-testid="grade-reason">
           {#if calculation.grade === "strong"}
             The conservative expected value clears the {calculation.threshold.version} threshold.
@@ -147,4 +179,34 @@
       </p>
     </section>
   {/each}
+
+  <section class="pc-section" aria-labelledby="settle-title">
+    <h2 id="settle-title">Settle this game</h2>
+    <p class="pc-hint">
+      A final score belongs to the game, so it grades every model pick on every board of this game.
+      A repeated event is ignored. A correction names the earlier notice and needs a reason.
+    </p>
+    <form class="pc-form" method="POST" action="?/settle" data-testid="settle-form">
+      <label>Event identifier <input name="eventId" required data-testid="settle-event" /></label>
+      <label>
+        Kind
+        <select name="kind" data-testid="settle-kind">
+          <option value="final">final score</option>
+          <option value="postponed">postponed</option>
+          <option value="void">void</option>
+          <option value="unresolved">unresolved</option>
+        </select>
+      </label>
+      <label>{board.game.home} (home) score <input name="homeScore" inputmode="numeric" data-testid="settle-home" /></label>
+      <label>{board.game.away} (away) score <input name="awayScore" inputmode="numeric" data-testid="settle-away" /></label>
+      <label>Corrects notice <input name="correctsNoticeId" data-testid="settle-corrects" /></label>
+      <label>Reason <input name="reason" data-testid="settle-reason" /></label>
+      <Button type="submit" data-testid="settle-submit">Record settlement</Button>
+    </form>
+    {#if form?.settled}
+      <p class="pc-success" data-testid="settlement-recorded">{form.duplicate ? "Settlement already recorded" : "Settlement recorded"}</p>
+    {:else if form?.error}
+      <Alert data-testid="settlement-error">{form.error}</Alert>
+    {/if}
+  </section>
 </main>

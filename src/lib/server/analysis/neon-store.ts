@@ -672,7 +672,7 @@ async function readNeonSettlement(
   const saved = await journal.findRun(input.analysisId);
   if (!saved) throw new Error(`Analysis not found: ${input.analysisId}`);
   const notices = (await journal.listSettlementNotices(input.analysisId)).map(
-    (row): StoredNotice => ({ ...row, payloadKey: "" }),
+    (row): StoredNotice => ({ ...row, gameId: null, payloadKey: "" }),
   );
   const assessment = gradeFromNotices(saved.offer, notices);
   if (!input.betId) return { assessment, bet: null };

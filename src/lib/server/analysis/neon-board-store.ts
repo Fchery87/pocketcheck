@@ -4,6 +4,9 @@ import type { Market, Offer } from "#lib/domain/offer.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
 import {
   BOARD_CONFLICT,
+  SETTLEMENT_EVENT_CONFLICT,
+  gameSettlementPayloadKey,
+  gradeBoardMarkets,
   isTerminalBoard,
   type BoardMarket,
   type ForecastingModelIdentity,
@@ -15,7 +18,7 @@ import {
 } from "./board-store.ts";
 import type { SavedForecast } from "./forecast-record.ts";
 import type { ModelPickCalculation } from "./model-pick.ts";
-import type { RunGame } from "./store.ts";
+import type { RunGame, StoredNotice } from "./store.ts";
 
 type BoardRow = {
   id: string;
@@ -217,6 +220,93 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore {
     },
     async getBoard(id) {
       return read(sql, id);
+    },
+    async recordGameSettlement(input) {
+      const [game] = await sql<{ id: string }[]>`
+        SELECT id FROM games WHERE source_game_id = ${input.gameId}
+      `;
+      if (!game) throw new Error(`Game not found: ${input.gameId}`);
+      if (input.correctsNoticeId) {
+        if (!input.reason?.trim()) {
+          return { kind: "conflict", error: "A correction requires a reason." };
+        }
+        const [prior] = await sql<{ game_id: string | null }[]>`
+          SELECT game_id FROM settlement_notices WHERE id = ${input.correctsNoticeId}
+        `;
+        if (!prior || prior.game_id !== game.id) {
+          throw new Error(`Settlement not found: ${input.correctsNoticeId}`);
+        }
+      }
+      const payloadKey = gameSettlementPayloadKey(input);
+      const find = async () => {
+        const [row] = await sql<{ id: string; payload_key: string }[]>`
+          SELECT id, payload_key FROM settlement_notices WHERE event_id = ${input.eventId}
+        `;
+        return row ?? null;
+      };
+      const settle = (row: { id: string; payload_key: string }) =>
+        row.payload_key === payloadKey
+          ? ({ kind: "duplicate", noticeId: row.id } as const)
+          : ({ kind: "conflict", error: SETTLEMENT_EVENT_CONFLICT } as const);
+      const existing = await find();
+      if (existing) return settle(existing);
+      const id = randomUUID();
+      try {
+        await sql`
+          INSERT INTO settlement_notices (
+            id, event_id, game_id, kind, home_score, away_score, source, reason,
+            corrects_id, recorded_at, payload_key
+          ) VALUES (
+            ${id}, ${input.eventId}, ${game.id}, ${input.kind}, ${input.homeScore ?? null},
+            ${input.awayScore ?? null}, ${input.source}, ${input.reason ?? null},
+            ${input.correctsNoticeId ?? null}, ${input.recordedAt}, ${payloadKey}
+          )
+        `;
+      } catch (error) {
+        const code = typeof error === "object" && error !== null && "code" in error && error.code;
+        if (code !== "23505") throw error;
+        const raced = await find();
+        if (raced) return settle(raced);
+        throw error;
+      }
+      return { kind: "recorded", noticeId: id };
+    },
+    async readBoardSettlement(boardId) {
+      const board = await require(sql, boardId);
+      const rows = await sql<
+        Array<{
+          id: string;
+          event_id: string;
+          kind: StoredNotice["kind"];
+          home_score: number | null;
+          away_score: number | null;
+          source: string;
+          reason: string | null;
+          corrects_id: string | null;
+          recorded_at: Date;
+        }>
+      >`
+        SELECT n.* FROM settlement_notices n
+        JOIN games g ON g.id = n.game_id
+        WHERE g.source_game_id = ${board.game.id}
+        ORDER BY n.recorded_at ASC
+      `;
+      const notices = rows.map((row): StoredNotice => ({
+        id: row.id,
+        eventId: row.event_id,
+        analysisId: null,
+        gameId: board.game.id,
+        betId: null,
+        kind: row.kind,
+        homeScore: row.home_score,
+        awayScore: row.away_score,
+        source: row.source,
+        reason: row.reason,
+        correctsId: row.corrects_id,
+        recordedAt: iso(row.recorded_at),
+        payloadKey: "",
+      }));
+      return gradeBoardMarkets(board, notices);
     },
   };
 }

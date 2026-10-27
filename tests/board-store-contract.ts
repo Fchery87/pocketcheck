@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { loadFixtureGames } from "#lib/server/analysis/games.ts";
 import { runGameBoard, type GameBoardRequest } from "#lib/server/analysis/board-run.ts";
+import { runAnalysis } from "#lib/server/analysis/run.ts";
 import type { JournalStore } from "#lib/server/analysis/store.ts";
 import { quiet, scriptedModel } from "./board-fixtures.ts";
 
@@ -195,6 +196,215 @@ export function describeGameBoardContract(
       const saved = await store.getBoard(begun.board.id);
       expect(saved?.status).toBe("running");
       expect(saved?.markets[0]?.noPickReason).toBe("first");
+    });
+
+    describe("settlement", () => {
+      const threeMarkets = () =>
+        ask({
+          spread: { homeLine: -3, awayLine: 3, home: -110, away: -110 },
+          total: { overLine: 44.5, underLine: 44.5, over: -105, under: -115 },
+        });
+      const scripted = () => scriptedModel({ home: { win: 0.55, loss: 0.43, push: 0.02 } });
+      const final = (eventId: string, homeScore: number, awayScore: number, extra = {}) => ({
+        eventId: `${scopeOf()}:${eventId}`,
+        gameId: game.id,
+        kind: "final" as const,
+        homeScore,
+        awayScore,
+        recordedAt: "2026-10-27T04:00:00.000Z",
+        source: "official",
+        ...extra,
+      });
+      const frozen = async (store: JournalStore, request = threeMarkets()) => {
+        const outcome = await runGameBoard(request, { store, collect: quiet, model: scripted() });
+        expect(outcome.ok, outcome.ok ? "" : outcome.error).toBe(true);
+        return outcome.board!;
+      };
+
+      it("grades every model pick from its own contract and keeps the board unchanged", async () => {
+        const store = await makeStore();
+        const board = await frozen(store);
+        expect(board.markets.map((market) => market.pick?.calculation.pickedSelection)).toEqual([
+          "away",
+          "home",
+          "over",
+        ]);
+        const before = await store.getBoard(board.id);
+        const settled = await store.recordGameSettlement(final("final", 24, 21));
+        expect(settled.kind).toBe("recorded");
+        const read = await store.readBoardSettlement(board.id);
+        // 24-21 home win: the away moneyline pick loses, home -3 pushes, 45 combined clears 44.5.
+        expect(read.markets.map((item) => [item.market, item.grade?.effective])).toEqual([
+          ["moneyline", "loss"],
+          ["spread", "push"],
+          ["total", "win"],
+        ]);
+        expect(await store.getBoard(board.id)).toEqual(before);
+        expect(await store.listCompleted()).toEqual([]);
+      });
+
+      it("grades the same picks differently when the away side wins", async () => {
+        const store = await makeStore();
+        const board = await frozen(store);
+        await store.recordGameSettlement(final("away-wins", 10, 20));
+        const read = await store.readBoardSettlement(board.id);
+        expect(read.markets.map((item) => item.grade?.effective)).toEqual(["win", "loss", "loss"]);
+      });
+
+      it("keeps postponed and unresolved notices unresolved and a void notice void", async () => {
+        const store = await makeStore();
+        const board = await frozen(store);
+        for (const kind of ["postponed", "unresolved"] as const) {
+          await store.recordGameSettlement({
+            eventId: `${scopeOf()}:${kind}`,
+            gameId: game.id,
+            kind,
+            recordedAt:
+              kind === "postponed" ? "2026-10-27T01:00:00.000Z" : "2026-10-27T02:00:00.000Z",
+            source: "official",
+          });
+          const read = await store.readBoardSettlement(board.id);
+          expect(read.markets.map((item) => item.grade?.effective)).toEqual([
+            "unresolved",
+            "unresolved",
+            "unresolved",
+          ]);
+        }
+        await store.recordGameSettlement({
+          eventId: `${scopeOf()}:void`,
+          gameId: game.id,
+          kind: "void",
+          recordedAt: "2026-10-27T03:00:00.000Z",
+          source: "official",
+        });
+        const read = await store.readBoardSettlement(board.id);
+        expect(read.markets.map((item) => item.grade?.effective)).toEqual(["void", "void", "void"]);
+      });
+
+      it("regrades on a correction that names the earlier notice and keeps the history", async () => {
+        const store = await makeStore();
+        const board = await frozen(store);
+        const first = await store.recordGameSettlement(final("first", 24, 21));
+        if (first.kind !== "recorded") throw new Error("expected a recorded notice");
+        const noReason = await store.recordGameSettlement(
+          final("fix-no-reason", 24, 20, {
+            correctsNoticeId: first.noticeId,
+            recordedAt: "2026-10-27T05:00:00.000Z",
+          }),
+        );
+        expect(noReason).toMatchObject({
+          kind: "conflict",
+          error: expect.stringMatching(/reason/i),
+        });
+        const fixed = await store.recordGameSettlement(
+          final("fix", 24, 20, {
+            correctsNoticeId: first.noticeId,
+            reason: "Official score changed",
+            recordedAt: "2026-10-27T05:00:00.000Z",
+          }),
+        );
+        if (fixed.kind !== "recorded") throw new Error("expected a recorded correction");
+        const read = await store.readBoardSettlement(board.id);
+        expect(read.markets.map((item) => item.grade?.effective)).toEqual(["loss", "win", "loss"]);
+        expect(read.markets[1]?.grade?.history).toMatchObject([
+          { id: first.noticeId, result: "push", correctsId: null },
+          { id: fixed.noticeId, result: "win", correctsId: first.noticeId },
+        ]);
+        await expect(
+          store.recordGameSettlement(
+            final("missing", 1, 0, {
+              correctsNoticeId: "00000000-0000-4000-8000-000000000000",
+              reason: "x",
+            }),
+          ),
+        ).rejects.toThrow();
+      });
+
+      it("keys a notice to the game, so every board of the game gets one grade per event", async () => {
+        const store = await makeStore();
+        const first = await frozen(store);
+        const second = await frozen(store, {
+          ...threeMarkets(),
+          requestId: `${scopeOf()}:second-board`,
+        });
+        expect(second.id).not.toBe(first.id);
+        const input = final("shared", 24, 21);
+        const recorded = await store.recordGameSettlement(input);
+        expect(recorded.kind).toBe("recorded");
+        expect(await store.recordGameSettlement(input)).toEqual(
+          recorded.kind === "recorded"
+            ? { kind: "duplicate", noticeId: recorded.noticeId }
+            : recorded,
+        );
+        expect(await store.recordGameSettlement({ ...input, homeScore: 3 })).toMatchObject({
+          kind: "conflict",
+          error: expect.stringMatching(/different inputs/i),
+        });
+        for (const board of [first, second]) {
+          const read = await store.readBoardSettlement(board.id);
+          expect(read.markets.map((item) => item.grade?.effective)).toEqual([
+            "loss",
+            "push",
+            "win",
+          ]);
+          expect(read.markets[0]?.grade?.history).toHaveLength(1);
+        }
+      });
+
+      it("never lets an analysis notice and a game notice share an event identifier", async () => {
+        const store = await makeStore();
+        await frozen(store);
+        const run = (
+          await runAnalysis(
+            {
+              game,
+              nowIso: NOW,
+              scheduleRetrievedAt: "2026-10-25T12:00:00.000Z",
+              sportsbook: "Example Book",
+              market: "moneyline",
+              selection: "home",
+              americanOdds: -110,
+              observedAt: "2026-10-25T15:30:00.000Z",
+              tieRule: "push",
+              lean: "PHI",
+              rationale: "Home rest edge",
+              requestId: `${scopeOf()}:analysis`,
+            },
+            { store },
+          )
+        ).run!;
+        const eventId = `${scopeOf()}:shared-event`;
+        const analysis = await store.recordSettlement({
+          eventId,
+          analysisId: run.id,
+          kind: "final",
+          homeScore: 24,
+          awayScore: 21,
+          recordedAt: "2026-10-27T04:00:00.000Z",
+          source: "official",
+        });
+        expect(analysis.kind).toBe("recorded");
+        expect(await store.recordGameSettlement({ ...final("x", 24, 21), eventId })).toMatchObject({
+          kind: "conflict",
+        });
+        const read = await store.readSettlement({ analysisId: run.id });
+        expect(read.assessment.history).toHaveLength(1);
+      });
+
+      it("rejects a notice for a game that has no board", async () => {
+        const store = await makeStore();
+        await expect(
+          store.recordGameSettlement({ ...final("nobody", 1, 0), gameId: "2026_99_AAA_BBB" }),
+        ).rejects.toThrow(/game/i);
+      });
+
+      it("shows a market without a model pick as ungraded", async () => {
+        const store = await makeStore();
+        const outcome = await runGameBoard(ask(), { store, collect: quiet });
+        await store.recordGameSettlement(final("nopick", 24, 21));
+        const read = await store.readBoardSettlement(outcome.board!.id);
+        expect(read.markets).toEqual([{ market: "moneyline", pick: null, grade: null }]);
+      });
     });
 
     it("keeps game boards out of research analyses", async () => {
