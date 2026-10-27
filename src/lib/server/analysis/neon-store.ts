@@ -16,6 +16,7 @@ import type { RunModel } from "./model.ts";
 import type { SavedForecast } from "./forecast-record.ts";
 import type { PolicyDecision } from "./policy.ts";
 import { compareClosing } from "./closing.ts";
+import { createNeonBoardStore } from "./neon-board-store.ts";
 import {
   gradeFromNotices,
   settlementPayloadKey,
@@ -29,6 +30,7 @@ import {
   type RecordSettlementInput,
   type RecordSettlementResult,
   type ResearchRun,
+  type JournalStore,
   type ResearchStore,
   type RunGame,
   type RunStatus,
@@ -88,7 +90,7 @@ function runStatus(status: string): RunStatus {
   return "interrupted";
 }
 
-export function createNeonStore(sql: Sql): ResearchStore {
+export function createNeonStore(sql: Sql): JournalStore {
   const journal = new JournalRepository(sql);
 
   async function getRun(id: string): Promise<ResearchRun | null> {
@@ -141,7 +143,7 @@ export function createNeonStore(sql: Sql): ResearchStore {
     };
   }
 
-  return {
+  const research: ResearchStore = {
     async beginAttempt(run) {
       const saved = await journal.saveCompletedAnalysis(journalInput(run, true));
       if (saved.analysis.snapshot.request?.hash !== run.request?.hash) {
@@ -262,6 +264,7 @@ export function createNeonStore(sql: Sql): ResearchStore {
       return journal.restoreJournal(backup);
     },
   };
+  return { ...research, ...createNeonBoardStore(sql) };
 }
 
 function storedAssessmentRole(analysis: {

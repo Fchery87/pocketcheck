@@ -17,7 +17,7 @@ import { createSourceCollector, type EvidenceCollector } from "./analysis/eviden
 import { createArtifactForecast, createArtifactModel, type ModelSource } from "./analysis/model.ts";
 import type { ForecastSource } from "./analysis/run.ts";
 import { createNeonStore } from "./analysis/neon-store.ts";
-import { createMemoryStore, type ResearchStore } from "./analysis/store.ts";
+import { createMemoryStore, type JournalStore } from "./analysis/store.ts";
 import type { ProviderId, ThesisDrafter, ThesisProvider } from "./providers/contracts.ts";
 import { createDeepSeekProvider } from "./providers/deepseek.ts";
 import { resolveDrafter } from "./providers/drafter.ts";
@@ -110,17 +110,17 @@ export function databaseForJournal(): Db {
   return db;
 }
 
-let store: ResearchStore | undefined;
+let store: JournalStore | undefined;
 
 /** The journal. Neon unless the memory journal is explicitly requested; never a silent fallback. */
-export function researchStore(): ResearchStore {
+export function researchStore(): JournalStore {
   store ??=
     POCKETCHECK_JOURNAL === "memory" ? createMemoryStore() : createNeonStore(databaseForJournal());
   return store;
 }
 
 /** Replaces the in-memory journal. Browser verification uses this to restore into empty storage. */
-export function replaceMemoryJournal(next: ResearchStore): void {
+export function replaceMemoryJournal(next: JournalStore): void {
   if (POCKETCHECK_JOURNAL !== "memory" || !POCKETCHECK_TEST_MODE) {
     throw new ConfigError("An empty journal is available only during memory verification.");
   }

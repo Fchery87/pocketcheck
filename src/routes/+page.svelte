@@ -132,6 +132,10 @@
 
 <main class="pc-analyze">
   <h1 class="pc-kicker">New analysis</h1>
+  <p class="pc-hint" data-testid="board-entry">
+    Want the forecasting model's side for both teams at once? Open a
+    <a href="/board">Game board</a>.
+  </p>
   {#if data.scheduleError}
     <Alert data-testid="schedule-error">{data.scheduleError}</Alert>
   {:else if data.games.length === 0}
