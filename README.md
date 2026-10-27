@@ -53,7 +53,7 @@ Verified together on Node 24.15.0 and npm 11.19.0:
 
 SvelteKit 3 keeps configuration in `vite.config.ts`. There is no `svelte.config.js`. The `#lib` package import is the library alias. Server-only code lives under `src/lib/server` and imports include the `.ts` extension.
 
-Development does not enforce the production cross-site form check. Preview and the Node server do. The Node adapter treats requests as HTTPS unless a protocol is declared, so local HTTP needs `PROTOCOL_HEADER=x-forwarded-proto` and an `x-forwarded-proto: http` request header. Without it, or with a different request origin, the production form returns 403. Unknown routes return 404. Dev and preview bind to `127.0.0.1`; set `HOST=127.0.0.1` for the Node server because its default is all interfaces.
+Development does not enforce the production cross-site form check. Preview and the Node server do. The Node adapter treats requests as HTTPS unless a protocol is declared, so local HTTP needs `PROTOCOL_HEADER=x-forwarded-proto` and an `x-forwarded-proto: http` request header. Without it, or with a different request origin, the production form returns 403. Unknown routes return 404. Dev, preview, and `npm start` bind to `127.0.0.1`. Running `build/index.js` directly listens on all interfaces unless `HOST` is set, so prefer `npm start`.
 
 ## Run locally
 
@@ -80,11 +80,31 @@ npm run verify            # format, lint, types, unit tests, production build, b
 TEST_DATABASE_URL=... npm run verify:database  # disposable storage only, all migrations and contracts
 ```
 
-Node production server:
+Node production server, on `http://127.0.0.1:3000`:
 
 ```sh
-HOST=127.0.0.1 PORT=3000 PROTOCOL_HEADER=x-forwarded-proto node --env-file=.env build/index.js
+npm run build
+npm start                 # reads .env; HOST defaults to 127.0.0.1, PORT to 3000
 ```
+
+`npm start` serves plain HTTP. It declares `http` as the request protocol, so the production form check compares the browser's origin with the address the browser used. A form posted from that address succeeds. A form from any other origin returns 403. To put a TLS proxy in front of PocketCheck, run `build/index.js` with the adapter's own settings instead.
+
+### Open PocketCheck on your phone (opt in)
+
+> **Warning: PocketCheck has no login.** When it listens beyond `127.0.0.1`, anyone who can reach your computer on the network can read the journal, change settings, and record analyses and bets. Use it only on a home network you trust, and stop the server when you are done.
+
+The default stays on `127.0.0.1`, which your phone cannot reach. To opt in for one run:
+
+1. Find your computer's address on the home network. On Linux run `hostname -I` (or `ip -4 addr`). On macOS run `ipconfig getifaddr en0`. On Windows run `ipconfig` and read the IPv4 address. It usually looks like `192.168.1.20`.
+2. Bind the server to that address. Binding to the one address is narrower than `0.0.0.0`, which listens on every interface.
+
+   ```sh
+   HOST=192.168.1.20 PORT=3000 npm start
+   ```
+
+3. On the phone, on the same Wi-Fi, open `http://192.168.1.20:3000`. Your firewall may need to allow incoming connections on that port.
+
+The startup log repeats the no-login warning whenever `HOST` is not a loopback address. No origin setting is needed: the protocol is declared as `http`, and the origin is the address the phone used, so its forms pass the production check. A form from a different origin still returns 403. `npm run dev` and `npm run preview` always stay on `127.0.0.1`.
 
 ## Next implementation step
 

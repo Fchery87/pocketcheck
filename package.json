@@ -24,7 +24,8 @@
     "model:release": "node --experimental-strip-types scripts/model/release.ts",
     "test:e2e": "node --experimental-strip-types scripts/browser-test.ts",
     "verify": "node --experimental-strip-types scripts/verify.ts",
-    "verify:database": "node --experimental-strip-types scripts/verify.ts --database"
+    "verify:database": "node --experimental-strip-types scripts/verify.ts --database",
+    "start": "node --experimental-strip-types --env-file=.env scripts/start.ts"
   },
   "dependencies": {
     "postgres": "^3.4.9"
