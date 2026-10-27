@@ -21,9 +21,16 @@ describe("American price conversion", () => {
     expect(decimalToAmerican(americanToDecimal(-110))).toBeCloseTo(-110, 0);
   });
 
+  it("accepts even money at -100 and +100", () => {
+    expect(americanToDecimal(-100)).toBe(2);
+    expect(americanToDecimal(100)).toBe(2);
+  });
+
   it("rejects a zero, positive-under-100, or nonfinite American price", () => {
     expect(() => americanToDecimal(0)).toThrow(/American price/);
     expect(() => americanToDecimal(99)).toThrow(/American price/);
+    expect(() => americanToDecimal(-50)).toThrow(/American price/);
+    expect(() => americanToDecimal(-99)).toThrow(/American price/);
     expect(() => americanToDecimal(Number.NaN)).toThrow(/American price/);
   });
 });

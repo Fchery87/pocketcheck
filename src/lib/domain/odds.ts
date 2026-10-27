@@ -8,7 +8,7 @@ export class PriceError extends Error {
 }
 
 export function americanToDecimal(american: AmericanPrice): number {
-  if (!Number.isFinite(american) || american === 0 || (american > 0 && american < 100)) {
+  if (!Number.isFinite(american) || american === 0 || Math.abs(american) < 100) {
     throw new PriceError(`Invalid American price: ${american}`);
   }
   if (american > 0) {

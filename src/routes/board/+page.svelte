@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Alert } from "#lib/components/ui/alert/index.ts";
   import { Button } from "#lib/components/ui/button/index.ts";
-  import { stepAmericanOdds, type StepDirection } from "#lib/domain/stepper.ts";
+  import { stepAmericanOdds, stepPointLine, type StepDirection } from "#lib/domain/stepper.ts";
   import type { PageProps } from "./$types";
 
   let { data, form }: PageProps = $props();
@@ -16,24 +16,65 @@
     return text.trim() !== "" && Number.isInteger(odds) && Math.abs(odds) >= 100 ? odds : null;
   };
 
-  const step = (name: "moneylineHome" | "moneylineAway", direction: StepDirection) => {
-    const input = formElement?.querySelector<HTMLInputElement>(`input[name="${name}"]`);
+  const field = (name: string) =>
+    formElement?.querySelector<HTMLInputElement>(`input[name="${name}"]`) ?? null;
+  const touch = (input: HTMLInputElement) => input.dispatchEvent(new Event("input", { bubbles: true }));
+
+  const step = (name: string, direction: StepDirection) => {
+    const input = field(name);
     if (!input) return;
     const next = stepAmericanOdds(parseOdds(input.value), direction);
     input.value = next > 0 ? `+${next}` : String(next);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
+    touch(input);
+  };
+
+  const parseLine = (text: string) => {
+    const line = Number(text.trim().replace("−", "-"));
+    return text.trim() !== "" && Number.isFinite(line) ? line : null;
+  };
+  const lineText = (line: number, signed: boolean) => (signed && line > 0 ? `+${line}` : String(line));
+
+  const stepLine = (name: string, direction: StepDirection, signed: boolean) => {
+    const input = field(name);
+    if (!input) return;
+    input.value = lineText(stepPointLine(parseLine(input.value), direction), signed);
+    touch(input);
+  };
+
+  /** The away spread line fills in as the mirror of the home line; it stays editable. */
+  const mirrorSpread = (event: Event) => {
+    const away = field("spreadAwayLine");
+    const home = parseLine((event.currentTarget as HTMLInputElement).value);
+    if (away && home !== null) away.value = lineText(-home + 0, true);
   };
 
   const sides = $derived([
-    { name: "moneylineAway" as const, testId: "moneyline-away", role: "away", team: selected?.away },
-    { name: "moneylineHome" as const, testId: "moneyline-home", role: "home", team: selected?.home },
+    { name: "moneylineAway", testId: "moneyline-away", role: "away", team: selected?.away },
+    { name: "moneylineHome", testId: "moneyline-home", role: "home", team: selected?.home },
   ]);
+  const spreadSides = $derived([
+    { price: "spreadAway", line: "spreadAwayLine", testId: "spread-away", role: "away", team: selected?.away },
+    { price: "spreadHome", line: "spreadHomeLine", testId: "spread-home", role: "home", team: selected?.home },
+  ]);
+  const totalSides = [
+    { price: "totalOver", testId: "total-over", role: "over" },
+    { price: "totalUnder", testId: "total-under", role: "under" },
+  ];
 </script>
+
+{#snippet oddsStepper(name: string, testId: string, role: string)}
+  <span class="pc-stepper">
+    <button type="button" aria-label="Lower the {role} odds by 5" onclick={() => step(name, -1)}>−</button>
+    <input id={testId} {name} data-testid={testId} defaultValue={value(name)} inputmode="numeric" />
+    <button type="button" aria-label="Raise the {role} odds by 5" onclick={() => step(name, 1)}>+</button>
+  </span>
+{/snippet}
+
 
 <main class="pc-page pc-board-entry">
   <h1>Game board</h1>
   <p class="pc-hint">
-    Enter both sides of the moneyline exactly as your sportsbook lists them. The forecasting model
+    Enter both sides of any of the moneyline, spread, and total exactly as your sportsbook lists them. Leave a market blank to skip it. The forecasting model
     names the side it prefers and grades it in code. A model pick is not a bet and not a research
     analysis.
   </p>
@@ -121,17 +162,7 @@
         {#each sides as side (side.name)}
           <div class="pc-field">
             <label for={side.testId}>{side.team ?? side.role} ({side.role})</label>
-            <span class="pc-stepper">
-              <button type="button" aria-label="Lower the {side.role} odds by 5" onclick={() => step(side.name, -1)}>−</button>
-              <input
-                id={side.testId}
-                name={side.name}
-                data-testid={side.testId}
-                defaultValue={value(side.name)}
-                inputmode="numeric"
-              />
-              <button type="button" aria-label="Raise the {side.role} odds by 5" onclick={() => step(side.name, 1)}>+</button>
-            </span>
+            {@render oddsStepper(side.name, side.testId, side.role)}
           </div>
         {/each}
       </div>
@@ -144,6 +175,61 @@
         </select>
       </label>
       <p class="pc-hint">A tie is not a win or a loss until the tie rule says so.</p>
+    </section>
+
+    <section class="pc-section" aria-labelledby="board-spread-title">
+      <h2 id="board-spread-title">Spread</h2>
+      <p class="pc-hint">
+        Enter the home line once. The away line fills in as its mirror: home −3.5 pairs with away +3.5.
+      </p>
+      <div class="pc-pair">
+        {#each spreadSides as side (side.price)}
+          <div class="pc-field">
+            <label for="{side.testId}-line">{side.team ?? side.role} ({side.role}) line</label>
+            <span class="pc-stepper">
+              <button type="button" aria-label="Lower the {side.role} spread line by half a point" onclick={() => { stepLine(side.line, -1, true); }}>−</button>
+              <input
+                id="{side.testId}-line"
+                name={side.line}
+                data-testid="{side.testId}-line"
+                defaultValue={value(side.line)}
+                inputmode="decimal"
+                oninput={side.role === "home" ? mirrorSpread : undefined}
+              />
+              <button type="button" aria-label="Raise the {side.role} spread line by half a point" onclick={() => { stepLine(side.line, 1, true); }}>+</button>
+            </span>
+          </div>
+        {/each}
+      </div>
+      <div class="pc-pair">
+        {#each spreadSides as side (side.price)}
+          <div class="pc-field">
+            <label for={side.testId}>{side.team ?? side.role} ({side.role}) odds</label>
+            {@render oddsStepper(side.price, side.testId, side.role)}
+          </div>
+        {/each}
+      </div>
+    </section>
+
+    <section class="pc-section" aria-labelledby="board-total-title">
+      <h2 id="board-total-title">Total</h2>
+      <p class="pc-hint">One number shared by over and under, then the odds for each.</p>
+      <div class="pc-field">
+        <label for="total-line">Total</label>
+        <span class="pc-stepper">
+          <button type="button" aria-label="Lower the total by half a point" onclick={() => stepLine("totalLine", -1, false)}>−</button>
+          <input id="total-line" name="totalLine" data-testid="total-line" defaultValue={value("totalLine")} inputmode="decimal" />
+          <button type="button" aria-label="Raise the total by half a point" onclick={() => stepLine("totalLine", 1, false)}>+</button>
+        </span>
+      </div>
+      <div class="pc-pair">
+        {#each totalSides as side (side.price)}
+          <div class="pc-field">
+            <label for={side.testId}>{side.role[0].toUpperCase()}{side.role.slice(1)} odds</label>
+            {@render oddsStepper(side.price, side.testId, side.role)}
+          </div>
+        {/each}
+      </div>
     </section>
 
     <Button type="submit" size="lg" class="justify-self-start" data-testid="freeze-board" disabled={!selected}>
