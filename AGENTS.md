@@ -7,6 +7,7 @@ Personal NFL pregame research journal. The record is the product: an analysis, a
 - Read `docs/agents/issue-tracker.md` before creating or fetching an issue or spec. Issues live in `.scratch/<feature>/`.
 - Read `docs/agents/triage-labels.md` before triaging an issue.
 - Read `docs/agents/domain.md` before exploring the codebase.
+- Read `DESIGN.md` before changing any page, component, or style.
 - Read `README.md` before describing what the application does. Read `docs/testing.md` before running or changing verification. Read `.scratch/pocketcheck-trust-and-journal/spec.md` before changing the journal journey.
 
 ## Journal
