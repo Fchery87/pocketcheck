@@ -1,17 +1,69 @@
-import { error } from "@sveltejs/kit";
-import { ConfigError, researchStore } from "#lib/server/config.ts";
-import type { PageServerLoad } from "./$types";
+import { error, fail } from "@sveltejs/kit";
+import { ConfigError, now, researchStore } from "#lib/server/config.ts";
+import type { SettlementNoticeKind } from "#lib/server/analysis/store.ts";
+import type { Actions, PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = async ({ params }) => {
-  let store;
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const kinds = new Set<SettlementNoticeKind>(["final", "postponed", "void", "unresolved"]);
+
+function store() {
   try {
-    store = researchStore();
+    return researchStore();
   } catch (failure) {
     if (failure instanceof ConfigError) error(503, failure.message);
     throw failure;
   }
-  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  const board = uuid.test(params.id) ? await store.getBoard(params.id) : null;
+}
+
+export const load: PageServerLoad = async ({ params }) => {
+  const journal = store();
+  const board = uuid.test(params.id) ? await journal.getBoard(params.id) : null;
   if (!board) error(404, "Game board not found");
-  return { board };
+  const settlement = await journal.readBoardSettlement(board.id);
+  return { board, settlement };
 };
+
+export const actions = {
+  settle: async ({ request, params }) => {
+    const data = await request.formData();
+    const eventId = String(data.get("eventId") ?? "").trim();
+    const kind = String(data.get("kind") ?? "").trim();
+    const homeText = String(data.get("homeScore") ?? "").trim();
+    const awayText = String(data.get("awayScore") ?? "").trim();
+    const reason = String(data.get("reason") ?? "").trim();
+    const correctsNoticeId = String(data.get("correctsNoticeId") ?? "").trim();
+    if (!eventId)
+      return fail(400, { settled: false, error: "Enter a settlement event identifier" });
+    if (!kinds.has(kind as SettlementNoticeKind)) {
+      return fail(400, { settled: false, error: "Choose a settlement kind" });
+    }
+    const homeScore = homeText === "" ? null : Number(homeText);
+    const awayScore = awayText === "" ? null : Number(awayText);
+    if (kind === "final" && (!Number.isInteger(homeScore) || !Number.isInteger(awayScore))) {
+      return fail(400, { settled: false, error: "A final result needs whole-number scores" });
+    }
+    const journal = store();
+    const board = uuid.test(params.id) ? await journal.getBoard(params.id) : null;
+    if (!board) error(404, "Game board not found");
+    try {
+      const result = await journal.recordGameSettlement({
+        eventId,
+        gameId: board.game.id,
+        kind: kind as SettlementNoticeKind,
+        homeScore,
+        awayScore,
+        recordedAt: now(),
+        source: "game board",
+        reason: reason || null,
+        correctsNoticeId: correctsNoticeId || null,
+      });
+      if (result.kind === "conflict") return fail(409, { settled: false, error: result.error });
+      return { settled: true, duplicate: result.kind === "duplicate", error: null };
+    } catch (cause) {
+      return fail(400, {
+        settled: false,
+        error: cause instanceof Error ? cause.message : "Settlement was not saved",
+      });
+    }
+  },
+} satisfies Actions;

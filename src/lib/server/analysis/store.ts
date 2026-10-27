@@ -337,7 +337,9 @@ export type RecordSettlementResult =
 export type StoredNotice = {
   id: string;
   eventId: string;
-  analysisId: string;
+  /** Exactly one of analysisId and gameId is set. Game notices belong to every board of the game. */
+  analysisId: string | null;
+  gameId: string | null;
   betId: string | null;
   kind: SettlementNoticeKind;
   homeScore: number | null;
@@ -602,7 +604,7 @@ export function createMemoryStore(): JournalStore {
       return memoryBackup(runs, bets, closings, notices);
     },
   };
-  return { ...research, ...createMemoryBoardStore() };
+  return { ...research, ...createMemoryBoardStore(notices) };
 }
 
 function recordMemoryBet(
@@ -851,6 +853,7 @@ function recordMemorySettlement(
     id: randomUUID(),
     eventId: input.eventId,
     analysisId: input.analysisId,
+    gameId: null,
     betId: input.betId ?? null,
     kind: input.kind,
     homeScore: input.homeScore ?? null,

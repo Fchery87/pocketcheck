@@ -869,8 +869,10 @@ export class JournalRepository {
     return row ? { id: row.id, payloadKey: row.payload_key } : null;
   }
 
-  async readSettlementNotice(id: string): Promise<{ id: string; analysisId: string } | null> {
-    const rows = await this.sql<{ id: string; analysis_id: string }[]>`
+  async readSettlementNotice(
+    id: string,
+  ): Promise<{ id: string; analysisId: string | null } | null> {
+    const rows = await this.sql<{ id: string; analysis_id: string | null }[]>`
       SELECT id, analysis_id FROM settlement_notices WHERE id = ${id}
     `;
     const row = rows[0];
