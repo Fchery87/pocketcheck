@@ -29,6 +29,13 @@ const FIELDS = [
   "tieRule",
   "lean",
   "rationale",
+  "spreadHomeLine",
+  "spreadAwayLine",
+  "spreadHome",
+  "spreadAway",
+  "totalLine",
+  "totalOver",
+  "totalUnder",
   "requestId",
   "cutoffAt",
   "scheduleRetrievedAt",
@@ -48,6 +55,14 @@ function odds(raw: string): { ok: true; value: number | undefined } | { ok: fals
   if (raw === "") return { ok: true, value: undefined };
   const value = Number(raw.replace("−", "-"));
   if (!Number.isInteger(value)) return { ok: false, error: `Invalid American price: ${raw}` };
+  return { ok: true, value };
+}
+
+/** Blank stays unentered. Anything else must be a number, such as -3.5 or 44.5. */
+function line(raw: string): { ok: true; value: number | undefined } | { ok: false; error: string } {
+  if (raw === "") return { ok: true, value: undefined };
+  const value = Number(raw.replace("−", "-"));
+  if (!Number.isFinite(value)) return { ok: false, error: `Invalid point line: ${raw}` };
   return { ok: true, value };
 }
 
@@ -92,12 +107,24 @@ export const actions = {
     if (!upcomingGames([game], nowIso).length) return refuse(400, "The game has already started");
     const observedAt = parseObservedAt(values.observedAt ?? "");
     if (!observedAt) return refuse(400, "Enter when you observed these prices");
-    const home = odds(values.moneylineHome ?? "");
-    if (!home.ok) return refuse(400, home.error);
-    const away = odds(values.moneylineAway ?? "");
-    if (!away.ok) return refuse(400, away.error);
-    const tieRule = values.tieRule as TieRule;
-    if (!TIE_RULES.includes(tieRule)) return refuse(400, "A moneyline requires a tie rule");
+    const parsed = {
+      moneylineHome: odds(values.moneylineHome ?? ""),
+      moneylineAway: odds(values.moneylineAway ?? ""),
+      spreadHome: odds(values.spreadHome ?? ""),
+      spreadAway: odds(values.spreadAway ?? ""),
+      totalOver: odds(values.totalOver ?? ""),
+      totalUnder: odds(values.totalUnder ?? ""),
+      spreadHomeLine: line(values.spreadHomeLine ?? ""),
+      spreadAwayLine: line(values.spreadAwayLine ?? ""),
+      totalLine: line(values.totalLine ?? ""),
+    };
+    for (const item of Object.values(parsed)) if (!item.ok) return refuse(400, item.error);
+    const n = (key: keyof typeof parsed) => {
+      const item = parsed[key];
+      return item.ok ? item.value : undefined;
+    };
+    const tieRule = TIE_RULES.find((rule) => rule === values.tieRule);
+    const totalLine = n("totalLine");
 
     let store;
     try {
@@ -114,7 +141,23 @@ export const actions = {
         scheduleRetrievedAt: values.scheduleRetrievedAt || schedule.retrievedAt,
         sportsbook: values.sportsbook ?? "",
         observedAt,
-        moneyline: { home: home.value, away: away.value, tieRule },
+        moneyline: {
+          home: n("moneylineHome"),
+          away: n("moneylineAway"),
+          tieRule,
+        },
+        spread: {
+          homeLine: n("spreadHomeLine"),
+          awayLine: n("spreadAwayLine"),
+          home: n("spreadHome"),
+          away: n("spreadAway"),
+        },
+        total: {
+          overLine: totalLine,
+          underLine: totalLine,
+          over: n("totalOver"),
+          under: n("totalUnder"),
+        },
         manualEvidence: manual.entries,
         lean: values.lean,
         rationale: values.rationale,

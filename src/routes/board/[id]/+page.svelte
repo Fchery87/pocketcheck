@@ -39,6 +39,7 @@
   };
   type Part = { intercept: number; contributions: Array<{ feature: string; points: number }> };
   type Drivers = { margin: Part; total: Part };
+  const lined = (pointLine: number | null) => (pointLine === null ? "" : ` ${signed(pointLine)}`);
   const sideName = (selection: SideSelection) =>
     selection === "home" || selection === "away" ? `${team(selection)} (${selection})` : selection;
 </script>
@@ -93,7 +94,7 @@
         </p>
         <p class="pc-kicker">Side chosen by the forecasting model</p>
         <p class="pc-offer-line" data-testid="picked-side">
-          {team(picked.selection)} {market.market} {signed(picked.americanOdds)}
+          {team(picked.selection)} {market.market}{lined(picked.pointLine)} {signed(picked.americanOdds)}
         </p>
         <p class="pc-verdict-word" data-testid="strength-grade">{calculation.grade}</p>
         <p data-testid="grade-reason">
@@ -113,7 +114,7 @@
           {#each calculation.sides as side (side.selection)}
             <dl class="pc-figures" data-testid="side-{side.selection}">
               <dt>Side</dt>
-              <dd>{sideName(side.selection)}</dd>
+              <dd>{sideName(side.selection)}{lined(side.pointLine)}</dd>
               <dt>American odds</dt>
               <dd>{signed(side.americanOdds)}</dd>
               <dt>Model win</dt>
@@ -121,7 +122,7 @@
               <dt>Model loss</dt>
               <dd>{percent(side.probabilities.loss)}</dd>
               <dt>Model push</dt>
-              <dd>{percent(side.probabilities.push)}</dd>
+              <dd data-testid="model-push">{percent(side.probabilities.push)}</dd>
               <dt>No-vig probability</dt>
               <dd data-testid="no-vig">{percent(side.noVigProbability)}</dd>
               <dt>Expected value per unit</dt>
@@ -208,8 +209,8 @@
         <p data-testid="no-pick"><span class="pc-unknown">∅ Not computed</span> This board stopped before its model picks were frozen.</p>
       {/if}
       <p class="pc-hint">
-        Entered: {sideName(market.offers[0].selection)} {signed(market.offers[0].americanOdds)},
-        {sideName(market.offers[1].selection)} {signed(market.offers[1].americanOdds)}{#if market.offers[0].rules.tie}, tie rule {market.offers[0].rules.tie}{/if}.
+        Entered: {sideName(market.offers[0].selection)}{lined(market.offers[0].pointLine)} {signed(market.offers[0].americanOdds)},
+        {sideName(market.offers[1].selection)}{lined(market.offers[1].pointLine)} {signed(market.offers[1].americanOdds)}{#if market.offers[0].rules.tie}, tie rule {market.offers[0].rules.tie}{/if}.
       </p>
     </section>
   {/each}

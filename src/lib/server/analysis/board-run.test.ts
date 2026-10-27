@@ -25,7 +25,9 @@ function board(overrides: Partial<GameBoardRequest> = {}): GameBoardRequest {
 describe("game board run", () => {
   it("freezes a moneyline board and its unvalidated model pick", async () => {
     const store = createMemoryStore();
-    const model = scriptedModel({ home: { win: 0.62, loss: 0.36, push: 0.02 } });
+    const model = scriptedModel({
+      home: { win: 0.62, loss: 0.36, push: 0.02 },
+    });
     const outcome = await runGameBoard(board({ requestId: "board-1" }), {
       store,
       collect: quiet,
@@ -88,6 +90,58 @@ describe("game board run", () => {
   });
 });
 
+describe("spread and total game boards", () => {
+  const spread = { homeLine: -3.5, awayLine: 3.5, home: -110, away: -110 };
+  const total = { overLine: 44.5, underLine: 44.5, over: -105, under: -115 };
+  const model = () => scriptedModel({ home: { win: 0.55, loss: 0.43, push: 0.02 } });
+
+  it("freezes one model pick per entered market of a three-market board", async () => {
+    const store = createMemoryStore();
+    const outcome = await runGameBoard(board({ requestId: "three", spread, total }), {
+      store,
+      collect: quiet,
+      model: model(),
+    });
+    expect(outcome.ok, outcome.ok ? "" : outcome.error).toBe(true);
+    if (!outcome.ok) return;
+    const saved = (await store.getBoard(outcome.board.id))!;
+    expect(saved.markets.map((market) => market.market)).toEqual(["moneyline", "spread", "total"]);
+    for (const market of saved.markets) expect(market.pick).not.toBeNull();
+    const [, spreadMarket, totalMarket] = saved.markets;
+    expect(spreadMarket.offers.map((offer) => [offer.selection, offer.pointLine])).toEqual([
+      ["home", -3.5],
+      ["away", 3.5],
+    ]);
+    expect(totalMarket.offers.map((offer) => [offer.selection, offer.pointLine])).toEqual([
+      ["over", 44.5],
+      ["under", 44.5],
+    ]);
+    expect(totalMarket.pick!.calculation.sides.map((side) => side.selection)).toEqual([
+      "over",
+      "under",
+    ]);
+    expect(spreadMarket.pick!.calculation.sides[0].probabilities.push).toBe(0.02);
+  });
+
+  it.each([
+    ["spread only", { moneyline: undefined, spread }, ["spread"]],
+    ["total only", { moneyline: undefined, total }, ["total"]],
+    ["spread and total", { moneyline: undefined, spread, total }, ["spread", "total"]],
+    ["moneyline and total", { total }, ["moneyline", "total"]],
+  ])("yields a model pick for each entered market: %s", async (_name, overrides, markets) => {
+    const store = createMemoryStore();
+    const outcome = await runGameBoard(board({ requestId: "subset", ...overrides }), {
+      store,
+      collect: quiet,
+      model: model(),
+    });
+    expect(outcome.ok, outcome.ok ? "" : outcome.error).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.board.markets.map((market) => market.market)).toEqual(markets);
+    expect(outcome.board.markets.every((market) => market.pick !== null)).toBe(true);
+  });
+});
+
 describe("model pick strength grades", () => {
   type Case = {
     name: string;
@@ -102,7 +156,11 @@ describe("model pick strength grades", () => {
       grade: "strong" | "lean" | "no edge";
       tieBreak: "expected value" | "model win probability" | "home or over";
       release?: "released" | "unvalidated";
-      cutoff?: { grade: "strong" | "lean"; keeps: boolean; americanOdds: number };
+      cutoff?: {
+        grade: "strong" | "lean";
+        keeps: boolean;
+        americanOdds: number;
+      };
     };
   };
   const cases: Case[] = [
@@ -166,7 +224,11 @@ describe("model pick strength grades", () => {
       name: "an expected value tie goes to the higher model win probability",
       prices: { home: 200, away: -200 },
       home: { win: 0.3, loss: 0.6, push: 0.1 },
-      expected: { picked: "away", grade: "no edge", tieBreak: "model win probability" },
+      expected: {
+        picked: "away",
+        grade: "no edge",
+        tieBreak: "model win probability",
+      },
     },
     {
       name: "a full tie goes to home graded no edge",
@@ -179,7 +241,12 @@ describe("model pick strength grades", () => {
       prices: { home: -110, away: -110 },
       home: { win: 0.56, loss: 0.44, push: 0 },
       released: true,
-      expected: { picked: "home", grade: "lean", tieBreak: "expected value", release: "released" },
+      expected: {
+        picked: "home",
+        grade: "lean",
+        tieBreak: "expected value",
+        release: "released",
+      },
     },
   ];
 
@@ -288,7 +355,11 @@ describe("game board without a usable forecasting model", () => {
   for (const item of cases) {
     it(`saves the board with a reason and no model pick for ${item.name}`, async () => {
       const store = createMemoryStore();
-      const outcome = await runGameBoard(board(), { store, collect: quiet, model: item.model });
+      const outcome = await runGameBoard(board(), {
+        store,
+        collect: quiet,
+        model: item.model,
+      });
       expect(outcome.ok, outcome.ok ? "" : outcome.error).toBe(true);
       const saved = await store.getBoard(outcome.board!.id);
       expect(saved?.status).toBe("completed");
@@ -311,8 +382,16 @@ describe("game board without a usable forecasting model", () => {
 });
 
 describe("game board rejection", () => {
-  const cases: Array<{ name: string; overrides: Partial<GameBoardRequest>; error: RegExp }> = [
-    { name: "an empty board", overrides: { moneyline: undefined }, error: /at least one market/ },
+  const cases: Array<{
+    name: string;
+    overrides: Partial<GameBoardRequest>;
+    error: RegExp;
+  }> = [
+    {
+      name: "an empty board",
+      overrides: { moneyline: undefined },
+      error: /at least one market/,
+    },
     {
       name: "a board with only the tie rule",
       overrides: { moneyline: { tieRule: "push" } },
@@ -348,7 +427,54 @@ describe("game board rejection", () => {
       overrides: { nowIso: "2026-10-27T00:15:00.000Z" },
       error: /already started/,
     },
-    { name: "a blank sportsbook", overrides: { sportsbook: "  " }, error: /sportsbook/ },
+    {
+      name: "a one-sided spread",
+      overrides: { spread: { homeLine: -3.5, awayLine: 3.5, home: -110 } },
+      error: /both spread prices/,
+    },
+    {
+      name: "a spread without its away line",
+      overrides: { spread: { homeLine: -3.5, home: -110, away: -110 } },
+      error: /away spread line/,
+    },
+    {
+      name: "non-mirrored spread lines",
+      overrides: {
+        spread: { homeLine: -3.5, awayLine: 3, home: -110, away: -110 },
+      },
+      error: /mirror/,
+    },
+    {
+      name: "a one-sided total",
+      overrides: { total: { overLine: 44.5, underLine: 44.5, over: -110 } },
+      error: /both total prices/,
+    },
+    {
+      name: "different over and under totals",
+      overrides: {
+        total: { overLine: 44.5, underLine: 45, over: -110, under: -110 },
+      },
+      error: /same total/,
+    },
+    {
+      name: "an invalid spread price",
+      overrides: {
+        spread: { homeLine: -3.5, awayLine: 3.5, home: -110, away: -50 },
+      },
+      error: /Invalid American price: -50/,
+    },
+    {
+      name: "a total price of +99",
+      overrides: {
+        total: { overLine: 44.5, underLine: 44.5, over: 99, under: -110 },
+      },
+      error: /Invalid American price: 99/,
+    },
+    {
+      name: "a blank sportsbook",
+      overrides: { sportsbook: "  " },
+      error: /sportsbook/,
+    },
   ];
   for (const item of cases) {
     it(`rejects ${item.name} without saving a board`, async () => {
@@ -372,7 +498,11 @@ describe("game board rejection", () => {
   it("never records a research analysis for a model pick", async () => {
     const store = createMemoryStore();
     const model = scriptedModel({ home: { win: 0.7, loss: 0.3, push: 0 } });
-    const outcome = await runGameBoard(board(), { store, collect: quiet, model });
+    const outcome = await runGameBoard(board(), {
+      store,
+      collect: quiet,
+      model,
+    });
     expect(outcome.ok).toBe(true);
     expect(await store.listCompleted()).toEqual([]);
   });
