@@ -51,6 +51,34 @@ describe("model pick drivers", () => {
     );
     expect(effect).toBeLessThan(-30);
   });
+
+  it("freezes margin and total drivers for a spread and a total pick too", async () => {
+    const store = createMemoryStore();
+    const outcome = await runGameBoard(
+      board({
+        requestId: "drivers-2",
+        spread: { homeLine: -3.5, awayLine: 3.5, home: -110, away: -110 },
+        total: { overLine: 44.5, underLine: 44.5, over: -110, under: -110 },
+      }),
+      {
+        store,
+        collect: quiet,
+        model: createArtifactModel(paths),
+        forecast: createArtifactForecast(paths),
+      },
+    );
+    expect(outcome.ok, outcome.ok ? "" : outcome.error).toBe(true);
+    for (const entry of outcome.board!.markets) {
+      const drivers = entry.pick!.forecast!.drivers!;
+      expect(drivers.margin.contributions).toHaveLength(13);
+      expect(drivers.total.contributions).toHaveLength(13);
+    }
+    expect(outcome.board!.markets.map((entry) => entry.market)).toEqual([
+      "moneyline",
+      "spread",
+      "total",
+    ]);
+  });
 });
 
 describe("manual evidence on a game board", () => {
