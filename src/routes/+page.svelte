@@ -111,8 +111,13 @@
 
   const offerSheet = new Collapsible();
 
+  let hydrated = $state(false);
   onMount(() => {
+    // A game chosen before this page hydrated is in the DOM but never reached `selectedId`.
+    const chosen = formElement?.querySelector<HTMLSelectElement>('select[name="gameId"]')?.value;
+    if (chosen && data.games.some((game) => game.id === chosen)) selectedId = chosen;
     readForm();
+    hydrated = true;
     if (form?.error) {
       document.getElementById("stage-offer")?.scrollIntoView({ block: "start" });
       document.querySelector<HTMLElement>("#stage-offer h2")?.focus({ preventScroll: true });
@@ -130,7 +135,7 @@
   });
 </script>
 
-<main class="pc-analyze">
+<main class="pc-analyze" data-hydrated={hydrated}>
   <h1 class="pc-kicker">New analysis</h1>
   <p class="pc-hint" data-testid="board-entry">
     Want the forecasting model's side for both teams at once? Open a
@@ -206,9 +211,13 @@
           <h2 id="stage-game-title" tabindex="-1">Game</h2>
           <label class="pc-field">
             Game
-            <select name="gameId" data-testid="game-id" bind:value={selectedId}>
+            <select
+              name="gameId"
+              data-testid="game-id"
+              onchange={(event) => (selectedId = event.currentTarget.value)}
+            >
               {#each data.games as game (game.id)}
-                <option value={game.id}>Week {game.week}: {game.away} at {game.home}, {game.kickoffLabel}</option>
+                <option value={game.id} selected={game.id === selectedId}>Week {game.week}: {game.away} at {game.home}, {game.kickoffLabel}</option>
               {/each}
             </select>
           </label>
