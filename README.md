@@ -106,6 +106,14 @@ The default stays on `127.0.0.1`, which your phone cannot reach. To opt in for o
 
 The startup log repeats the no-login warning whenever `HOST` is not a loopback address. No origin setting is needed: the protocol is declared as `http`, and the origin is the address the phone used, so its forms pass the production check. A form from a different origin still returns 403. `npm run dev` and `npm run preview` always stay on `127.0.0.1`.
 
+`npm start` also checks the `Host` header of every request, reads included. It accepts `localhost`, `127.0.0.1`, `[::1]`, and the IP addresses of this computer's own network interfaces, on any port. Any other name, or no `Host` at all, gets `421` and never reaches the app. This blocks DNS rebinding: a web page you visit can point its own domain name at your computer, and the browser would then treat the page and PocketCheck as the same origin, letting it read and change the journal. An IP address cannot be rebound, so the phone address above needs no setting. To open PocketCheck by a name instead, such as `desk.local`, list it:
+
+```sh
+HOST=192.168.1.20 ALLOWED_HOSTS=desk.local npm start   # comma-separated names
+```
+
+The startup log prints the allowed hosts. Only list names that you control.
+
 ## Next implementation step
 
 The P1 and P2 items from the 2026-10-25 review are done. The baseline is now fit and scored on real nflverse games against the no-vig closing market, and it still loses to that market (see `docs/research/model-evaluation.md`). Research runs record the model's probabilities, a slate-aware uncertainty, and a conservative expected value checked against a frozen threshold. Only a market that passes the release gate can become a value candidate, and on today's numbers no market passes. Next: a model that beats the no-vig closing market, and using the injury report to tell when a team's usual quarterback will not start.
