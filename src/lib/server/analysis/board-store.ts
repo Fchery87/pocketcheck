@@ -194,6 +194,8 @@ export type GameBoardStore = {
   readBoardSettlement: (boardId: string) => Promise<BoardSettlement>;
   /** Boards that refresh this one, oldest first. A refresh never changes its parent. */
   listRefreshes: (parentId: string) => Promise<GameBoard[]>;
+  /** The board that holds a model pick, or null when no such pick exists. */
+  getBoardForPick: (pickId: string) => Promise<GameBoard | null>;
 };
 
 export const BOARD_CONFLICT =
@@ -358,6 +360,12 @@ export function createMemoryBoardStore(notices: StoredNotice[] = []): GameBoardS
         .filter((board) => board.parentId === parentId)
         .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
         .map((board) => structuredClone(board));
+    },
+    async getBoardForPick(pickId) {
+      const board = [...boards.values()].find((item) =>
+        item.markets.some((market) => market.pick?.id === pickId),
+      );
+      return board ? structuredClone(board) : null;
     },
   };
 }

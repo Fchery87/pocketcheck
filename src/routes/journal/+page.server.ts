@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { error, fail } from "@sveltejs/kit";
 import {
   parseOffer,
@@ -26,8 +27,34 @@ const selections = new Set<SideSelection>(["home", "away", "over", "under"]);
 const ties = new Set<TieRule>(["push", "loss", "win", "void"]);
 const kinds = new Set<SettlementNoticeKind>(["final", "postponed", "void", "unresolved"]);
 
-export const load: PageServerLoad = async () => {
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The picked contract as editable starting values for the actual-bet form. */
+async function pickStart(journal: ReturnType<typeof store>, pickId: string) {
+  const board = uuid.test(pickId) ? await journal.getBoardForPick(pickId) : null;
+  const market = board?.markets.find((item) => item.pick?.id === pickId);
+  const pick = market?.pick;
+  if (!board || !market || !pick) return null;
+  const offer = market.offers.find((item) => item.selection === pick.calculation.pickedSelection);
+  if (!offer) return null;
+  return {
+    modelPickId: pick.id,
+    boardId: board.id,
+    game: `${board.game.away} at ${board.game.home}`,
+    sportsbook: board.sportsbook,
+    market: market.market,
+    selection: offer.selection,
+    pointLine: offer.pointLine,
+    americanOdds: offer.americanOdds,
+    tie: offer.rules.tie ?? "",
+    submissionId: randomUUID(),
+  };
+}
+
+export const load: PageServerLoad = async ({ url }) => {
   const journal = store();
+  const pickId = url.searchParams.get("pick");
+  const pickBet = pickId ? await pickStart(journal, pickId) : null;
   const [assessments, bets, closings] = await Promise.all([
     journal.listCompleted(),
     journal.listBets(),
@@ -62,13 +89,14 @@ export const load: PageServerLoad = async () => {
     })),
     closings,
   });
-  return { assessments, bets, settlements, closings, performance };
+  return { assessments, bets, settlements, closings, performance, pickBet };
 };
 
 export const actions = {
   bet: async ({ request }) => {
     const data = await request.formData();
     const analysisId = String(data.get("analysisId") ?? "").trim();
+    const modelPickId = String(data.get("modelPickId") ?? "").trim();
     const sportsbook = String(data.get("sportsbook") ?? "").trim();
     const market = String(data.get("market") ?? "").trim();
     const selection = String(data.get("selection") ?? "").trim();
@@ -77,7 +105,7 @@ export const actions = {
     const stakeUnits = Number(data.get("stakeUnits"));
     const tie = String(data.get("tie") ?? "").trim();
     const submissionId = String(data.get("submissionId") ?? "").trim();
-    if (!analysisId)
+    if (!analysisId && !modelPickId)
       return fail(400, { recorded: false, error: "Choose the analysis this bet belongs to" });
     if (!submissionId) {
       return fail(400, {
@@ -102,9 +130,18 @@ export const actions = {
       return fail(400, { recorded: false, error: "Stake must be a positive number of units" });
     }
     const journal = store();
-    const analysis = await journal.getRun(analysisId);
-    if (!analysis)
-      return fail(400, { recorded: false, error: `Analysis not found: ${analysisId}` });
+    let contractGame: { id: string; kickoff: string };
+    if (modelPickId) {
+      const board = uuid.test(modelPickId) ? await journal.getBoardForPick(modelPickId) : null;
+      if (!board)
+        return fail(400, { recorded: false, error: `Model pick not found: ${modelPickId}` });
+      contractGame = board.game;
+    } else {
+      const analysis = await journal.getRun(analysisId);
+      if (!analysis)
+        return fail(400, { recorded: false, error: `Analysis not found: ${analysisId}` });
+      contractGame = analysis.game;
+    }
     const rules: OfferRules = {
       period: "full-game",
       overtime: "included",
@@ -112,14 +149,14 @@ export const actions = {
     };
     try {
       parseOffer({
-        gameId: analysis.game.id,
+        gameId: contractGame.id,
         sportsbook,
         market: market as Market,
         selection: selection as SideSelection,
         pointLine,
         americanOdds,
         observedAt: now(),
-        kickoffAt: analysis.game.kickoff,
+        kickoffAt: contractGame.kickoff,
         rules,
       });
     } catch (cause) {
@@ -130,7 +167,7 @@ export const actions = {
     }
     try {
       const result = await journal.recordBet({
-        analysisId,
+        ...(modelPickId ? { modelPickId } : { analysisId }),
         submissionId,
         sportsbook,
         market: market as Market,

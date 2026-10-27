@@ -1,6 +1,7 @@
 import { afterEach } from "vite-plus/test";
 import { createNeonStore } from "#lib/server/analysis/neon-store.ts";
 import { describeGameBoardContract } from "../board-store-contract.ts";
+import { describePickBetContract } from "../pick-bet-contract.ts";
 import { describeStoreContract } from "../store-contract.ts";
 import { isolatedDb, type IsolatedDb } from "./isolated-db.ts";
 
@@ -14,6 +15,7 @@ async function makeStore() {
 
 describeStoreContract("Neon", makeStore);
 describeGameBoardContract("Neon", makeStore);
+describePickBetContract("Neon", makeStore);
 
 afterEach(async () => {
   const pending = open.splice(0);

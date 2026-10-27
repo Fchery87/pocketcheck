@@ -6,6 +6,7 @@
   import type { PageProps } from "./$types";
 
   let { data, form }: PageProps = $props();
+  const start = $derived(data.pickBet);
   const label = (assessment: (typeof data.assessments)[number]) =>
     `${assessment.game.away} at ${assessment.game.home}: ${assessment.offer.market} ${assessment.offer.selection} ${signedLine(assessment.offer.pointLine)} ${assessment.offer.americanOdds}`;
 </script>
@@ -117,58 +118,64 @@
     Record the contract you placed. It can differ from the researched offer, and saving it does not
     change that research.
   </p>
-  <form class="pc-form" method="POST" action="?/bet" data-testid="bet-form">
-    <label>
-      Analysis
-      <select name="analysisId" required data-testid="bet-analysis">
-        <option value="">choose an analysis</option>
-        {#each data.assessments as assessment (assessment.id)}
-          <option value={assessment.id}>{label(assessment)}</option>
-        {/each}
-      </select>
-    </label>
+  <form class="pc-form" id="bet-form" method="POST" action={start ? `?/bet&pick=${start.modelPickId}` : "?/bet"} data-testid="bet-form">
+    {#if start}
+      <p class="pc-hint" data-testid="bet-pick-start">
+        Starting from the model pick for {start.game}. These are starting values. Change anything that
+        differs from what you placed. <a href="/board/{start.boardId}">Back to the board</a>
+      </p>
+      <input type="hidden" name="modelPickId" value={start.modelPickId} />
+    {:else}
+      <label>
+        Analysis
+        <select name="analysisId" required data-testid="bet-analysis">
+          <option value="">choose an analysis</option>
+          {#each data.assessments as assessment (assessment.id)}
+            <option value={assessment.id}>{label(assessment)}</option>
+          {/each}
+        </select>
+      </label>
+    {/if}
     <label>
       Submission identifier
-      <input name="submissionId" required data-testid="bet-submission" />
+      <input name="submissionId" required data-testid="bet-submission" value={start?.submissionId ?? ""} />
     </label>
     <label>
       Sportsbook you used
-      <input name="sportsbook" required />
+      <input name="sportsbook" required data-testid="bet-sportsbook" value={start?.sportsbook ?? ""} />
     </label>
     <label>
       Market you placed
       <select name="market" data-testid="bet-market">
-        <option value="moneyline">moneyline</option>
-        <option value="spread">spread</option>
-        <option value="total">total</option>
+        {#each ["moneyline", "spread", "total"] as option (option)}
+          <option value={option} selected={start?.market === option}>{option}</option>
+        {/each}
       </select>
     </label>
     <label>
       Selection you placed
       <select name="selection" data-testid="bet-selection">
-        <option value="home">home</option>
-        <option value="away">away</option>
-        <option value="over">over</option>
-        <option value="under">under</option>
+        {#each ["home", "away", "over", "under"] as option (option)}
+          <option value={option} selected={start?.selection === option}>{option}</option>
+        {/each}
       </select>
     </label>
     <label>
       Line you placed (selected side, spread or total)
-      <input name="pointLine" inputmode="decimal" data-testid="bet-line" />
+      <input name="pointLine" inputmode="decimal" data-testid="bet-line" value={start?.pointLine ?? ""} />
     </label>
     <label>
       Tie rule (moneyline)
       <select name="tie" data-testid="bet-tie">
-        <option value="">not a moneyline</option>
-        <option value="push">push</option>
-        <option value="loss">loss</option>
-        <option value="win">win</option>
-        <option value="void">void</option>
+        <option value="" selected={!start?.tie}>not a moneyline</option>
+        {#each ["push", "loss", "win", "void"] as option (option)}
+          <option value={option} selected={start?.tie === option}>{option}</option>
+        {/each}
       </select>
     </label>
     <label>
       American odds you got
-      <input name="americanOdds" required />
+      <input name="americanOdds" required data-testid="bet-odds" value={start?.americanOdds ?? ""} />
     </label>
     <label>
       Stake units
@@ -185,13 +192,14 @@
     {#each data.bets as bet (bet.id)}
       <li>
         {#if bet.contractProvenance === "captured"}
-          <a href="/analysis/{bet.analysisId}" data-testid="bet-contract">
+          <a href={bet.analysisId ? `/analysis/${bet.analysisId}` : "/journal"} data-testid="bet-contract">
             {bet.sportsbook} {bet.market} {bet.selection} {signedLine(bet.pointLine)} {bet.americanOdds}
             for {bet.stakeUnits} units, placed {easternTime(bet.placedAt)}, full game, overtime included
             {#if bet.rules?.tie}, tie {bet.rules.tie}{/if}
           </a>
+          {#if bet.modelPickId}<Badge variant="dashed" data-testid="bet-from-pick">from a model pick</Badge>{/if}
         {:else}
-          <a href="/analysis/{bet.analysisId}">
+          <a href={bet.analysisId ? `/analysis/${bet.analysisId}` : "/journal"}>
             {bet.sportsbook} {bet.americanOdds} for {bet.stakeUnits} units
           </a>
           <Badge variant="dashed" data-testid="legacy-bet-provenance">

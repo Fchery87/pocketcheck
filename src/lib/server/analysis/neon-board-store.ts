@@ -323,6 +323,12 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore {
       for (const row of rows) boards.push(await require(sql, row.id));
       return boards;
     },
+    async getBoardForPick(pickId) {
+      const [row] = await sql<{ board_id: string }[]>`
+        SELECT board_id FROM model_picks WHERE id = ${pickId}
+      `;
+      return row ? read(sql, row.board_id) : null;
+    },
   };
 }
 

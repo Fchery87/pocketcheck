@@ -222,7 +222,10 @@ export type ContractProvenance = "captured" | "legacy-unknown";
  */
 export type ActualBet = {
   id: string;
-  analysisId: string;
+  /** The analysis this bet was placed against. Null for a bet placed from a model pick. */
+  analysisId: string | null;
+  /** The model pick this bet started from. Null for every bet that predates model picks. */
+  modelPickId: string | null;
   submissionId: string | null;
   contractProvenance: ContractProvenance;
   sportsbook: string;
@@ -235,8 +238,10 @@ export type ActualBet = {
   placedAt: string;
 };
 
+/** A bet belongs to an analysis or starts from a model pick, never both. */
 export type NewActualBet = {
-  analysisId: string;
+  analysisId?: string;
+  modelPickId?: string;
   submissionId: string;
   sportsbook: string;
   market: Market;
@@ -392,6 +397,7 @@ export function createMemoryStore(): JournalStore {
   const bets: ActualBet[] = [];
   const closings: ClosingObservation[] = [];
   const notices: StoredNotice[] = [];
+  const boardStore = createMemoryBoardStore(notices);
   const submissions = new Map<string, string>();
   const fingerprints = new Map<string, string>();
   let betWrites: Promise<unknown> = Promise.resolve();
@@ -518,9 +524,14 @@ export function createMemoryStore(): JournalStore {
       return structuredClone(interrupted);
     },
     async recordBet(bet) {
-      const write = betWrites.then(() =>
-        recordMemoryBet({ runs, bets, submissions, fingerprints }, bet),
-      );
+      const write = betWrites.then(async () => {
+        const board = bet.modelPickId ? await boardStore.getBoardForPick(bet.modelPickId) : null;
+        return recordMemoryBet(
+          { runs, bets, submissions, fingerprints },
+          bet,
+          board ? { id: board.game.id, kickoff: board.game.kickoff } : null,
+        );
+      });
       betWrites = write.then(
         () => undefined,
         () => undefined,
@@ -591,7 +602,7 @@ export function createMemoryStore(): JournalStore {
       }
       for (const bet of incoming.bets) {
         if (!bets.some((item) => item.id === bet.id)) {
-          bets.push(bet);
+          bets.push({ ...bet, modelPickId: bet.modelPickId ?? null });
           if (bet.submissionId) submissions.set(bet.submissionId, bet.id);
         }
       }
@@ -604,7 +615,7 @@ export function createMemoryStore(): JournalStore {
       return memoryBackup(runs, bets, closings, notices);
     },
   };
-  return { ...research, ...createMemoryBoardStore(notices) };
+  return { ...research, ...boardStore };
 }
 
 function recordMemoryBet(
@@ -615,28 +626,40 @@ function recordMemoryBet(
     fingerprints: Map<string, string>;
   },
   input: NewActualBet,
+  pickGame: { id: string; kickoff: string } | null,
 ): RecordBetResult {
-  const run = state.runs.get(input.analysisId);
-  if (!run) throw new Error(`Analysis not found: ${input.analysisId}`);
+  if (!input.analysisId === !input.modelPickId) {
+    throw new Error("An actual bet belongs to one analysis or one model pick.");
+  }
+  let game: { id: string; kickoff: string };
+  if (input.modelPickId) {
+    if (!pickGame) throw new Error(`Model pick not found: ${input.modelPickId}`);
+    game = pickGame;
+  } else {
+    const run = state.runs.get(input.analysisId!);
+    if (!run) throw new Error(`Analysis not found: ${input.analysisId}`);
+    game = { id: run.game.id, kickoff: run.game.kickoff };
+  }
   if (!input.submissionId) throw new Error("An actual bet requires a submission identifier.");
   if (!Number.isFinite(input.stakeUnits) || input.stakeUnits <= 0) {
     throw new Error("Stake must be a positive number of units");
   }
   const contract = parseOffer({
-    gameId: run.game.id,
+    gameId: game.id,
     sportsbook: input.sportsbook,
     market: input.market,
     selection: input.selection,
     pointLine: input.pointLine,
     americanOdds: input.americanOdds,
     observedAt: input.placedAt,
-    kickoffAt: run.game.kickoff,
+    kickoffAt: game.kickoff,
     rules: input.rules,
   });
   const fingerprint = createHash("sha256")
     .update(
       JSON.stringify({
         analysisId: input.analysisId,
+        modelPickId: input.modelPickId,
         sportsbook: contract.sportsbook,
         market: contract.market,
         selection: contract.selection,
@@ -662,7 +685,8 @@ function recordMemoryBet(
   }
   const saved: ActualBet = {
     id: randomUUID(),
-    analysisId: input.analysisId,
+    analysisId: input.analysisId ?? null,
+    modelPickId: input.modelPickId ?? null,
     submissionId: input.submissionId,
     contractProvenance: "captured",
     sportsbook: contract.sportsbook,
@@ -711,6 +735,9 @@ function openSide(
   }
   const bet = state.bets.find((item) => item.id === subject.id);
   if (!bet) throw new Error(`Bet not found: ${subject.id}`);
+  if (!bet.analysisId) {
+    throw new Error("A bet placed from a model pick has no analysis to compare against yet.");
+  }
   const run = state.runs.get(bet.analysisId);
   if (!run) throw new Error(`Analysis not found: ${bet.analysisId}`);
   if (!bet.market || !bet.selection || !bet.rules) {
