@@ -206,6 +206,10 @@
             placed {easternTime(bet.placedAt)}. The market, line, and rules of this placement were not recorded.
           </Badge>
         {/if}
+        {#if data.pickBetGrades.find((row) => row.betId === bet.id)?.grade}
+          {@const grade = data.pickBetGrades.find((row) => row.betId === bet.id)!.grade!}
+          <Badge data-testid="pick-bet-result">{grade.effective}</Badge>
+        {/if}
       </li>
     {/each}
   </ul>
@@ -218,7 +222,7 @@
   <form class="pc-form" method="POST" action="?/settle">
     <label>
       Analysis
-      <select name="analysisId" required data-testid="settle-analysis">
+      <select name="analysisId" data-testid="settle-analysis">
         <option value="">choose an analysis</option>
         {#each data.assessments as assessment (assessment.id)}
           <option value={assessment.id}>{label(assessment)}</option>
@@ -271,17 +275,19 @@
   <ul class="pc-ledger" data-testid="settlements">
     {#each data.settlements as row (row.analysisId)}
       <li>
-        <Badge data-testid="assessment-result">assessment {row.assessment.effective}</Badge>
-        <ol class="pc-notices">
-          {#each row.assessment.history as notice (notice.id)}
-            <li data-testid="settlement-notice">
-              <span data-testid="settlement-notice-id">{notice.id}</span>
-              {notice.result} {notice.recordedAt}
-              {#if notice.correctsId}corrects {notice.correctsId}{/if}
-              {#if notice.reason}{notice.reason}{/if}
-            </li>
-          {/each}
-        </ol>
+        {#if row.assessment}
+          <Badge data-testid="assessment-result">assessment {row.assessment.effective}</Badge>
+          <ol class="pc-notices">
+            {#each row.assessment.history as notice (notice.id)}
+              <li data-testid="settlement-notice">
+                <span data-testid="settlement-notice-id">{notice.id}</span>
+                {notice.result} {notice.recordedAt}
+                {#if notice.correctsId}corrects {notice.correctsId}{/if}
+                {#if notice.reason}{notice.reason}{/if}
+              </li>
+            {/each}
+          </ol>
+        {/if}
         {#each row.bets as bet (bet.betId)}
           {#if bet.grade}
             <Badge data-testid="bet-result">bet {bet.grade.effective}</Badge>

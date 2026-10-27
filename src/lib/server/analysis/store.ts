@@ -245,6 +245,8 @@ export type ActualBet = {
   americanOdds: number;
   stakeUnits: number;
   placedAt: string;
+  /** Game of the analysis or model pick. Memory only, so a close can be timed. Not exported. */
+  game?: { id: string; kickoff: string };
 };
 
 /** A bet belongs to an analysis or starts from a model pick, never both. */
@@ -325,7 +327,9 @@ export type SettlementNoticeKind = "final" | "postponed" | "void" | "unresolved"
 
 export type RecordSettlementInput = {
   eventId: string;
-  analysisId: string;
+  /** The analysis being graded. Absent when the notice grades a bet placed from a model pick. */
+  analysisId?: string | null;
+  /** The actual bet being graded. Required when there is no analysis. */
   betId?: string | null;
   kind: SettlementNoticeKind;
   homeScore?: number | null;
@@ -385,10 +389,10 @@ export type ResearchStore = {
   /** Oldest first. Earlier observations stay when a later one is recorded. */
   listClosings: () => Promise<ClosingObservation[]>;
   recordSettlement: (input: RecordSettlementInput) => Promise<RecordSettlementResult>;
-  readSettlement: (input: {
-    analysisId: string;
-    betId?: string | null;
-  }) => Promise<{ assessment: SettlementGrade; bet: SettlementGrade | null }>;
+  readSettlement: (input: { analysisId?: string | null; betId?: string | null }) => Promise<{
+    assessment: SettlementGrade | null;
+    bet: SettlementGrade | null;
+  }>;
   /** Test seam: a completed row whose role was never frozen at completion. */
   recordUnclassifiedCompleted?: (run: ResearchRun) => Promise<void>;
   /** Test seam: an archived price with no observation time. */
@@ -728,11 +732,16 @@ function recordMemoryBet(
     americanOdds: contract.americanOdds,
     stakeUnits: input.stakeUnits,
     placedAt: input.placedAt,
+    game: { id: game.id, kickoff: game.kickoff },
   };
   state.bets.push(saved);
   state.submissions.set(input.submissionId, saved.id);
   state.fingerprints.set(saved.id, fingerprint);
   return { kind: "created", bet: structuredClone(saved) };
+}
+
+function gameOfRun(run: ResearchRun | undefined): { id: string; kickoff: string } | undefined {
+  return run ? { id: run.game.id, kickoff: run.game.kickoff } : undefined;
 }
 
 type OpenSide = {
@@ -775,17 +784,20 @@ function openSide(
   }
   const bet = state.bets.find((item) => item.id === subject.id);
   if (!bet) throw new Error(`Bet not found: ${subject.id}`);
-  if (!bet.analysisId) {
-    throw new Error("A bet placed from a model pick has no analysis to compare against yet.");
-  }
-  const run = state.runs.get(bet.analysisId);
-  if (!run) throw new Error(`Analysis not found: ${bet.analysisId}`);
   if (!bet.market || !bet.selection || !bet.rules) {
     throw new Error("This bet has no recorded contract to compare.");
   }
+  const game = bet.game ?? (bet.analysisId ? gameOfRun(state.runs.get(bet.analysisId)) : undefined);
+  if (!game) {
+    throw new Error(
+      bet.modelPickId
+        ? `Model pick not found: ${bet.modelPickId}`
+        : `Analysis not found: ${bet.analysisId}`,
+    );
+  }
   return {
-    gameId: run.game.id,
-    kickoffAt: run.game.kickoff,
+    gameId: game.id,
+    kickoffAt: game.kickoff,
     market: bet.market,
     selection: bet.selection,
     pointLine: bet.pointLine,
@@ -898,20 +910,26 @@ function recordMemorySettlement(
   },
   input: RecordSettlementInput,
 ): RecordSettlementResult {
-  const run = state.runs.get(input.analysisId);
-  if (!run) throw new Error(`Analysis not found: ${input.analysisId}`);
-  if (input.betId) {
-    const bet = state.bets.find((item) => item.id === input.betId);
-    if (!bet || bet.analysisId !== input.analysisId) {
-      throw new Error(`Bet not found: ${input.betId}`);
-    }
+  const analysisId = input.analysisId || null;
+  const betId = input.betId || null;
+  if (analysisId) {
+    const run = state.runs.get(analysisId);
+    if (!run) throw new Error(`Analysis not found: ${analysisId}`);
   }
+  const bet = betId ? state.bets.find((item) => item.id === betId) : undefined;
+  if (betId && (!bet || (analysisId ? bet.analysisId !== analysisId : !bet.modelPickId))) {
+    throw new Error(`Bet not found: ${betId}`);
+  }
+  if (!analysisId && !bet) throw new Error("Choose the analysis or the bet to settle");
   if (input.correctsNoticeId) {
     if (!input.reason?.trim()) {
       return { kind: "conflict", error: "A correction requires a reason." };
     }
     const prior = state.notices.find((item) => item.id === input.correctsNoticeId);
-    if (!prior || prior.analysisId !== input.analysisId) {
+    const sameSubject = analysisId
+      ? prior?.analysisId === analysisId
+      : prior?.betId === betId && prior.analysisId === null;
+    if (!prior || !sameSubject) {
       throw new Error(`Settlement not found: ${input.correctsNoticeId}`);
     }
   }
@@ -928,9 +946,9 @@ function recordMemorySettlement(
   const saved: StoredNotice = {
     id: randomUUID(),
     eventId: input.eventId,
-    analysisId: input.analysisId,
+    analysisId,
     gameId: null,
-    betId: input.betId ?? null,
+    betId,
     kind: input.kind,
     homeScore: input.homeScore ?? null,
     awayScore: input.awayScore ?? null,
@@ -977,15 +995,37 @@ function readMemorySettlement(
     bets: ActualBet[];
     notices: StoredNotice[];
   },
-  input: { analysisId: string; betId?: string | null },
-): { assessment: SettlementGrade; bet: SettlementGrade | null } {
-  const run = state.runs.get(input.analysisId);
-  if (!run) throw new Error(`Analysis not found: ${input.analysisId}`);
-  const forRun = state.notices.filter((item) => item.analysisId === input.analysisId);
+  input: { analysisId?: string | null; betId?: string | null },
+): { assessment: SettlementGrade | null; bet: SettlementGrade | null } {
+  const analysisId = input.analysisId || null;
+  if (!analysisId) {
+    const bet = input.betId ? state.bets.find((item) => item.id === input.betId) : undefined;
+    if (!bet?.modelPickId || !bet.market || !bet.selection || !bet.rules || !bet.game) {
+      throw new Error(`Bet not found: ${input.betId ?? ""}`);
+    }
+    const contract = parseOffer({
+      gameId: bet.game.id,
+      sportsbook: bet.sportsbook,
+      market: bet.market,
+      selection: bet.selection,
+      pointLine: bet.pointLine ?? undefined,
+      americanOdds: bet.americanOdds,
+      observedAt: bet.placedAt,
+      kickoffAt: bet.game.kickoff,
+      rules: bet.rules,
+    });
+    const notices = state.notices.filter(
+      (item) => item.betId === bet.id && item.analysisId === null,
+    );
+    return { assessment: null, bet: gradeFromNotices(contract, notices) };
+  }
+  const run = state.runs.get(analysisId);
+  if (!run) throw new Error(`Analysis not found: ${analysisId}`);
+  const forRun = state.notices.filter((item) => item.analysisId === analysisId);
   const assessment = gradeFromNotices(run.offer, forRun);
   if (!input.betId) return { assessment, bet: null };
   const bet = state.bets.find((item) => item.id === input.betId);
-  if (!bet || bet.analysisId !== input.analysisId || !bet.market || !bet.selection || !bet.rules) {
+  if (!bet || bet.analysisId !== analysisId || !bet.market || !bet.selection || !bet.rules) {
     return { assessment, bet: null };
   }
   const contract = parseOffer({

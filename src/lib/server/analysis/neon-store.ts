@@ -17,6 +17,7 @@ import type { SavedForecast } from "./forecast-record.ts";
 import type { PolicyDecision } from "./policy.ts";
 import { compareClosing } from "./closing.ts";
 import { createNeonBoardStore } from "./neon-board-store.ts";
+import type { GameBoardStore } from "./board-store.ts";
 import {
   gradeFromNotices,
   settlementPayloadKey,
@@ -247,15 +248,15 @@ export function createNeonStore(sql: Sql): JournalStore {
         .map(toBet);
     },
     async recordSettlement(input) {
-      return recordNeonSettlement(journal, input);
+      return recordNeonSettlement(journal, boardStore, input);
     },
     async readSettlement(input) {
-      return readNeonSettlement(journal, input);
+      return readNeonSettlement(journal, boardStore, input);
     },
     async recordClosing(input) {
       return {
         kind: "created",
-        closing: await persistClosing(journal, input, "observed"),
+        closing: await persistClosing(journal, boardStore, input, "observed"),
       };
     },
     async listClosings() {
@@ -277,6 +278,7 @@ export function createNeonStore(sql: Sql): JournalStore {
     async recordArchivedClosing(input) {
       return persistClosing(
         journal,
+        boardStore,
         {
           ...input,
           rules: { period: "full-game", overtime: "included" },
@@ -446,11 +448,12 @@ function betFingerprint(
 
 async function persistClosing(
   journal: JournalRepository,
+  boards: Pick<GameBoardStore, "getBoardForPick">,
   input: NewClosing,
   provenance: ClosingProvenance,
 ): Promise<ClosingObservation> {
   if (!input.source.trim()) throw new Error("A closing observation requires a source.");
-  const open = await openSide(journal, input);
+  const open = await openSide(journal, boards, input);
   if (provenance === "archived-untimestamped") {
     const record = await journal.recordClosing({
       analysisId: input.subject.kind === "analysis" ? input.subject.id : null,
@@ -529,7 +532,11 @@ async function persistClosing(
   };
 }
 
-async function openSide(journal: JournalRepository, input: NewClosing) {
+async function openSide(
+  journal: JournalRepository,
+  boards: Pick<GameBoardStore, "getBoardForPick">,
+  input: NewClosing,
+) {
   if (input.subject.kind === "model-pick") {
     const saved = await journal.findPickContract(input.subject.id);
     if (!saved) throw new Error(`Model pick not found: ${input.subject.id}`);
@@ -551,13 +558,19 @@ async function openSide(journal: JournalRepository, input: NewClosing) {
   }
   const bets = await journal.listBets();
   const bet = bets.find((item) => item.id === input.subject.id);
-  if (!bet?.analysisId) throw new Error(`Bet not found: ${input.subject.id}`);
+  if (!bet) throw new Error(`Bet not found: ${input.subject.id}`);
   if (!bet.contract) throw new Error("This bet has no recorded contract to compare.");
-  const saved = await journal.findRun(bet.analysisId);
-  if (!saved) throw new Error(`Analysis not found: ${bet.analysisId}`);
+  const saved = bet.analysisId ? await journal.findRun(bet.analysisId) : null;
+  if (bet.analysisId && !saved) throw new Error(`Analysis not found: ${bet.analysisId}`);
+  const board =
+    !bet.analysisId && bet.modelPickId ? await boards.getBoardForPick(bet.modelPickId) : null;
+  if (!bet.analysisId && !board) throw new Error(`Model pick not found: ${bet.modelPickId}`);
+  const game = saved
+    ? { id: saved.game.sourceGameId, kickoff: saved.game.kickoffAt }
+    : { id: board!.game.id, kickoff: board!.game.kickoff };
   return {
-    gameId: saved.game.sourceGameId,
-    kickoffAt: saved.game.kickoffAt,
+    gameId: game.id,
+    kickoffAt: game.kickoff,
     market: bet.contract.market,
     selection: bet.contract.selection,
     pointLine: bet.contract.pointLine,
@@ -658,21 +671,35 @@ async function toClosing(
 
 async function recordNeonSettlement(
   journal: JournalRepository,
+  boards: Pick<GameBoardStore, "getBoardForPick">,
   input: RecordSettlementInput,
 ): Promise<RecordSettlementResult> {
-  const saved = await journal.findRun(input.analysisId);
-  if (!saved) throw new Error(`Analysis not found: ${input.analysisId}`);
-  if (input.betId) {
-    const bets = await journal.listBets();
-    const bet = bets.find((item) => item.id === input.betId);
-    if (!bet || bet.analysisId !== input.analysisId)
-      throw new Error(`Bet not found: ${input.betId}`);
+  const analysisId = input.analysisId || null;
+  const betId = input.betId || null;
+  if (analysisId) {
+    const saved = await journal.findRun(analysisId);
+    if (!saved) throw new Error(`Analysis not found: ${analysisId}`);
   }
+  if (betId) {
+    const bets = await journal.listBets();
+    const bet = bets.find((item) => item.id === betId);
+    if (!bet || (analysisId ? bet.analysisId !== analysisId : !bet.modelPickId)) {
+      throw new Error(`Bet not found: ${betId}`);
+    }
+    if (!analysisId && bet.modelPickId) {
+      const board = await boards.getBoardForPick(bet.modelPickId);
+      if (!board) throw new Error(`Model pick not found: ${bet.modelPickId}`);
+    }
+  }
+  if (!analysisId && !betId) throw new Error("Choose the analysis or the bet to settle");
   if (input.correctsNoticeId) {
     if (!input.reason?.trim())
       return { kind: "conflict", error: "A correction requires a reason." };
     const prior = await journal.readSettlementNotice(input.correctsNoticeId);
-    if (!prior || prior.analysisId !== input.analysisId) {
+    const sameSubject = analysisId
+      ? prior?.analysisId === analysisId
+      : prior?.betId === betId && prior?.analysisId == null;
+    if (!prior || !sameSubject) {
       throw new Error(`Settlement not found: ${input.correctsNoticeId}`);
     }
   }
@@ -690,8 +717,8 @@ async function recordNeonSettlement(
     await journal.insertSettlementNotice({
       id,
       eventId: input.eventId,
-      analysisId: input.analysisId,
-      betId: input.betId ?? null,
+      analysisId,
+      betId,
       kind: input.kind,
       homeScore: input.homeScore ?? null,
       awayScore: input.awayScore ?? null,
@@ -717,18 +744,54 @@ async function recordNeonSettlement(
 
 async function readNeonSettlement(
   journal: JournalRepository,
-  input: { analysisId: string; betId?: string | null },
-): Promise<{ assessment: SettlementGrade; bet: SettlementGrade | null }> {
-  const saved = await journal.findRun(input.analysisId);
-  if (!saved) throw new Error(`Analysis not found: ${input.analysisId}`);
-  const notices = (await journal.listSettlementNotices(input.analysisId)).map(
-    (row): StoredNotice => ({ ...row, gameId: null, payloadKey: "" }),
-  );
+  boards: Pick<GameBoardStore, "getBoardForPick">,
+  input: { analysisId?: string | null; betId?: string | null },
+): Promise<{
+  assessment: SettlementGrade | null;
+  bet: SettlementGrade | null;
+}> {
+  const analysisId = input.analysisId || null;
+  if (!analysisId) {
+    const bets = await journal.listBets();
+    const bet = bets.find((item) => item.id === input.betId);
+    if (!bet?.contract || !bet.modelPickId || !bet.sportsbook) {
+      throw new Error(`Bet not found: ${input.betId ?? ""}`);
+    }
+    const board = await boards.getBoardForPick(bet.modelPickId);
+    if (!board) throw new Error(`Model pick not found: ${bet.modelPickId}`);
+    const contract = parseOffer({
+      gameId: board.game.id,
+      sportsbook: bet.sportsbook,
+      market: bet.contract.market,
+      selection: bet.contract.selection,
+      pointLine: bet.contract.pointLine ?? undefined,
+      americanOdds: bet.americanOdds,
+      observedAt: bet.placedAt,
+      kickoffAt: board.game.kickoff,
+      rules: bet.contract.rules,
+    });
+    const notices = (await journal.listSettlementNoticesForBet(bet.id)).map(
+      (row): StoredNotice => ({
+        ...row,
+        analysisId: null,
+        gameId: null,
+        payloadKey: "",
+      }),
+    );
+    return { assessment: null, bet: gradeFromNotices(contract, notices) };
+  }
+  const saved = await journal.findRun(analysisId);
+  if (!saved) throw new Error(`Analysis not found: ${analysisId}`);
+  const notices = (await journal.listSettlementNotices(analysisId)).map((row): StoredNotice => ({
+    ...row,
+    gameId: null,
+    payloadKey: "",
+  }));
   const assessment = gradeFromNotices(saved.offer, notices);
   if (!input.betId) return { assessment, bet: null };
   const bets = await journal.listBets();
   const bet = bets.find((item) => item.id === input.betId);
-  if (!bet?.contract || bet.analysisId !== input.analysisId) return { assessment, bet: null };
+  if (!bet?.contract || bet.analysisId !== analysisId) return { assessment, bet: null };
   const contract = parseOffer({
     gameId: saved.game.sourceGameId,
     sportsbook: bet.sportsbook ?? saved.offer.sportsbook,
