@@ -43,8 +43,8 @@ test("production rejects a mismatched form origin", async ({ request }) => {
 
 test("offer, report, refresh, and unchanged prior report", async ({ page, request }) => {
   await page.goto("/");
-  // The game card follows the select only after hydration.
-  await page.waitForLoadState("networkidle");
+  // The page marks itself once its component has mounted; network idleness does not.
+  await expect(page.locator("main")).toHaveAttribute("data-hydrated", "true");
   await page.getByTestId("game-id").selectOption("2026_07_DAL_PHI");
   await expect(page.getByTestId("timezone")).toHaveText("America/New_York");
   await expect(page.getByTestId("home")).toHaveText("PHI");
