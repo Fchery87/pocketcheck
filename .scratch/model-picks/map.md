@@ -14,6 +14,8 @@ Spec: [spec.md](spec.md). Integration branch: `feature/model-picks`.
 - Host allowlist: the `npm start` launcher answers 421 to any `Host` that is not loopback, one of this machine's interface addresses, or listed in `ALLOWED_HOSTS`, which closes the DNS-rebinding hole.
 - [03](issues/03-moneyline-game-board-tracer.md): a moneyline game board freezes with its own submission identifier and yields a versioned model pick (`model-pick-2026-10-27.1`) on `/board` and `/board/[id]`; migration 012 adds the records, and boards reject odds from -100 to +100.
 
+- 04: American odds under 100 in absolute value are rejected in every flow (analyses used to accept -50).
+
 ## Fog
 
 - Settlement keying for model picks (game vs. board) is decided in ticket 08.
