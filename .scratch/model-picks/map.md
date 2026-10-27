@@ -8,6 +8,8 @@ Spec: [spec.md](spec.md). Integration branch: `feature/model-picks`.
 
 ## Decisions-so-far
 
+- [02](issues/02-opt-in-phone-access.md): phone access is opt-in via `HOST=<lan-ip> npm start`; default stays `127.0.0.1`, with a no-login warning (`build/index.js` alone binds all interfaces).
+
 ## Fog
 
 - Settlement keying for model picks (game vs. board) is decided in ticket 08.
