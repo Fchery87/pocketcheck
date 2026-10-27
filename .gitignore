@@ -30,3 +30,7 @@ data/sources/
 # Playwright
 test-results/
 playwright-report/
+
+# Local agent worktrees
+.worktrees/
+.claude/worktrees/
