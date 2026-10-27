@@ -1,9 +1,11 @@
-export function verificationEnv(): NodeJS.ProcessEnv {
+import { BROWSER_PORT_VARIABLE } from "./browser-port.ts";
+
+export function verificationEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   return {
-    PATH: process.env.PATH,
-    HOME: process.env.HOME,
-    TMPDIR: process.env.TMPDIR,
-    CI: process.env.CI,
+    PATH: source.PATH,
+    HOME: source.HOME,
+    TMPDIR: source.TMPDIR,
+    CI: source.CI,
     DATABASE_URL: "",
     TEST_DATABASE_URL: "",
     DEEPSEEK_API_KEY: "",
@@ -19,4 +21,13 @@ export function verificationEnv(): NodeJS.ProcessEnv {
     POCKETCHECK_MODEL_ARTIFACT: "",
     TZ: "America/New_York",
   };
+}
+
+// The clean environment for a verification step, plus the caller's browser
+// port when one is set. No other caller variable passes through.
+export function verificationRunEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env = verificationEnv(source);
+  const port = source[BROWSER_PORT_VARIABLE];
+  if (port) env[BROWSER_PORT_VARIABLE] = port;
+  return env;
 }

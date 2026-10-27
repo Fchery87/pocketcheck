@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { browserPorts } from "../../scripts/browser-port.ts";
 
 async function optionIndex(page: Page, testId: string, text: string): Promise<number> {
   const labels = await page.getByTestId(testId).locator("option").allTextContents();
@@ -453,7 +454,7 @@ test("a correction, export, and restore keep the journal and leave a bad file un
   await expect(page.getByTestId("assessments")).toContainText("Recovery Book");
 
   const emptied = await page.request.post("/__verification", {
-    headers: { origin: "http://127.0.0.1:42627" },
+    headers: { origin: browserPorts(process.env).origin },
   });
   expect(emptied.ok()).toBe(true);
   expect((await emptied.json()).analyses).toBe(0);

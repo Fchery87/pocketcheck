@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { verificationEnv } from "./verification-env.ts";
+import { verificationRunEnv } from "./verification-env.ts";
 
-const env = verificationEnv();
+const env = verificationRunEnv();
 const commands = process.argv.includes("--database")
   ? ["test:integration"]
   : ["check", "test", "build", "test:e2e"];
