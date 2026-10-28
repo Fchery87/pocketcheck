@@ -40,6 +40,10 @@ _Avoid_: Slate, ticket, offer (for the whole board)
 The side the forecasting model prefers in one market of a game board, with its strength grade and reasons. It is a system assessment, not a bet.
 _Avoid_: Pick (alone), play, recommendation, tip
 
+**Primary model pick**:
+The earliest completed model pick for one game and market whose decision cutoff is strictly before kickoff.
+_Avoid_: Primary (alone, when the research analysis is meant), first pick
+
 **Strength grade**:
 How strongly the numbers support a model pick: strong, lean, or no edge. It comes from expected value at the entered prices, never from the drafter.
 _Avoid_: Confidence, stars, rating

@@ -42,7 +42,7 @@ CI's separate `database` job provisions a PostgreSQL 16 service with a disposabl
 
 The journal page downloads `/journal/export` as `pocketcheck-journal-v1.json`. Format version is `1`. Version 1 is the only backup restore accepts.
 
-The file contains games, offers, evidence used by analyses, analysis identifiers, original timestamps, parent links, immutable snapshots, gaps, manual coverage, and policy results. It also contains actual-bet contracts and stakes, primary classifications, closing observations, settlement and correction history, frozen forecasts, and provider attempt accounting. Failed, interrupted, and ambiguous attempts stay in the file with their durable responses.
+The file contains games, offers, evidence used by analyses, analysis identifiers, original timestamps, parent links, immutable snapshots, gaps, manual coverage, and policy results. It also contains actual-bet contracts and stakes, primary classifications, closing observations, settlement and correction history, frozen forecasts, and provider attempt accounting. Game boards and model picks are optional lists on the same version 1 file. A backup from before boards still restores. Failed, interrupted, and ambiguous attempts stay in the file with their durable responses.
 
 Legacy records keep their saved provenance limits. Export does not fill in facts the record does not have.
 
