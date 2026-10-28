@@ -64,6 +64,32 @@ export const FEATURE_DEFINITIONS = [
 
 export type FeatureName = (typeof FEATURE_DEFINITIONS)[number]["name"];
 
+/**
+ * Features dropped together for an ablation. A group is kept only when dropping it makes
+ * held-out log loss worse. Later features join a group here.
+ */
+export const INPUT_GROUPS: readonly { group: string; features: readonly FeatureName[] }[] = [
+  {
+    group: "score margin",
+    features: ["home_prior_margin", "away_prior_margin"],
+  },
+  {
+    group: "points scored and allowed",
+    features: [
+      "home_prior_points_for",
+      "away_prior_points_for",
+      "home_prior_points_against",
+      "away_prior_points_against",
+    ],
+  },
+  { group: "rest", features: ["home_rest_days", "away_rest_days"] },
+  {
+    group: "quarterback",
+    features: ["home_qb_share", "away_qb_share", "home_qb_rating", "away_qb_rating"],
+  },
+  { group: "home field", features: ["home_indicator"] },
+];
+
 export type FeatureRow = {
   gameId: string;
   kickoff: string;

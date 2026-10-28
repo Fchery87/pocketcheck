@@ -19,6 +19,7 @@
     "data:import": "node --experimental-strip-types scripts/data/import.ts",
     "data:schedule": "node --experimental-strip-types scripts/data/schedule.ts",
     "data:injuries": "node --experimental-strip-types scripts/data/injuries.ts",
+    "data:play-by-play": "node --experimental-strip-types scripts/data/play-by-play.ts",
     "model:fit": "node --experimental-strip-types scripts/model/fit.ts",
     "model:evaluate": "node --experimental-strip-types scripts/model/evaluate.ts",
     "model:release": "node --experimental-strip-types scripts/model/release.ts",

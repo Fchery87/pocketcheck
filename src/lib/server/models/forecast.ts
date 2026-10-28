@@ -1,5 +1,6 @@
 import type { OutcomeProbabilities } from "../../domain/odds.ts";
 import type { Offer } from "../../domain/offer.ts";
+import { anchorFromQuote, type AnchorLine } from "./anchor.ts";
 import { valueEligibility, type ModelArtifact } from "./artifact.ts";
 import {
   featureRowForGame,
@@ -11,7 +12,10 @@ import type { CompletedGame } from "./games.ts";
 import { offerProbabilities } from "./offer-probability.ts";
 import type { MeanContributions } from "./fit.ts";
 import { predictGame } from "./predict.ts";
-import { conservativeProbabilities, type UncertaintyAssessment } from "./uncertainty.ts";
+import {
+  conservativeProbabilities,
+  type UncertaintyAssessment,
+} from "./uncertainty.ts";
 
 export const FORECAST_RECORD_VERSION = 1;
 
@@ -50,6 +54,8 @@ export type ProspectiveForecast = {
   policyVersion: string;
   /** What moved the predicted margin and total, in points. Records frozen earlier omit it. */
   drivers?: { margin: MeanContributions; total: MeanContributions };
+  /** The line the forecast started from. Records frozen before anchoring omit it. */
+  anchor?: AnchorLine;
 };
 
 export type ForecastInputs = {
@@ -59,21 +65,42 @@ export type ForecastInputs = {
   cutoff: string;
   offer: Offer;
   policyVersion: string;
+  /** Both sides from one sportsbook. Without it the market has no forecast. */
+  anchorQuote?: { homeAmerican: number; awayAmerican: number; line?: number };
 };
 
-const UNKNOWN: StarterAssumption = { state: "unknown", identity: null, evidenceAt: null };
+const UNKNOWN: StarterAssumption = {
+  state: "unknown",
+  identity: null,
+  evidenceAt: null,
+};
 
-function starterFor(recorded: StarterAssumption | undefined, cutoff: string): StarterAssumption {
-  if (!recorded || recorded.state === "unknown" || !recorded.identity || !recorded.evidenceAt) {
+function starterFor(
+  recorded: StarterAssumption | undefined,
+  cutoff: string,
+): StarterAssumption {
+  if (
+    !recorded ||
+    recorded.state === "unknown" ||
+    !recorded.identity ||
+    !recorded.evidenceAt
+  ) {
     return UNKNOWN;
   }
   if (Date.parse(recorded.evidenceAt) > Date.parse(cutoff)) return UNKNOWN;
-  if (recorded.state !== "known" && recorded.state !== "assumed") return UNKNOWN;
-  return { state: recorded.state, identity: recorded.identity, evidenceAt: recorded.evidenceAt };
+  if (recorded.state !== "known" && recorded.state !== "assumed")
+    return UNKNOWN;
+  return {
+    state: recorded.state,
+    identity: recorded.identity,
+    evidenceAt: recorded.evidenceAt,
+  };
 }
 
 /** Freeze the inputs and probabilities available at the decision cutoff. */
-export function freezeProspectiveForecast(input: ForecastInputs): ProspectiveForecast {
+export function freezeProspectiveForecast(
+  input: ForecastInputs,
+): ProspectiveForecast {
   const home = starterFor(input.game.starters?.home, input.cutoff);
   const away = starterFor(input.game.starters?.away, input.cutoff);
   const game: UpcomingGame = {
@@ -83,8 +110,12 @@ export function freezeProspectiveForecast(input: ForecastInputs): ProspectiveFor
     home: input.game.home,
     away: input.game.away,
     ...(input.game.neutral ? { neutral: true } : {}),
-    ...(home.state === "known" || home.state === "assumed" ? { homeQb: home.identity! } : {}),
-    ...(away.state === "known" || away.state === "assumed" ? { awayQb: away.identity! } : {}),
+    ...(home.state === "known" || home.state === "assumed"
+      ? { homeQb: home.identity! }
+      : {}),
+    ...(away.state === "known" || away.state === "assumed"
+      ? { awayQb: away.identity! }
+      : {}),
   };
   const row = featureRowForGame(
     input.history,
@@ -92,18 +123,51 @@ export function freezeProspectiveForecast(input: ForecastInputs): ProspectiveFor
     input.artifact.featureParameters,
     input.cutoff,
   );
-  const predicted = predictGame(input.artifact, row);
+  if (!input.anchorQuote) {
+    throw new Error(
+      `${input.offer.market} has no two-sided quote, so it has no anchor line and no forecast.`,
+    );
+  }
+  const anchor = anchorFromQuote(
+    input.offer.market,
+    { ...input.anchorQuote, sportsbook: input.offer.sportsbook },
+    input.artifact.margin.residuals,
+  );
+  const unanchored = predictGame(input.artifact, row);
+  const adjustment =
+    input.offer.market === "total"
+      ? unanchored.drivers.total.contributions.reduce(
+          (sum, item) => sum + item.points,
+          0,
+        )
+      : unanchored.drivers.margin.contributions.reduce(
+          (sum, item) => sum + item.points,
+          0,
+        );
+  const predicted = predictGame(
+    input.artifact,
+    row,
+    input.offer.market === "total"
+      ? { totalMean: anchor.mean + adjustment }
+      : { marginMean: anchor.mean + adjustment },
+  );
   const probabilities = offerProbabilities(predicted, input.offer);
   const eligibility = valueEligibility(input.artifact, input.offer.market);
   return {
     version: FORECAST_RECORD_VERSION,
     decisionCutoff: input.cutoff,
     inputAvailability: INPUT_AVAILABILITY,
-    artifact: { checksum: input.artifact.checksum, version: input.artifact.version },
+    artifact: {
+      checksum: input.artifact.checksum,
+      version: input.artifact.version,
+    },
     features: row.features,
     featureVersion: FORECAST_RECORD_VERSION,
     starters: { home, away },
-    marketEligibility: { market: input.offer.market, eligible: eligibility.eligible },
+    marketEligibility: {
+      market: input.offer.market,
+      eligible: eligibility.eligible,
+    },
     probabilities,
     uncertainty: conservativeProbabilities(
       input.artifact.uncertainty,
@@ -112,6 +176,7 @@ export function freezeProspectiveForecast(input: ForecastInputs): ProspectiveFor
     ),
     policyVersion: input.policyVersion,
     drivers: predicted.drivers,
+    anchor,
   };
 }
 

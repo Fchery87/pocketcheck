@@ -17,7 +17,16 @@ function played(
   away: string,
   homeQb: string,
 ): CompletedGame {
-  return { id, kickoff, home, away, homeScore: 24, awayScore: 17, homeQb, awayQb: `${away}-qb` };
+  return {
+    id,
+    kickoff,
+    home,
+    away,
+    homeScore: 24,
+    awayScore: 17,
+    homeQb,
+    awayQb: `${away}-qb`,
+  };
 }
 
 const history = [
@@ -40,6 +49,8 @@ const offer = {
   rules: { period: "full-game", overtime: "included", tie: "push" },
 } satisfies Offer;
 
+const anchorQuote = { homeAmerican: -140, awayAmerican: 120 };
+
 const artifact = fitArtifact(history, "2024-09-24T00:00:00.000Z");
 const cutoff = "2024-09-28T16:00:00.000Z";
 
@@ -60,11 +71,20 @@ describe("frozen prospective forecasts", () => {
       game: archived,
       cutoff,
       offer,
+      anchorQuote,
       policyVersion: "policy-2026-10-25.2",
     });
 
-    expect(frozen.starters.home).toEqual({ state: "unknown", identity: null, evidenceAt: null });
-    expect(frozen.starters.away).toEqual({ state: "unknown", identity: null, evidenceAt: null });
+    expect(frozen.starters.home).toEqual({
+      state: "unknown",
+      identity: null,
+      evidenceAt: null,
+    });
+    expect(frozen.starters.away).toEqual({
+      state: "unknown",
+      identity: null,
+      evidenceAt: null,
+    });
     expect(frozen.features.home_qb_share).toBeCloseTo(1);
     expect(frozen.decisionCutoff).toBe(cutoff);
     expect(frozen.artifact).toEqual({
@@ -77,7 +97,9 @@ describe("frozen prospective forecasts", () => {
       eligible: false,
     });
     expect(
-      frozen.probabilities.win + frozen.probabilities.loss + frozen.probabilities.push,
+      frozen.probabilities.win +
+        frozen.probabilities.loss +
+        frozen.probabilities.push,
     ).toBeCloseTo(1);
   });
 
@@ -88,7 +110,11 @@ describe("frozen prospective forecasts", () => {
       home: "PHI",
       away: "TB",
       starters: {
-        home: { state: "assumed" as const, identity: "hurts", evidenceAt: cutoff },
+        home: {
+          state: "assumed" as const,
+          identity: "hurts",
+          evidenceAt: cutoff,
+        },
         away: {
           state: "known" as const,
           identity: "mayfield",
@@ -102,6 +128,7 @@ describe("frozen prospective forecasts", () => {
       game,
       cutoff,
       offer,
+      anchorQuote,
       policyVersion: "policy-2026-10-25.2",
     });
     const replacement = fitArtifact(
@@ -119,19 +146,32 @@ describe("frozen prospective forecasts", () => {
     );
     const replayed = replayProspectiveForecast(original, {
       artifact: replacement,
-      history: history.map((row) => ({ ...row, homeQb: "backup", homeScore: 0 })),
+      history: history.map((row) => ({
+        ...row,
+        homeQb: "backup",
+        homeScore: 0,
+      })),
       game: {
         ...game,
         kickoff: "2024-09-30T20:00:00.000Z",
         homeScore: 31,
         awayScore: 10,
         starters: {
-          home: { state: "known", identity: "backup", evidenceAt: "2024-09-29T15:00:00.000Z" },
-          away: { state: "known", identity: "backup", evidenceAt: "2024-09-29T15:00:00.000Z" },
+          home: {
+            state: "known",
+            identity: "backup",
+            evidenceAt: "2024-09-29T15:00:00.000Z",
+          },
+          away: {
+            state: "known",
+            identity: "backup",
+            evidenceAt: "2024-09-29T15:00:00.000Z",
+          },
         },
       },
       cutoff: "2024-09-29T18:00:00.000Z",
       offer: { ...offer, americanOdds: 150, decimalOdds: 2.5 },
+      anchorQuote,
       policyVersion: "policy-later",
     });
 
@@ -142,14 +182,51 @@ describe("frozen prospective forecasts", () => {
       identity: "mayfield",
       evidenceAt: "2024-09-28T12:00:00.000Z",
     });
+    const adjustment = original.drivers!.margin.contributions.reduce(
+      (sum, item) => sum + item.points,
+      0,
+    );
     const live = offerProbabilities(
-      predictGame(artifact, {
-        gameId: game.id,
-        kickoff: game.kickoff,
-        features: original.features,
-      }),
+      predictGame(
+        artifact,
+        { gameId: game.id, kickoff: game.kickoff, features: original.features },
+        { marginMean: (original.anchor?.mean ?? 0) + adjustment },
+      ),
       offer,
     );
     expect(original.probabilities).toEqual(live);
+  });
+
+  it("records the anchor line and refuses a forecast without a two-sided quote", () => {
+    const game = {
+      id: "next",
+      kickoff: "2024-09-29T17:00:00.000Z",
+      home: "PHI",
+      away: "TB",
+    };
+    const frozen = freezeProspectiveForecast({
+      artifact,
+      history,
+      game,
+      cutoff,
+      offer,
+      anchorQuote,
+      policyVersion: "policy-2026-10-25.2",
+    });
+    expect(frozen.anchor).toMatchObject({
+      market: "moneyline",
+      sportsbook: "Book",
+    });
+    expect(frozen.anchor?.noVigHome).toBeGreaterThan(0.5);
+    expect(() =>
+      freezeProspectiveForecast({
+        artifact,
+        history,
+        game,
+        cutoff,
+        offer,
+        policyVersion: "policy-2026-10-25.2",
+      }),
+    ).toThrow(/no forecast/);
   });
 });

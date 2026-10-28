@@ -92,6 +92,12 @@ function spreadOffer(selection: "home" | "away", pointLine: number): Offer {
     observedAt: "2024-12-07T11:00:00.000Z",
     kickoffAt: game.kickoff,
     rules: { period: "full-game", overtime: "included" },
+    opposing: {
+      sportsbook: "Book",
+      pointLine: -pointLine,
+      americanOdds: -110,
+      observedAt: "2024-12-07T11:00:00.000Z",
+    },
   });
 }
 

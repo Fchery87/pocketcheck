@@ -92,7 +92,7 @@ Use separate timestamps for `published_at` when actually known, `retrieved_at`, 
 These are unresolved checks to execute before enabling automatic collection. They are not requests for another product interview.
 
 - Fetch current schedule and completed-game samples; measure schema, season/type coverage, freshness, and missing betting columns.
-- Fetch one historical and one current play-by-play/team-stat file; verify identifiers, numeric types, calculation denominators, and file size.
+- Fetch one historical and one current play-by-play/team-stat file; verify identifiers, numeric types, calculation denominators, and file size. The app now downloads play-by-play with `npm run data:play-by-play` and parses it into per-game team summaries. The season file stays on disk under CC BY 4.0 with nflverse attribution. A missing or malformed season is a gap and does not change the other seasons.
 - Fetch current injury data; compare a sample against an official dated team report. Reject missing or stale season/week data.
 - Establish permitted article retrieval for each chosen source; retain a manual path when unavailable.
 - Resolve one stadium through NWS and inspect a kickoff-hour payload, issued time, units, nulls, and response-cache headers.
