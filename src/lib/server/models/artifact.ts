@@ -9,7 +9,15 @@ export type ReleaseStatus = "unreleased" | "released-experimental";
 
 export type ModelArtifact = {
   kind: "pocketcheck-baseline";
-  version: 4;
+  version: 5;
+  /** How the forecast starts. The fit learns only the deviation from this mean. */
+  anchor: {
+    definition: string;
+    history: "recorded close";
+    decisionTime: "one sportsbook's two sides";
+    /** Training rows with no recorded close, counted and excluded. */
+    excludedNoClose: { moneyline: number; spread: number; total: number };
+  };
   releaseStatus: ReleaseStatus;
   /** Markets that passed the release gate. Empty while unreleased. */
   releasedMarkets: Market[];
@@ -39,11 +47,15 @@ export function datasetHash(payload: unknown): string {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
 }
 
-export function artifactChecksum(artifact: Omit<ModelArtifact, "checksum">): string {
+export function artifactChecksum(
+  artifact: Omit<ModelArtifact, "checksum">,
+): string {
   return createHash("sha256").update(JSON.stringify(artifact)).digest("hex");
 }
 
-export function withChecksum(artifact: Omit<ModelArtifact, "checksum">): ModelArtifact {
+export function withChecksum(
+  artifact: Omit<ModelArtifact, "checksum">,
+): ModelArtifact {
   return { ...artifact, checksum: artifactChecksum(artifact) };
 }
 
@@ -54,7 +66,8 @@ export function valueEligibility(
   if (artifact.releaseStatus !== "released-experimental") {
     return {
       eligible: false,
-      reason: "Unreleased artifacts are not eligible for a value recommendation.",
+      reason:
+        "Unreleased artifacts are not eligible for a value recommendation.",
     };
   }
   if (!artifact.releasedMarkets.includes(market)) {

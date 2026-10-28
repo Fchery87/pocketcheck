@@ -4,6 +4,7 @@ import {
   proportionalMargin,
 } from "../../domain/odds.ts";
 import { VALUE_THRESHOLD } from "../../domain/threshold.ts";
+import { anchorFromQuote } from "./anchor.ts";
 import type { ModelArtifact } from "./artifact.ts";
 import type { SideProbability } from "./distribution.ts";
 import type { FeatureRow } from "./features.ts";
@@ -202,6 +203,7 @@ export function scoreHoldout(
   predict: (
     artifact: ModelArtifact,
     row: FeatureRow,
+    anchor?: { marginMean?: number; totalMean?: number },
   ) => GameProbabilities = predictGame,
 ): ScoredForecast[] {
   const byId = new Map(games.map((game) => [game.id, game]));
@@ -209,8 +211,43 @@ export function scoreHoldout(
   for (const row of rows) {
     const game = byId.get(row.gameId);
     if (!game) continue;
-    const predicted = predict(artifact, row);
+    const predictedRaw = predict(artifact, row);
     const prices = game.prices ?? null;
+    const marginAnchor = prices?.spread
+      ? prices.spread.line
+      : prices?.moneyline
+        ? anchorFromQuote(
+            "moneyline",
+            {
+              sportsbook: "close",
+              homeAmerican: prices.moneyline.home.american,
+              awayAmerican: prices.moneyline.away.american,
+            },
+            artifact.margin.residuals,
+          ).mean
+        : null;
+    const totalAnchor = prices?.total?.line ?? null;
+    const shift = (contributions: { points: number }[]) =>
+      contributions.reduce((sum, item) => sum + item.points, 0);
+    const predicted =
+      marginAnchor === null && totalAnchor === null
+        ? predictedRaw
+        : predict(artifact, row, {
+            ...(marginAnchor === null
+              ? {}
+              : {
+                  marginMean:
+                    marginAnchor +
+                    shift(predictedRaw.drivers.margin.contributions),
+                }),
+            ...(totalAnchor === null
+              ? {}
+              : {
+                  totalMean:
+                    totalAnchor +
+                    shift(predictedRaw.drivers.total.contributions),
+                }),
+          });
     const slate = slateOf(game.kickoff);
     const moneyline = predicted.moneyline.home;
     const moneylineOdds = prices?.moneyline?.home.american ?? null;

@@ -177,10 +177,25 @@ function isModelArtifact(value: unknown): value is ModelArtifact {
     "unsupported model kind",
   );
   requireValue(
-    artifact.version === 4,
+    artifact.version === 5,
     "artifact.version",
-    `version ${String(artifact.version)} is not supported. Refit with npm run model:fit`,
+    `version ${String(artifact.version)} is not supported. Refit required: run npm run model:fit`,
   );
+  const anchor = record(artifact.anchor, "artifact.anchor");
+  requireValue(
+    anchor.history === "recorded close" &&
+      anchor.decisionTime === "one sportsbook's two sides" &&
+      typeof anchor.definition === "string",
+    "artifact.anchor",
+    "unsupported anchor definition",
+  );
+  const excluded = record(
+    anchor.excludedNoClose,
+    "artifact.anchor.excludedNoClose",
+  );
+  for (const market of MARKETS) {
+    count(excluded[market], `artifact.anchor.excludedNoClose.${market}`);
+  }
   hash(artifact.checksum, "artifact.checksum");
   hash(artifact.datasetHash, "artifact.datasetHash");
   timestamp(artifact.trainingCutoff, "artifact.trainingCutoff");
@@ -219,7 +234,7 @@ function isModelArtifact(value: unknown): value is ModelArtifact {
   requireValue(
     definitions.length === FEATURE_DEFINITIONS.length,
     "artifact.featureDefinitions",
-    "feature definitions must match version 4",
+    "feature definitions must match the artifact",
   );
   FEATURE_DEFINITIONS.forEach((feature, index) => {
     const definition = record(
@@ -230,7 +245,7 @@ function isModelArtifact(value: unknown): value is ModelArtifact {
       definition.name === feature.name &&
         definition.description === feature.description,
       "artifact.featureDefinitions",
-      "feature definitions must match version 4",
+      "feature definitions must match the artifact",
     );
   });
   const features = record(
@@ -290,7 +305,7 @@ function isModelArtifact(value: unknown): value is ModelArtifact {
     requireValue(
       options[key] === expected,
       `artifact.uncertainty.options.${key}`,
-      "unsupported version 4 calibration option",
+      "unsupported calibration option",
     );
   }
   const markets = record(uncertainty.markets, "artifact.uncertainty.markets");

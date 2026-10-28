@@ -25,16 +25,22 @@ import {
   walkForwardPredictions,
   type WalkForwardPrediction,
 } from "./fit.ts";
+import { anchorFromQuote } from "./anchor.ts";
 import {
   CHRONOLOGY,
   kickoffMs,
   resultAvailableMs,
   marginHome,
   totalPoints,
+  type Market,
   type PricedGame,
 } from "./games.ts";
 import { pricedGamesFromNflverseCsv } from "./history.ts";
-import { fitUncertainty, slateOf, type CalibrationSample } from "./uncertainty.ts";
+import {
+  fitUncertainty,
+  slateOf,
+  type CalibrationSample,
+} from "./uncertainty.ts";
 
 /** Below this, walk-forward blocks are too small to fit, so residuals fall back to in-sample. */
 const MIN_WALK_FORWARD_GAMES = 40;
@@ -65,7 +71,9 @@ function calibrationSamples(
     if (marginPrediction.block < 2) return;
     let pair = distributions.get(marginPrediction.block);
     if (!pair) {
-      const blockStart = margins.find((entry) => entry.block === marginPrediction.block)!.index;
+      const blockStart = margins.find(
+        (entry) => entry.block === marginPrediction.block,
+      )!.index;
       const cutoff = kickoffMs(train[blockStart]!);
       const earlier = (list: readonly WalkForwardPrediction[]) =>
         list
@@ -89,7 +97,10 @@ function calibrationSamples(
               .filter((_, index) => resultAvailableMs(train[index]!) < cutoff),
           ),
         ),
-        total: fitResidualDistribution(totalResiduals, DEFAULT_FIT.residualBandwidth),
+        total: fitResidualDistribution(
+          totalResiduals,
+          DEFAULT_FIT.residualBandwidth,
+        ),
       };
       distributions.set(marginPrediction.block, pair);
     }
@@ -140,7 +151,12 @@ function calibrationSamples(
       const points = game.homeScore + game.awayScore;
       const over = settleTotal(points, totalPrice.line);
       samples.push(
-        { market: "total", slate, decisiveWin: decisive(total.over), outcome: over },
+        {
+          market: "total",
+          slate,
+          decisiveWin: decisive(total.over),
+          outcome: over,
+        },
         {
           market: "total",
           slate,
@@ -162,45 +178,135 @@ export function fitArtifact(
     (a, b) => kickoffMs(a) - kickoffMs(b) || a.id.localeCompare(b.id),
   );
   const trainingCutoff =
-    cutoff ?? ordered[Math.max(0, Math.floor(ordered.length * 0.7) - 1)]?.kickoff;
+    cutoff ??
+    ordered[Math.max(0, Math.floor(ordered.length * 0.7) - 1)]?.kickoff;
   if (!trainingCutoff) throw new Error("No games to fit");
   const rows = buildFeatureRows(ordered, features);
   const byId = new Map(ordered.map((game) => [game.id, game]));
   const train = rows.filter(
     (row) => resultAvailableMs(row) < kickoffMs({ kickoff: trainingCutoff }),
   );
-  if (train.length < 2) throw new Error("Training window needs at least two games");
-  const marginTargets = train.map((row) => marginHome(byId.get(row.gameId)!));
-  const totalTargets = train.map((row) => totalPoints(byId.get(row.gameId)!));
+  if (train.length < 2)
+    throw new Error("Training window needs at least two games");
+  const closeMean = (
+    game: PricedGame,
+    market: Market,
+    distribution: ResidualDistribution,
+  ): number | null => {
+    const prices = game.prices;
+    if (market === "moneyline" && prices?.moneyline) {
+      return anchorFromQuote(
+        "moneyline",
+        {
+          sportsbook: "close",
+          homeAmerican: prices.moneyline.home.american,
+          awayAmerican: prices.moneyline.away.american,
+        },
+        distribution,
+      ).mean;
+    }
+    if (market === "spread" && prices?.spread) return prices.spread.line;
+    if (market === "total" && prices?.total) return prices.total.line;
+    return null;
+  };
+  // Residuals need a distribution before the moneyline anchor exists, so the first pass uses a
+  // flat one and the second pass uses the fitted margin distribution.
+  const flat: ResidualDistribution = fitResidualDistribution(
+    train.map(() => 0),
+    DEFAULT_FIT.residualBandwidth,
+  );
+  const anchored = (distribution: ResidualDistribution) => {
+    const marginRows: FeatureRow[] = [];
+    const marginTargets: number[] = [];
+    const totalRows: FeatureRow[] = [];
+    const totalTargets: number[] = [];
+    const excluded = { moneyline: 0, spread: 0, total: 0 };
+    for (const row of train) {
+      const game = byId.get(row.gameId)!;
+      const marginAnchor =
+        closeMean(game, "spread", distribution) ??
+        closeMean(game, "moneyline", distribution);
+      if (marginAnchor === null) excluded.moneyline += 1;
+      else {
+        marginRows.push(row);
+        marginTargets.push(marginHome(game) - marginAnchor);
+      }
+      if (!game.prices?.spread) excluded.spread += 1;
+      const totalAnchor = closeMean(game, "total", distribution);
+      if (totalAnchor === null) excluded.total += 1;
+      else {
+        totalRows.push(row);
+        totalTargets.push(totalPoints(game) - totalAnchor);
+      }
+    }
+    return { marginRows, marginTargets, totalRows, totalTargets, excluded };
+  };
+  const first = anchored(flat);
+  if (first.marginRows.length < 2 || first.totalRows.length < 2) {
+    throw new Error("Training window needs priced games for the anchor");
+  }
+  const preliminary = fitResidualDistribution(
+    first.marginTargets,
+    DEFAULT_FIT.residualBandwidth,
+  );
+  const { marginRows, marginTargets, totalRows, totalTargets, excluded } =
+    anchored(preliminary);
   const homeWins = marginTargets.filter((margin) => margin > 0).length;
   const ties = marginTargets.filter((margin) => margin === 0).length;
-  const marginModel = fitRidge(train, marginTargets, DEFAULT_FIT.ridge);
-  const totalModel = fitRidge(train, totalTargets, DEFAULT_FIT.ridge);
+  const marginModel = fitRidge(marginRows, marginTargets, DEFAULT_FIT.ridge);
+  const totalModel = fitRidge(totalRows, totalTargets, DEFAULT_FIT.ridge);
   const marginPredictions =
-    train.length >= MIN_WALK_FORWARD_GAMES
-      ? walkForwardPredictions(train, marginTargets, DEFAULT_FIT.ridge, DEFAULT_FIT.residualFolds)
+    marginRows.length >= MIN_WALK_FORWARD_GAMES
+      ? walkForwardPredictions(
+          marginRows,
+          marginTargets,
+          DEFAULT_FIT.ridge,
+          DEFAULT_FIT.residualFolds,
+        )
       : [];
   const totalPredictions =
-    train.length >= MIN_WALK_FORWARD_GAMES
-      ? walkForwardPredictions(train, totalTargets, DEFAULT_FIT.ridge, DEFAULT_FIT.residualFolds)
+    totalRows.length >= MIN_WALK_FORWARD_GAMES
+      ? walkForwardPredictions(
+          totalRows,
+          totalTargets,
+          DEFAULT_FIT.ridge,
+          DEFAULT_FIT.residualFolds,
+        )
       : [];
   const walkForward = marginPredictions.length > 0;
-  const inSample = (targets: number[], model: typeof marginModel) =>
-    train.map((row, index) => (targets[index] ?? 0) - predictMean(model, row));
+  const inSample = (
+    rows: FeatureRow[],
+    targets: number[],
+    model: typeof marginModel,
+  ) =>
+    rows.map((row, index) => (targets[index] ?? 0) - predictMean(model, row));
   const marginResiduals = walkForward
     ? marginPredictions.map((entry) => entry.residual)
-    : inSample(marginTargets, marginModel);
+    : inSample(marginRows, marginTargets, marginModel);
   const totalResiduals = walkForward
     ? totalPredictions.map((entry) => entry.residual)
-    : inSample(totalTargets, totalModel);
+    : inSample(totalRows, totalTargets, totalModel);
   const uncertainty = fitUncertainty(
-    calibrationSamples(train, byId, marginPredictions, totalPredictions, marginTargets),
+    calibrationSamples(
+      train,
+      byId,
+      marginPredictions,
+      totalPredictions,
+      marginTargets,
+    ),
   );
   return withChecksum({
     kind: "pocketcheck-baseline",
-    version: 4,
+    version: 5,
     releaseStatus: "unreleased",
     releasedMarkets: [],
+    anchor: {
+      definition:
+        "moneyline no-vig home probability mapped to an implied margin; spread home line; total line",
+      history: "recorded close",
+      decisionTime: "one sportsbook's two sides",
+      excludedNoClose: excluded,
+    },
     datasetHash: datasetHash(
       ordered.map((game) => ({
         id: game.id,
@@ -235,7 +341,10 @@ export function fitArtifact(
     },
     total: {
       model: totalModel,
-      residuals: fitResidualDistribution(totalResiduals, DEFAULT_FIT.residualBandwidth),
+      residuals: fitResidualDistribution(
+        totalResiduals,
+        DEFAULT_FIT.residualBandwidth,
+      ),
     },
   });
 }
@@ -245,12 +354,16 @@ export function readGames(path: string): PricedGame[] {
   const text = readFileSync(path, "utf8");
   if (path.endsWith(".csv")) return pricedGamesFromNflverseCsv(text);
   const parsed = JSON.parse(text) as { games: PricedGame[] };
-  if (!Array.isArray(parsed.games)) throw new Error("Fixture must contain a games array");
+  if (!Array.isArray(parsed.games))
+    throw new Error("Fixture must contain a games array");
   return parsed.games;
 }
 
 export function assertUnreleased(artifact: ModelArtifact): void {
-  if (artifact.releaseStatus !== "unreleased" || artifact.releasedMarkets.length > 0) {
+  if (
+    artifact.releaseStatus !== "unreleased" ||
+    artifact.releasedMarkets.length > 0
+  ) {
     throw new Error("Fit must default to an unreleased artifact");
   }
 }

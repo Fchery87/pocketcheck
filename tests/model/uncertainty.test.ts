@@ -138,7 +138,7 @@ describe("artifact uncertainty", { timeout: 60_000 }, () => {
 
   it("records a walk-forward calibration table for every market", () => {
     const artifact = fitArtifact(games, cutoff);
-    expect(artifact.version).toBe(4);
+    expect(artifact.version).toBe(5);
     expect(artifact.uncertainty.method).toBe("walk-forward-calibration");
     for (const market of ["moneyline", "spread", "total"] as const) {
       const populated = artifact.uncertainty.markets[market].filter((bin) => bin.sides > 0);
