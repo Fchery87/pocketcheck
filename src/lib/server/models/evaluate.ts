@@ -310,9 +310,9 @@ function missing(market: "spread" | "total", gameId: string, slate: string): Sco
   };
 }
 
-function scores(
-  members: readonly ScoredForecast[],
-  probability: (forecast: ScoredForecast) => SideProbability,
+function scores<T extends ScoredForecast>(
+  members: readonly T[],
+  probability: (forecast: T) => SideProbability,
 ): Scores {
   return {
     brier: average(
@@ -324,9 +324,9 @@ function scores(
   };
 }
 
-function differenceInterval(
-  members: readonly ScoredForecast[],
-  baseline: (forecast: ScoredForecast) => SideProbability,
+function differenceInterval<T extends ScoredForecast>(
+  members: readonly T[],
+  baseline: (forecast: T) => SideProbability,
 ): [number, number] | null {
   const bySlate = new Map<string, number[]>();
   for (const forecast of members) {

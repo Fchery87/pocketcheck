@@ -118,7 +118,7 @@ export type NewGameBoard = Pick<
   lean?: PrivateLean | null;
   /** Omitted means no drafter is named for this board. */
   drafter?: BoardDrafter | null;
-  markets: Array<Pick<BoardMarket, "market" | "offers">>;
+  markets: Array<Pick<BoardMarket, "market" | "offers"> & { quotes?: BoardQuoteResult[] }>;
 };
 
 export type BeginBoardResult =
@@ -318,6 +318,7 @@ export function createMemoryBoardStore(notices: StoredNotice[] = []): MemoryBoar
         status: "pending" as const,
         markets: input.markets.map((market) => ({
           ...market,
+          quotes: market.quotes ?? [],
           pick: null,
           noPickReason: null,
         })),
