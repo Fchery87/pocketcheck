@@ -363,10 +363,11 @@ test("a comparable close, a moved line, and a missing close stay distinct", asyn
   await page.getByTestId("closing-source").fill("manual close");
   await page.getByRole("button", { name: "Record closing observation" }).click();
   await expect(page.getByTestId("closing-recorded")).toBeVisible();
-  await expect(page.getByTestId("closing-comparison")).toContainText("1.909");
-  await expect(page.getByTestId("closing-comparison")).toContainText("1.833");
+  const comparable = page.getByTestId("closing-row").filter({ hasText: "1.909" });
+  await expect(comparable.getByTestId("closing-comparison")).toContainText("1.909");
+  await expect(comparable.getByTestId("closing-comparison")).toContainText("1.833");
   await page.reload();
-  await expect(page.getByTestId("closing-comparison")).toContainText("1.833");
+  await expect(comparable.getByTestId("closing-comparison")).toContainText("1.833");
 
   await page.getByTestId("closing-subject").selectOption({ index: 1 });
   await page.getByTestId("closing-book").fill("Research Book");
@@ -378,10 +379,10 @@ test("a comparable close, a moved line, and a missing close stay distinct", asyn
   await page.getByTestId("closing-source").fill("later board");
   await page.getByRole("button", { name: "Record closing observation" }).click();
   const rows = page.getByTestId("closing-row");
-  await expect(rows).toHaveCount(2);
-  await expect(rows.nth(1).getByTestId("closing-unavailable")).toContainText("different-contract");
-  await expect(rows.nth(1).getByTestId("closing-unavailable")).toContainText("not an odds change");
-  await expect(rows.nth(0).getByTestId("closing-comparison")).toBeVisible();
+  const moved = rows.filter({ hasText: "later board" });
+  await expect(moved.getByTestId("closing-unavailable")).toContainText("different-contract");
+  await expect(moved.getByTestId("closing-unavailable")).toContainText("not an odds change");
+  await expect(rows.filter({ hasText: "1.909" }).getByTestId("closing-comparison")).toBeVisible();
 });
 
 test("a correction, export, and restore keep the journal and leave a bad file unread", async ({

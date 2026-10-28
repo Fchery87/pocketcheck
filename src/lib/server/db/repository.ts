@@ -1123,11 +1123,11 @@ export class JournalRepository {
       (row): row is AnalysisRecord => row !== null,
     );
     const offerIds = [...new Set(mapped.map((row) => row.offerId))];
-    const offers = offerIds.length
+    const offers: OfferRow[] = offerIds.length
       ? await this.sql<OfferRow[]>`SELECT * FROM offers WHERE id = ANY(${offerIds}::uuid[])`
       : [];
     const gameIds = [...new Set(offers.map((row) => row.game_id))];
-    const games = gameIds.length
+    const games: GameRow[] = gameIds.length
       ? await this.sql<GameRow[]>`SELECT * FROM games WHERE id = ANY(${gameIds}::uuid[])`
       : [];
     const evidence = ids.length
@@ -1145,9 +1145,28 @@ export class JournalRepository {
           ResearchRow[]
         >`SELECT * FROM user_research WHERE analysis_id = ANY(${ids}::uuid[])`
       : [];
-    const bets = offerIds.length
-      ? await this.sql<BetRow[]>`SELECT * FROM bets WHERE offer_id = ANY(${offerIds}::uuid[])`
-      : [];
+    const bets = await this.sql<BetRow[]>`
+      SELECT * FROM bets
+      WHERE offer_id = ANY(${offerIds.length ? offerIds : [randomUUID()]}::uuid[])
+         OR model_pick_id IS NOT NULL
+      ORDER BY created_at ASC
+    `;
+    const pickOfferIds = bets.map((row) => row.offer_id).filter((id) => !offerIds.includes(id));
+    if (pickOfferIds.length) {
+      const pickOffers = await this.sql<
+        OfferRow[]
+      >`SELECT * FROM offers WHERE id = ANY(${pickOfferIds}::uuid[])`;
+      offers.push(...pickOffers);
+      const pickGameIds = [
+        ...new Set(pickOffers.map((row) => row.game_id).filter((id) => !gameIds.includes(id))),
+      ];
+      if (pickGameIds.length) {
+        const pickGames = await this.sql<
+          GameRow[]
+        >`SELECT * FROM games WHERE id = ANY(${pickGameIds}::uuid[])`;
+        games.push(...pickGames);
+      }
+    }
     const betIds = bets.map((row) => row.id);
     const settlements =
       offerIds.length || betIds.length
@@ -1408,10 +1427,18 @@ export function assertRestorable(snapshot: JournalExport): void {
   for (const row of snapshot.userResearch) {
     requireReference(analyses, row.analysisId, `User research ${row.id} is missing its analysis.`);
   }
+  const picks = new Set(
+    (snapshot.gameBoards ?? []).flatMap((board) =>
+      board.markets.flatMap((market) => (market.pick ? [market.pick.id] : [])),
+    ),
+  );
   for (const bet of snapshot.bets) {
     requireReference(offers, bet.offerId, `Bet ${bet.id} is missing its offer.`);
     if (bet.analysisId) {
       requireReference(analyses, bet.analysisId, `Bet ${bet.id} is missing its analysis.`);
+    }
+    if (bet.modelPickId && !picks.has(bet.modelPickId)) {
+      throw new Error(`Bet ${bet.id} is missing its model pick.`);
     }
   }
   for (const settlement of snapshot.settlements) {

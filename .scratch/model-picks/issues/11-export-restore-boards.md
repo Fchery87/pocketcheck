@@ -12,7 +12,7 @@
 - [x] Restore applies boards and picks before actual bets, since a bet from a model pick references its pick
 - [x] Export still omits credentials, settings, and bulk source caches
 - [x] Store contract tests round-trip a journal with boards and picks on memory and Neon
-- [x] `npm run verify` passes. `npm run verify:database` was not run because `TEST_DATABASE_URL` was unset.
+- [x] `npm run verify` passes. `TEST_DATABASE_URL` pointing at a disposable database, `npm run verify:database` passes.
 
 ## Answer
 

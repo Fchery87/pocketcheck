@@ -57,6 +57,34 @@ test("a bet recorded from a model pick keeps the odds that were placed", async (
   await expect(page.getByTestId("settlement-recorded")).toBeVisible();
   await expect(page.getByTestId("pick-bet-result")).toHaveText("loss");
   await expect(page.getByTestId("bet-counts")).toContainText("1 settled");
+  const firstNotice = page.getByTestId("pick-bet-notice").first();
+  const firstId = (await firstNotice.getByTestId("pick-bet-notice-id").textContent())?.trim();
+  await page.getByTestId("settle-bet").selectOption({ index: 1 });
+  await page.getByTestId("settle-event").fill("pick-bet-corrected");
+  await page.getByTestId("settle-kind").selectOption("final");
+  await page.getByTestId("settle-home").fill("20");
+  await page.getByTestId("settle-away").fill("24");
+  await page.getByTestId("settle-corrects").fill(firstId!);
+  await page.getByTestId("settle-reason").fill("Official score changed");
+  await page.getByRole("button", { name: "Record settlement" }).click();
+  await expect(page.getByTestId("pick-bet-result")).toHaveText("win");
+  await expect(page.getByTestId("pick-bet-notice")).toHaveCount(2);
+  await expect(page.getByTestId("pick-bet-notice").nth(1)).toContainText(`corrects ${firstId}`);
+
+  await page.getByTestId("closing-subject-kind").selectOption("model-pick");
+  await page
+    .getByTestId("closing-subject")
+    .selectOption({ label: "model pick: DAL at PHI, moneyline away" });
+  await page.getByTestId("closing-book").fill("Pick Lane Book");
+  await page.getByTestId("closing-market").selectOption("moneyline");
+  await page.getByTestId("closing-selection").selectOption("away");
+  await page.getByTestId("closing-tie").selectOption("push");
+  await page.getByTestId("closing-odds").fill("+125");
+  await page.getByTestId("closing-time").fill("2026-10-25T12:30");
+  await page.getByTestId("closing-source").fill("manual close");
+  await page.getByRole("button", { name: "Record closing observation" }).click();
+  await expect(page.getByTestId("closing-recorded")).toBeVisible();
+  await expect(page.getByTestId("closing-comparison")).toBeVisible();
 
   // The board and its model pick are unchanged.
   await page.goto(boardUrl);

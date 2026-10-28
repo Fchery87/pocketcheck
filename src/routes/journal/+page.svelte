@@ -9,6 +9,15 @@
   const start = $derived(data.pickBet);
   const label = (assessment: (typeof data.assessments)[number]) =>
     `${assessment.game.away} at ${assessment.game.home}: ${assessment.offer.market} ${assessment.offer.selection} ${signedLine(assessment.offer.pointLine)} ${assessment.offer.americanOdds}`;
+  const pickBetGrade = (betId: string) =>
+    data.pickBetGrades.find((row) => row.betId === betId)?.grade ?? null;
+  const withoutClose = $derived(
+    [
+      ...data.assessments.map((row) => row.id),
+      ...data.bets.map((row) => row.id),
+      ...data.modelPicks.map((row) => row.pick.id),
+    ].filter((id) => !data.closings.some((closing) => closing.subject.id === id)).length,
+  );
 </script>
 
 <main class="pc-page pc-journal">
@@ -206,9 +215,17 @@
             placed {easternTime(bet.placedAt)}. The market, line, and rules of this placement were not recorded.
           </Badge>
         {/if}
-        {#if data.pickBetGrades.find((row) => row.betId === bet.id)?.grade}
-          {@const grade = data.pickBetGrades.find((row) => row.betId === bet.id)!.grade!}
+        {#if pickBetGrade(bet.id)}
+          {@const grade = pickBetGrade(bet.id)!}
           <Badge data-testid="pick-bet-result">{grade.effective}</Badge>
+          {#each grade.history as notice (notice.id)}
+            <span data-testid="pick-bet-notice">
+              <span data-testid="pick-bet-notice-id">{notice.id}</span>
+              {notice.result} {notice.recordedAt}
+              {#if notice.correctsId}corrects {notice.correctsId}{/if}
+              {#if notice.reason}{notice.reason}{/if}
+            </span>
+          {/each}
         {/if}
       </li>
     {/each}
@@ -309,6 +326,7 @@
       <select name="subjectKind" data-testid="closing-subject-kind">
         <option value="analysis">researched offer</option>
         <option value="bet">actual bet</option>
+        <option value="model-pick">model pick</option>
       </select>
     </label>
     <label>
@@ -321,6 +339,11 @@
         {#each data.bets as bet (bet.id)}
           <option value={bet.id}>
             bet: {bet.sportsbook} {bet.market} {bet.selection} {signedLine(bet.pointLine)}
+          </option>
+        {/each}
+        {#each data.modelPicks as listed (listed.pick.id)}
+          <option value={listed.pick.id}>
+            model pick: {listed.game.away} at {listed.game.home}, {listed.pick.market} {listed.offer.selection}{listed.offer.pointLine === null ? "" : ` ${listed.offer.pointLine}`}
           </option>
         {/each}
       </select>
@@ -412,7 +435,10 @@
       </li>
     {/each}
   </ul>
-  {#if data.closings.length === 0}
-    <p class="pc-unknown" data-testid="closing-missing">No closing observation. Closing performance is unavailable, not zero.</p>
+  {#if withoutClose > 0}
+    <p class="pc-unknown" data-testid="closing-missing">
+      {withoutClose} {withoutClose === 1 ? "record has" : "records have"} no closing observation. Closing
+      performance is unavailable, not zero.
+    </p>
   {/if}
 </main>

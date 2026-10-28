@@ -11,9 +11,9 @@
 - [x] A comparable closing observation can be recorded for a pick bet, with the same-contract rules and unavailable-not-zero behavior
 - [x] Actual-bet performance counts pick bets with their own stake and contract, and does not mix them into model-pick performance
 - [x] Existing analysis bets, settlements, and closings behave exactly as before
-- [x] Store contract tests on memory; a browser test settles a pick bet. Neon was not executed because `TEST_DATABASE_URL` was unset.
-- [x] `npm run verify` passes. `npm run verify:database` was not run because `TEST_DATABASE_URL` was unset.
+- [x] Store contract tests on memory and Neon; a browser test settles a pick bet and shows the correction.
+- [x] `npm run verify` passes. `TEST_DATABASE_URL` pointing at a disposable database, `npm run verify:database` passes.
 
 ## Answer
 
-A pick bet is graded from its own placed contract. A home -3.5 loses when the home team wins by 3. Postponed and unresolved notices stay unresolved, void stays void, and a correction names the earlier notice. A comparable close uses that placed contract. A different line is line movement. The bet counts in actual-bet performance, not model-pick performance. Migration 019 allows a settlement notice that names only the bet. `npm run verify` passed, including the browser test that settles a pick bet. `npm run verify:database` was not run because `TEST_DATABASE_URL` was unset.
+A pick bet is graded from its own placed contract. A home -3.5 loses when the home team wins by 3. Postponed and unresolved notices stay unresolved, void stays void, and a correction names the earlier notice and stays visible in the journal. A comparable close uses that placed contract. A different line is line movement. The journal can also record a close for the model pick itself. The bet counts in actual-bet performance, not model-pick performance. Migration 019 allows a settlement notice that names only the bet. `npm run verify` passed, including the browser test that settles a pick bet and shows the correction. `npm run verify:database` passed against a disposable database.

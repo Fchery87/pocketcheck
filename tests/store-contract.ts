@@ -1507,7 +1507,13 @@ export function describeStoreContract(
         outcome.board.markets[0]!.pick!.id,
       );
 
-      const older = { ...backup };
+      const older = {
+        ...backup,
+        bets: backup.bets.filter((bet) => !bet.modelPickId),
+        offers: backup.offers.filter(
+          (offer) => !backup.bets.some((bet) => bet.modelPickId && bet.offerId === offer.id),
+        ),
+      };
       delete older.gameBoards;
       const blank = (await makeStore()) as JournalStore;
       await expect(blank.restoreJournal(older)).resolves.toBeDefined();

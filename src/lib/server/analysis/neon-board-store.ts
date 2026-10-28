@@ -287,7 +287,7 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
         `;
         if (!board) return;
         await tx`
-          SELECT id FROM model_pick_roles
+          SELECT pick_id FROM model_pick_roles
           WHERE game_id = ${board.game_id}
           FOR UPDATE
         `;

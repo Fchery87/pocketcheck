@@ -55,10 +55,11 @@ export const load: PageServerLoad = async ({ url }) => {
   const journal = store();
   const pickId = url.searchParams.get("pick");
   const pickBet = pickId ? await pickStart(journal, pickId) : null;
-  const [assessments, bets, closings] = await Promise.all([
+  const [assessments, bets, closings, modelPicks] = await Promise.all([
     journal.listCompleted(),
     journal.listBets(),
     journal.listClosings(),
+    journal.listModelPicks(),
   ]);
   const settlements = await Promise.all(
     assessments.map(async (assessment) => {
@@ -113,6 +114,7 @@ export const load: PageServerLoad = async ({ url }) => {
     closings,
     performance,
     pickBet,
+    modelPicks,
   };
 };
 
@@ -304,10 +306,10 @@ export const actions = {
     const observedAt = String(data.get("observedAt") ?? "").trim();
     const source = String(data.get("source") ?? "").trim();
     const tie = String(data.get("tie") ?? "").trim();
-    if (subjectKind !== "analysis" && subjectKind !== "bet") {
+    if (subjectKind !== "analysis" && subjectKind !== "bet" && subjectKind !== "model-pick") {
       return fail(400, {
         recorded: false,
-        error: "Choose the research or bet this close belongs to",
+        error: "Choose the research, bet, or model pick this close belongs to",
       });
     }
     if (!subjectId) {
