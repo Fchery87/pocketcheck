@@ -58,6 +58,41 @@
     </p>
   </section>
   <section class="pc-section">
+    <h2>Forecasting model and drafter</h2>
+    <p>
+      The forecasting model is the fitted statistical artifact. It produces outcome probabilities from game
+      history and chooses the side of a model pick. The drafter is the AI provider model or the fixture that
+      writes the explanation from those frozen facts. The drafter cannot change the side, the strength
+      grade, or any number. If its explanation contradicts the frozen model pick, the explanation fails and
+      the model pick is kept.
+    </p>
+  </section>
+  <section class="pc-section">
+    <h2>No-vig probability</h2>
+    <p>
+      Each American price implies a probability of 1 divided by its decimal odds. Those implied
+      probabilities sum to more than one. The extra is the margin. The no-vig probability removes that
+      margin in proportion, so the two sides sum to one. It is the market's price with the sportsbook's cut
+      taken out, not the forecasting model's probability.
+    </p>
+  </section>
+  <section class="pc-section">
+    <h2>Strength grades</h2>
+    <p>
+      A game board freezes both sides of a market. The model pick names the side with the higher expected
+      value at those prices. The strength grade is strong, lean, or no edge. Strong means the conservative
+      expected value clears the versioned threshold and no material evidence is missing. Lean means the
+      expected value is positive but short of strong. No edge means neither side clears the margin. The
+      grade comes from the numbers, never from the drafter.
+    </p>
+    <p>
+      An unreleased market labels the result "Unvalidated model pick" and says the forecasting model has
+      not beaten the closing market. That label is not evidence of an edge. A released market says
+      "Released model pick". Release is not a profitability claim. No market is released until protocol
+      prospective-2026-10-26 is met.
+    </p>
+  </section>
+  <section class="pc-section">
     <h2>Calibration and leakage</h2>
     <p>
       A probability is useful only if the stated chance matches later results in similar cases. Count the
