@@ -22,10 +22,11 @@ Spec: [spec.md](spec.md). Integration branch: `feature/model-picks`.
 - 04: American odds under 100 in absolute value are rejected in every flow (analyses used to accept -50).
 
 - 06: The drafter explains frozen picks; contradictions fail the board and keep picks. Migration 017. Ticket 11 must export the six new `game_boards` fields.
+- [11](issues/11-export-restore-boards.md): export stays version 1. Game boards, quotes, model picks, explanations, provider attempts, grades, primary roles, and bet pick references are added to that document. A backup written before boards restores with an empty board list. Version 2 is not a backup format.
 
 ## Fog
 
-- Whether boards need export version 2 is decided in ticket 11.
+- None. Ticket 11 kept export version 1.
 
 ## Tickets
 

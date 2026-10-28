@@ -288,10 +288,14 @@ export function createNeonStore(sql: Sql): JournalStore {
       );
     },
     async exportJournal() {
-      return journal.exportJournal();
+      const backup = await journal.exportJournal();
+      return { ...backup, gameBoards: await boardStore.listBoards() };
     },
     async restoreJournal(backup) {
-      return journal.restoreJournal(backup);
+      const restored = await journal.restoreJournal(backup, (tx) =>
+        boardStore.restoreBoards(tx, backup.gameBoards ?? []),
+      );
+      return { ...restored, gameBoards: await boardStore.listBoards() };
     },
   };
   return { ...research, ...boardStore };

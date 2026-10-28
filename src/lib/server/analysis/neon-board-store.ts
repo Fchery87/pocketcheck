@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Sql, TransactionSql } from "postgres";
+import { parentsFirst } from "../db/order.ts";
 import type { Market, Offer } from "#lib/domain/offer.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
 import {
@@ -75,8 +76,13 @@ function iso(value: Date): string {
   return value.toISOString();
 }
 
+export type NeonBoardJournal = {
+  listBoards: () => Promise<GameBoard[]>;
+  restoreBoards: (tx: TransactionSql, boards: GameBoard[]) => Promise<void>;
+};
+
 /** Game boards in Neon. Same contract as the memory journal's boards. */
-export function createNeonBoardStore(sql: Sql): GameBoardStore {
+export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJournal {
   async function read(db: Sql | TransactionSql, id: string): Promise<GameBoard | null> {
     const [board] = await db<BoardRow[]>`SELECT * FROM game_boards WHERE id = ${id}`;
     if (!board) return null;
@@ -454,7 +460,118 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore {
       }
       return listed;
     },
+    async listBoards(): Promise<GameBoard[]> {
+      const rows = await sql<{ id: string }[]>`SELECT id FROM game_boards ORDER BY created_at, id`;
+      const boards: GameBoard[] = [];
+      for (const row of rows) boards.push(await require(sql, row.id));
+      return boards;
+    },
+    async restoreBoards(tx: TransactionSql, boards: GameBoard[]): Promise<void> {
+      for (const board of parentsFirst(boards, (item) => item.parentId)) {
+        const existing = await read(tx, board.id);
+        if (existing) {
+          if (JSON.stringify(existing) !== JSON.stringify(board)) {
+            throw new Error(
+              `Conflicting game board identifier ${board.id} does not match the saved record.`,
+            );
+          }
+          continue;
+        }
+        await tx`
+          INSERT INTO games (
+            id, source_game_id, season, week, away_team, home_team, kickoff_at, venue, status
+          ) VALUES (
+            ${randomUUID()}, ${board.game.id}, ${board.game.season}, ${board.game.week},
+            ${board.game.away}, ${board.game.home}, ${board.game.kickoff}, ${board.game.venue},
+            'scheduled'
+          )
+          ON CONFLICT (source_game_id) DO NOTHING
+        `;
+        const [gameRow] = await tx<{ id: string }[]>`
+          SELECT id FROM games WHERE source_game_id = ${board.game.id}
+        `;
+        await tx`
+          INSERT INTO game_boards (
+            id, submission_id, request_hash, parent_id, game_id, game, sportsbook,
+            observed_at, kickoff_at, cutoff_at, status, evidence, gaps, failure_reason,
+            lean_text, lean_rationale, drafter_id, drafter_model_id, provider_requests,
+            provider_outcome_ambiguous, usage, explanation, created_at, completed_at
+          ) VALUES (
+            ${board.id}, ${board.request.id}, ${board.request.hash}, ${board.parentId},
+            ${gameRow!.id}, ${tx.json(board.game as never)}, ${board.sportsbook},
+            ${board.observedAt}, ${board.game.kickoff}, ${board.cutoffAt}, ${board.status},
+            ${tx.json(board.evidence as never)}, ${tx.json(board.gaps as never)},
+            ${board.failureReason}, ${board.lean?.text ?? null},
+            ${board.lean ? board.lean.rationale : null},
+            ${board.drafter?.id ?? null}, ${board.drafter?.modelId ?? null},
+            ${tx.json(stripBoardSecrets(board.providerRequests) as never)},
+            ${board.providerOutcomeAmbiguous},
+            ${board.usage ? tx.json(stripBoardSecrets(board.usage) as never) : null},
+            ${board.explanation ? tx.json(board.explanation as never) : null},
+            ${board.createdAt}, ${board.completedAt}
+          )
+        `;
+        for (const market of board.markets) {
+          await tx`
+            INSERT INTO board_markets (id, board_id, market, offers, no_pick_reason, frozen_at)
+            VALUES (
+              ${randomUUID()}, ${board.id}, ${market.market}, ${tx.json(market.offers as never)},
+              ${market.noPickReason},
+              ${market.pick || market.noPickReason !== null ? board.createdAt : null}
+            )
+          `;
+          if (!market.pick) continue;
+          const pick = market.pick;
+          await tx`
+            INSERT INTO model_picks (
+              id, board_id, market, parent_pick_id, calculation_version, picked_selection,
+              strength_grade, release_label, calculation, forecasting_model, forecast, created_at
+            ) VALUES (
+              ${pick.id}, ${board.id}, ${market.market}, ${pick.parentPickId},
+              ${pick.calculation.version}, ${pick.calculation.pickedSelection},
+              ${pick.calculation.grade}, ${pick.calculation.release},
+              ${tx.json(pick.calculation as never)}, ${tx.json(pick.forecastingModel as never)},
+              ${pick.forecast ? tx.json(pick.forecast as never) : null}, ${pick.createdAt}
+            )
+          `;
+          if (pick.role.role === "unclassified") continue;
+          await tx`
+            INSERT INTO model_pick_roles (
+              pick_id, game_id, market, role, reason, primary_pick_id, protocol_id, classified_at
+            ) VALUES (
+              ${pick.id}, ${gameRow!.id}, ${market.market}, ${pick.role.role}, ${pick.role.reason},
+              ${pick.role.role === "refresh" ? pick.role.primaryPickId : null},
+              ${pick.role.role === "primary" ? pick.role.protocolId : null},
+              ${board.completedAt ?? board.createdAt}
+            )
+          `;
+        }
+      }
+    },
   };
+}
+
+const BOARD_CREDENTIAL_KEYS = new Set([
+  "authorization",
+  "proxy-authorization",
+  "x-api-key",
+  "api-key",
+  "apikey",
+  "api_key",
+  "cookie",
+  "set-cookie",
+]);
+
+function stripBoardSecrets(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripBoardSecrets);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !BOARD_CREDENTIAL_KEYS.has(key.toLowerCase()))
+        .map(([key, item]) => [key, stripBoardSecrets(item)]),
+    );
+  }
+  return value;
 }
 
 function toPick(row: PickRow): ModelPick {

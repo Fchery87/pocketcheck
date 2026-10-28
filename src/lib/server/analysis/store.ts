@@ -17,8 +17,14 @@ import type { EvidenceItem } from "../sources/contracts.ts";
 import type { AttemptRequest } from "./attempt.ts";
 import type { JournalExport } from "../db/repository.ts";
 import { assertRestorable } from "../db/repository.ts";
+import { parentsFirst } from "../db/order.ts";
 import { classifyPregameRuns, type PregameRun } from "./primary.ts";
-import { createMemoryBoardStore, type GameBoardStore, type OpenPick } from "./board-store.ts";
+import {
+  createMemoryBoardStore,
+  type GameBoard,
+  type GameBoardStore,
+  type OpenPick,
+} from "./board-store.ts";
 
 /**
  * Research store contract.
@@ -614,7 +620,7 @@ export function createMemoryStore(): JournalStore {
       return structuredClone(saved);
     },
     async exportJournal() {
-      return memoryBackup(runs, bets, closings, notices);
+      return memoryBackup(runs, bets, closings, notices, boardStore.boards);
     },
     async restoreJournal(backup) {
       assertRestorable(backup);
@@ -629,6 +635,21 @@ export function createMemoryStore(): JournalStore {
         const existing = bets.find((item) => item.id === bet.id);
         if (existing && JSON.stringify(existing) !== JSON.stringify(bet)) {
           throw new Error(`Conflicting bet identifier ${bet.id} does not match the saved record.`);
+        }
+      }
+      for (const board of incoming.boards) {
+        const existing = boardStore.boards.get(board.id);
+        if (existing && JSON.stringify(existing) !== JSON.stringify(board)) {
+          throw new Error(
+            `Conflicting game board identifier ${board.id} does not match the saved record.`,
+          );
+        }
+      }
+      // Boards and picks land before bets, which may reference a model pick.
+      for (const board of parentsFirst(incoming.boards, (board) => board.parentId)) {
+        if (!boardStore.boards.has(board.id)) {
+          boardStore.boards.set(board.id, board);
+          boardStore.submissions.set(board.request.id, board.id);
         }
       }
       for (const [id, run] of incoming.runs) {
@@ -647,7 +668,7 @@ export function createMemoryStore(): JournalStore {
       for (const notice of incoming.notices) {
         if (!notices.some((item) => item.id === notice.id)) notices.push(notice);
       }
-      return memoryBackup(runs, bets, closings, notices);
+      return memoryBackup(runs, bets, closings, notices, boardStore.boards);
     },
   };
   return { ...research, ...boardStore };
@@ -1054,6 +1075,7 @@ function memoryBackup(
   bets: ActualBet[],
   closings: ClosingObservation[],
   notices: StoredNotice[],
+  boards: Map<string, GameBoard>,
 ): MemoryJournal {
   return {
     version: 1,
@@ -1066,6 +1088,7 @@ function memoryBackup(
     bets: [],
     settlements: [],
     closings: [],
+    gameBoards: [...boards.values()].map((board) => structuredClone(board)),
     runs: [...runs.values()].map((run) => structuredClone(run)),
     actualBets: bets.map((bet) => structuredClone(bet)),
     closingObservations: closings.map((closing) => structuredClone(closing)),
@@ -1078,6 +1101,7 @@ function memoryFromBackup(backup: JournalExport): {
   bets: ActualBet[];
   closings: ClosingObservation[];
   notices: StoredNotice[];
+  boards: GameBoard[];
 } {
   const body = backup as MemoryJournal;
   if (!Array.isArray(body.runs)) {
@@ -1088,5 +1112,6 @@ function memoryFromBackup(backup: JournalExport): {
     bets: (body.actualBets ?? []).map((bet) => structuredClone(bet)),
     closings: (body.closingObservations ?? []).map((closing) => structuredClone(closing)),
     notices: (body.notices ?? []).map((notice) => structuredClone(notice)),
+    boards: (body.gameBoards ?? []).map((board) => structuredClone(board)),
   };
 }

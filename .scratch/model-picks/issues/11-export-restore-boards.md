@@ -4,12 +4,16 @@
 
 **Blocked by:** 06, 07, 08, 09, 10, 13
 
-**Status:** ready-for-agent
+**Status:** claimed
 
-- [ ] Decide whether the new records need export version 2. If they do, version 1 still restores unchanged, and the docs and AGENTS.md say which versions restore
-- [ ] Restore validates the whole file before writing, applies it atomically, and is idempotent for identical records
-- [ ] Malformed records, missing relationships, unsupported versions, and conflicting identifiers are rejected with the destination unchanged
-- [ ] Restore applies boards and picks before actual bets, since a bet from a model pick references its pick
-- [ ] Export still omits credentials, settings, and bulk source caches
-- [ ] Store contract tests round-trip a journal with boards and picks on memory and Neon
-- [ ] `npm run verify` and `npm run verify:database` pass
+- [x] Decide whether the new records need export version 2. If they do, version 1 still restores unchanged, and the docs and AGENTS.md say which versions restore
+- [x] Restore validates the whole file before writing, applies it atomically, and is idempotent for identical records
+- [x] Malformed records, missing relationships, unsupported versions, and conflicting identifiers are rejected with the destination unchanged
+- [x] Restore applies boards and picks before actual bets, since a bet from a model pick references its pick
+- [x] Export still omits credentials, settings, and bulk source caches
+- [x] Store contract tests round-trip a journal with boards and picks on memory and Neon
+- [ ] `npm run verify` and `npm run verify:database` pass. `npm run verify` passed. `verify:database` was not run because `TEST_DATABASE_URL` was unset.
+
+## Answer
+
+Export stays version 1. The new records are optional lists on that document, so a backup written before boards still restores and a missing board list is empty. A file that claims another version is rejected and the destination is unchanged. AGENTS.md already says version 1 is the only restorable backup, so it was left for ticket 12.

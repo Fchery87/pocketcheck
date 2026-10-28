@@ -266,6 +266,10 @@ export function isTerminalBoard(status: GameBoardStatus): boolean {
 export type MemoryBoardStore = GameBoardStore & {
   /** The picked offer, for a closing comparison. Null when the pick is unknown. */
   pickContract: (pickId: string) => OpenPick | null;
+  /** Saved boards, used by the journal backup. */
+  boards: Map<string, GameBoard>;
+  /** Submission identifier to board id, kept with a restored board. */
+  submissions: Map<string, string>;
 };
 
 export type OpenPick = {
@@ -291,6 +295,8 @@ export function createMemoryBoardStore(notices: StoredNotice[] = []): MemoryBoar
   }
 
   return {
+    boards,
+    submissions,
     async beginBoard(input) {
       const existingId = submissions.get(input.request.id);
       if (existingId) {
