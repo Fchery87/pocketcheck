@@ -53,6 +53,12 @@ export type ProspectiveForecast = {
   drivers?: { margin: MeanContributions; total: MeanContributions };
   /** The line the forecast started from. Records frozen before anchoring omit it. */
   anchor?: AnchorLine;
+  /**
+   * The kickoff weather the total could have used. Points stay 0 until prospectively saved
+   * snapshots are enough to fit an adjustment. A dome never applies weather, and a missing
+   * outdoor forecast is a gap, not zero wind.
+   */
+  weather?: WeatherAdjustment;
 };
 
 export type ForecastInputs = {
@@ -64,7 +70,61 @@ export type ForecastInputs = {
   policyVersion: string;
   /** Both sides from one sportsbook. Without it the market has no forecast. */
   anchorQuote?: { homeAmerican: number; awayAmerican: number; line?: number };
+  /** The kickoff forecast already collected. Omitted means no weather was considered. */
+  weather?: WeatherSnapshot | null;
 };
+
+/** The kickoff forecast collected at analysis time. Null fields were not in the snapshot. */
+export type WeatherSnapshot = {
+  roof: "outdoors" | "dome" | "closed" | "open" | "retractable" | "unknown";
+  windMph?: number | null;
+  precipitationChance?: number | null;
+  temperatureF?: number | null;
+  /** When the forecast was issued. Null means it was never collected. */
+  observedAt: string | null;
+};
+
+export type WeatherAdjustment = {
+  /** Always false until prospectively saved snapshots can be fit. A number is not invented. */
+  applied: false;
+  /** Points added to the total. Zero while unfitted, and zero under a roof. */
+  points: 0;
+  reason: "roof" | "missing" | "unfitted";
+  snapshot: {
+    windMph: number | null;
+    precipitationChance: number | null;
+    temperatureF: number | null;
+  } | null;
+  version: "weather-unfitted-v1";
+};
+
+const CLOSED_ROOF = new Set(["dome", "closed"]);
+
+/** Records the snapshot and applies nothing. A missing outdoor forecast is a gap, not calm weather. */
+export function weatherAdjustment(snapshot: WeatherSnapshot | null | undefined): WeatherAdjustment {
+  if (!snapshot || CLOSED_ROOF.has(snapshot.roof)) {
+    return {
+      applied: false,
+      points: 0,
+      reason: "roof",
+      snapshot: null,
+      version: "weather-unfitted-v1",
+    };
+  }
+  const recorded = {
+    windMph: snapshot.windMph ?? null,
+    precipitationChance: snapshot.precipitationChance ?? null,
+    temperatureF: snapshot.temperatureF ?? null,
+  };
+  const missing = !snapshot.observedAt || Object.values(recorded).every((value) => value === null);
+  return {
+    applied: false,
+    points: 0,
+    reason: missing ? "missing" : "unfitted",
+    snapshot: missing ? null : recorded,
+    version: "weather-unfitted-v1",
+  };
+}
 
 const UNKNOWN: StarterAssumption = {
   state: "unknown",
@@ -153,6 +213,7 @@ export function freezeProspectiveForecast(input: ForecastInputs): ProspectiveFor
     policyVersion: input.policyVersion,
     drivers: predicted.drivers,
     anchor,
+    ...(input.weather !== undefined ? { weather: weatherAdjustment(input.weather) } : {}),
   };
 }
 

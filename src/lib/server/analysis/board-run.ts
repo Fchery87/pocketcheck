@@ -105,6 +105,7 @@ async function pickMarket(input: {
   materialEvidenceMissing: boolean;
   model: ModelSource;
   forecast?: ForecastSource;
+  evidence: EvidenceItem[];
 }): Promise<FrozenMarketResult> {
   const { market, offers, game, nowIso } = input;
   const priced = await Promise.all(offers.map((offer) => price(input.model, game, nowIso, offer)));
@@ -140,7 +141,7 @@ async function pickMarket(input: {
   });
   const pickedIndex = offers[0].selection === graded.pickedSelection ? 0 : 1;
   const forecast = input.forecast
-    ? await input.forecast(game, nowIso, offers[pickedIndex], priced[pickedIndex]!)
+    ? await input.forecast(game, nowIso, offers[pickedIndex], priced[pickedIndex]!, input.evidence)
     : null;
   const recorded = forecast?.starters;
   const starterUnknown =
@@ -374,6 +375,7 @@ export async function runGameBoard(
         materialEvidenceMissing: gathered.materialEvidenceMissing,
         model,
         forecast,
+        evidence: gathered.items,
       });
       results.push(
         picked.pick

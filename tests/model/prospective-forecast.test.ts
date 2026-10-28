@@ -58,6 +58,62 @@ const anchorQuote = { homeAmerican: -140, awayAmerican: 120 };
 const artifact = fitArtifact(history, "2024-09-24T00:00:00.000Z");
 const cutoff = "2024-09-28T16:00:00.000Z";
 
+const nextGame = {
+  id: "next",
+  season: 2024,
+  kickoff: "2024-09-29T17:00:00.000Z",
+  home: "PHI",
+  away: "TB",
+};
+
+describe("weather on a frozen forecast", () => {
+  const freeze = (weather: Parameters<typeof freezeProspectiveForecast>[0]["weather"]) =>
+    freezeProspectiveForecast({
+      artifact,
+      history,
+      game: nextGame,
+      cutoff,
+      offer,
+      anchorQuote,
+      policyVersion: "policy-2026-10-25.2",
+      weather,
+    });
+
+  it("ignores weather under a dome or closed roof", () => {
+    const frozen = freeze({
+      roof: "dome",
+      windMph: 25,
+      precipitationChance: 0.8,
+      temperatureF: 30,
+      observedAt: cutoff,
+    });
+    expect(frozen.weather).toMatchObject({ applied: false, reason: "roof" });
+    expect(frozen.weather?.points).toBe(0);
+  });
+
+  it("records an outdoor snapshot and applies no points until a fit exists", () => {
+    const frozen = freeze({
+      roof: "outdoors",
+      windMph: 18,
+      precipitationChance: 0.4,
+      temperatureF: 42,
+      observedAt: cutoff,
+    });
+    expect(frozen.weather).toMatchObject({
+      applied: false,
+      reason: "unfitted",
+      snapshot: { windMph: 18, precipitationChance: 0.4, temperatureF: 42 },
+    });
+    expect(frozen.weather?.points).toBe(0);
+  });
+
+  it("records a missing outdoor forecast as a gap, never as zero wind", () => {
+    const frozen = freeze({ roof: "outdoors", observedAt: null });
+    expect(frozen.weather).toMatchObject({ applied: false, reason: "missing" });
+    expect(frozen.weather?.snapshot).toBeNull();
+  });
+});
+
 describe("frozen prospective forecasts", () => {
   it("does not treat an archived actual starter as a known live input", () => {
     const archived = {
