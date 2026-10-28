@@ -5,6 +5,7 @@ import type { SavedForecast } from "../analysis/forecast-record.ts";
 import type { ProviderRequestRecord } from "../providers/contracts.ts";
 import { americanToDecimal } from "#lib/domain/odds.ts";
 import type { Offer } from "#lib/domain/offer.ts";
+import type { GameBoard } from "../analysis/board-store.ts";
 import type { Settlement as SettlementResult } from "#lib/domain/settlement.ts";
 import { parentsFirst } from "./order.ts";
 
@@ -189,6 +190,11 @@ export type JournalExport = {
   closings: ClosingRecord[];
   /** Application settlement events. Absent only on a backup written before they were included. */
   settlementNotices?: SettlementNoticeRecord[];
+  /**
+   * Game boards, their quotes, and their model picks. Absent on a backup written before boards.
+   * A missing list restores as empty. Version 1 remains the only restorable backup.
+   */
+  gameBoards?: GameBoard[];
 };
 
 export type SaveAnalysisInput = {
@@ -1192,7 +1198,10 @@ export class JournalRepository {
    * schedule fields match. Pending and ambiguous attempts are stored as records
    * only. Restore does not call a source or a provider.
    */
-  async restoreJournal(snapshot: JournalExport): Promise<JournalExport> {
+  async restoreJournal(
+    snapshot: JournalExport,
+    restoreBoards?: (tx: TransactionSql) => Promise<void>,
+  ): Promise<JournalExport> {
     assertRestorable(snapshot);
 
     await this.sql.begin(async (tx) => {
@@ -1202,6 +1211,8 @@ export class JournalRepository {
       await restoreAnalyses(tx, snapshot.analyses);
       await restoreReports(tx, snapshot.reports);
       await restoreResearch(tx, snapshot.userResearch);
+      // Boards and picks before bets: a bet from a model pick references its pick.
+      if (restoreBoards) await restoreBoards(tx);
       await restoreBets(tx, snapshot.bets);
       await restoreSettlements(tx, snapshot.settlements);
       await restoreClosings(tx, snapshot.closings);

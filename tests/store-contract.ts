@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { loadFixtureGames } from "#lib/server/analysis/games.ts";
 import { createFixtureDrafter } from "#lib/server/analysis/fixture-drafter.ts";
+import { runGameBoard } from "#lib/server/analysis/board-run.ts";
 import { runAnalysis, type AnalysisRequest, type ThesisDrafter } from "#lib/server/analysis/run.ts";
 import type { ModelSource } from "#lib/server/analysis/model.ts";
-import type { ResearchStore } from "#lib/server/analysis/store.ts";
+import type { JournalStore, ResearchStore } from "#lib/server/analysis/store.ts";
+import { quiet, scriptedModel } from "./board-fixtures.ts";
 
 const NOW = "2026-10-25T16:00:00.000Z";
 const game = loadFixtureGames("tests/fixtures/sources/games-minimized.csv", NOW).find(
@@ -1442,6 +1444,78 @@ export function describeStoreContract(
         /version/i,
       );
       expect(await empty.listCompleted()).toEqual(before);
+    });
+
+    it("round-trips game boards and model picks, and restores a backup written before boards", async () => {
+      const store = (await makeStore()) as JournalStore;
+      if (typeof store.getBoard !== "function") return;
+      const outcome = await runGameBoard(
+        {
+          game,
+          nowIso: NOW,
+          scheduleRetrievedAt: "2026-10-25T12:00:00.000Z",
+          sportsbook: "Board Book",
+          observedAt: "2026-10-25T15:30:00.000Z",
+          moneyline: { home: -150, away: 130, tieRule: "push" },
+          requestId: submission("board-export"),
+        },
+        {
+          store,
+          collect: quiet,
+          model: scriptedModel({ home: { win: 0.64, loss: 0.36, push: 0 } }),
+          drafter: createFixtureDrafter(),
+        },
+      );
+      expect(outcome.ok, outcome.ok ? "" : outcome.error).toBe(true);
+      if (!outcome.ok) return;
+      const placed = await store.recordBet({
+        modelPickId: outcome.board.markets[0]!.pick!.id,
+        sportsbook: "Placed Book",
+        market: "moneyline",
+        selection: "home",
+        americanOdds: -148,
+        placedAt: "2026-10-25T16:30:00.000Z",
+        stakeUnits: 1,
+        submissionId: submission("pick-bet"),
+        rules: { period: "full-game", overtime: "included", tie: "push" },
+      });
+      expect(placed.kind).toBe("created");
+      const backup = await store.exportJournal();
+      expect(backup.version).toBe(1);
+      expect(backup.gameBoards?.map((board) => board.id)).toContain(outcome.board.id);
+      const exportedBoard = backup.gameBoards?.find((board) => board.id === outcome.board.id);
+      expect(exportedBoard?.drafter).toEqual(outcome.board.drafter);
+      expect(exportedBoard?.providerRequests).toEqual(outcome.board.providerRequests);
+      expect(exportedBoard?.providerOutcomeAmbiguous).toBe(outcome.board.providerOutcomeAmbiguous);
+      expect(exportedBoard?.usage).toEqual(outcome.board.usage);
+      expect(exportedBoard?.explanation).toEqual(outcome.board.explanation);
+      expect(exportedBoard?.markets[0]?.pick?.id).toBe(outcome.board.markets[0]!.pick!.id);
+      expect(exportedBoard?.markets[0]?.pick?.role.role).toBe("primary");
+      const pickId = outcome.board.markets[0]!.pick!.id;
+      const exportedBets = backup.bets.length
+        ? backup.bets
+        : ((backup as { actualBets?: { modelPickId: string | null }[] }).actualBets ?? []);
+      expect(exportedBets.some((bet) => bet.modelPickId === pickId)).toBe(true);
+      expect(JSON.stringify(backup)).not.toMatch(/api[_-]?key|authorization/i);
+
+      const empty = (await makeStore()) as JournalStore;
+      const restored = await empty.restoreJournal(backup);
+      const again = await empty.restoreJournal(backup);
+      expect(again).toEqual(restored);
+      expect(await empty.getBoard(outcome.board.id)).toEqual(outcome.board);
+      expect((await empty.listBets()).map((bet) => bet.modelPickId)).toContain(
+        outcome.board.markets[0]!.pick!.id,
+      );
+
+      const older = { ...backup };
+      delete older.gameBoards;
+      const blank = (await makeStore()) as JournalStore;
+      await expect(blank.restoreJournal(older)).resolves.toBeDefined();
+      const before = await blank.exportJournal();
+      await expect(blank.restoreJournal({ ...backup, version: 2 as never })).rejects.toThrow(
+        /version/i,
+      );
+      expect(await blank.exportJournal()).toEqual(before);
     });
   });
 }
