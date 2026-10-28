@@ -4,12 +4,18 @@
 
 **Blocked by:** model-picks 04, model-picks 10
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The board form adds and removes quotes per side; typed values are kept on rejection
-- [ ] Best available price compares only quotes on the same point line; others are shown as different contracts
-- [ ] The no-vig anchor uses a single sportsbook's two sides and never mixes books
-- [ ] Every quote is frozen in the board record and included in the store contract
-- [ ] The actual bet prefills the best sportsbook and price as editable values
-- [ ] A browser test enters two sportsbooks for one side, sees the best marked, sees a different-line quote listed separately, and records a bet with the best price
-- [ ] `npm run verify` and `npm run verify:database` pass
+- [x] The board form adds and removes quotes per side; typed values are kept on rejection
+- [x] Best available price compares only quotes on the same point line; others are shown as different contracts
+- [x] The no-vig anchor uses a single sportsbook's two sides and never mixes books
+- [x] Every quote is frozen in the board record and included in the store contract
+- [x] The actual bet prefills the best sportsbook and price as editable values
+- [x] A browser test enters two sportsbooks for one side, sees the best marked, sees a different-line quote listed separately, and records a bet with the best price
+- [x] `npm run verify` and `npm run verify:database` pass
+
+## Answer
+
+The board form adds and removes extra sportsbook quotes and keeps typed values on rejection. The best price on the anchor line is marked, a different line is listed as another contract, and a bet recorded from the pick starts from the shopped sportsbook and price. A browser test covers the path.
+
+Verified 2026-10-28 on `feature/forecasting-model-improvements`: `npm run verify` (540 unit tests, 31 browser tests) and `verify:database` (95 tests) pass.
