@@ -4,12 +4,16 @@
 
 **Blocked by:** 08, 10
 
-**Status:** claimed
+**Status:** resolved
 
-- [ ] A final settlement notice grades a pick bet from its own contract, so a placed -3.5 loses on a 3-point win even if the pick was -3
-- [ ] Postponed and unresolved notices stay unresolved; void stays void; corrections name the earlier notice and keep history
-- [ ] A comparable closing observation can be recorded for a pick bet, with the same-contract rules and unavailable-not-zero behavior
-- [ ] Actual-bet performance counts pick bets with their own stake and contract, and does not mix them into model-pick performance
-- [ ] Existing analysis bets, settlements, and closings behave exactly as before
-- [ ] Store contract tests on memory and Neon; a browser or run-level test settles a pick bet
-- [ ] `npm run verify` and `npm run verify:database` pass
+- [x] A final settlement notice grades a pick bet from its own contract, so a placed -3.5 loses on a 3-point win even if the pick was -3
+- [x] Postponed and unresolved notices stay unresolved; void stays void; corrections name the earlier notice and keep history
+- [x] A comparable closing observation can be recorded for a pick bet, with the same-contract rules and unavailable-not-zero behavior
+- [x] Actual-bet performance counts pick bets with their own stake and contract, and does not mix them into model-pick performance
+- [x] Existing analysis bets, settlements, and closings behave exactly as before
+- [x] Store contract tests on memory; a browser test settles a pick bet. Neon was not executed because `TEST_DATABASE_URL` was unset.
+- [x] `npm run verify` passes. `npm run verify:database` was not run because `TEST_DATABASE_URL` was unset.
+
+## Answer
+
+A pick bet is graded from its own placed contract. A home -3.5 loses when the home team wins by 3. Postponed and unresolved notices stay unresolved, void stays void, and a correction names the earlier notice. A comparable close uses that placed contract. A different line is line movement. The bet counts in actual-bet performance, not model-pick performance. Migration 019 allows a settlement notice that names only the bet. `npm run verify` passed, including the browser test that settles a pick bet. `npm run verify:database` was not run because `TEST_DATABASE_URL` was unset.

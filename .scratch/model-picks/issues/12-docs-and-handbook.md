@@ -10,7 +10,7 @@ The handbook page explains the forecasting model vs. the drafter, no-vig probabi
 
 **Blocked by:** 06, 09, 11
 
-**Status:** claimed
+**Status:** resolved
 
 - [x] README describes the game board and model pick workflow and its honest limits
 - [x] AGENTS.md Journal and Release sections reflect ADR 0002 without loosening the release gate

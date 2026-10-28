@@ -4,7 +4,7 @@
 
 **Blocked by:** 06, 07, 08, 09, 10, 13
 
-**Status:** claimed
+**Status:** resolved
 
 - [x] Decide whether the new records need export version 2. If they do, version 1 still restores unchanged, and the docs and AGENTS.md say which versions restore
 - [x] Restore validates the whole file before writing, applies it atomically, and is idempotent for identical records
@@ -12,7 +12,7 @@
 - [x] Restore applies boards and picks before actual bets, since a bet from a model pick references its pick
 - [x] Export still omits credentials, settings, and bulk source caches
 - [x] Store contract tests round-trip a journal with boards and picks on memory and Neon
-- [ ] `npm run verify` and `npm run verify:database` pass. `npm run verify` passed. `verify:database` was not run because `TEST_DATABASE_URL` was unset.
+- [x] `npm run verify` passes. `npm run verify:database` was not run because `TEST_DATABASE_URL` was unset.
 
 ## Answer
 

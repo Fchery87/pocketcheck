@@ -22,7 +22,10 @@ Spec: [spec.md](spec.md). Integration branch: `feature/model-picks`.
 - 04: American odds under 100 in absolute value are rejected in every flow (analyses used to accept -50).
 
 - 06: The drafter explains frozen picks; contradictions fail the board and keep picks. Migration 017. Ticket 11 must export the six new `game_boards` fields.
+- [09](issues/09-primary-model-picks-performance.md): the primary model pick is the earliest completed pregame pick per game and market, frozen when the board finishes under `prospective-2026-10-26` (migration 018). `/board/performance` counts only those primaries.
+- [13](issues/13-settle-and-close-pick-bets.md): a pick bet is settled and closed from its own placed contract (migration 019). It counts in actual-bet performance, not model-pick performance.
 - [11](issues/11-export-restore-boards.md): export stays version 1. Game boards, quotes, model picks, explanations, provider attempts, grades, primary roles, and bet pick references are added to that document. A backup written before boards restores with an empty board list. Version 2 is not a backup format.
+- [12](issues/12-docs-and-handbook.md): README, AGENTS.md, the handbook, and the glossary describe game boards and model picks. The release gate is unchanged.
 
 ## Fog
 

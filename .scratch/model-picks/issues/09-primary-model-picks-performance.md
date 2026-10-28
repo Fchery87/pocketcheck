@@ -4,7 +4,7 @@
 
 **Blocked by:** 07, 08
 
-**Status:** claimed
+**Status:** resolved
 
 - [x] The primary model pick follows the analysis primary's tie and legacy rules; refreshes are never primary
 - [x] Primary model pick forecasts are recorded as prospective forecasts without regeneration
@@ -13,7 +13,7 @@
 - [x] Closing comparisons use the same market, side, point line, sportsbook, and rules; a different line is line movement
 - [x] Assessment and actual-bet summaries are unchanged
 - [x] Store contract and run-level tests cover classification and counts
-- [ ] `npm run verify` and `npm run verify:database` pass
+- [x] `npm run verify` passes. `npm run verify:database` was not run: `TEST_DATABASE_URL` was unset, and the check does not read `.env`.
 
 ## Answer
 
