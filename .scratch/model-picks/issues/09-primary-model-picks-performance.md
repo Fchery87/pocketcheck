@@ -4,7 +4,7 @@
 
 **Blocked by:** 07, 08
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [x] The primary model pick follows the analysis primary's tie and legacy rules; refreshes are never primary
 - [x] Primary model pick forecasts are recorded as prospective forecasts without regeneration

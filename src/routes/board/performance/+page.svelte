@@ -85,6 +85,9 @@
           <a href="/board/{row.boardId}">{row.game}</a>,
           {title(row.market)}: {row.selection}{lined(row.pointLine)} {signed(row.americanOdds)},
           {row.grade}.
+          <span data-testid="pick-row-release">
+            {row.release === "released" ? "Released model pick" : "Unvalidated model pick"}
+          </span>
           <span data-testid="pick-row-result">{resultWord(row.result)}</span>
           {#if row.unitProfit !== null && (row.result === "win" || row.result === "loss")}
             <span data-testid="pick-row-return">{unit(row.unitProfit)} units</span>

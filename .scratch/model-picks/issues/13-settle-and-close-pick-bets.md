@@ -4,7 +4,7 @@
 
 **Blocked by:** 08, 10
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] A final settlement notice grades a pick bet from its own contract, so a placed -3.5 loses on a 3-point win even if the pick was -3
 - [ ] Postponed and unresolved notices stay unresolved; void stays void; corrections name the earlier notice and keep history
