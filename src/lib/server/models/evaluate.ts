@@ -1,8 +1,4 @@
-import {
-  americanToDecimal,
-  expectedValue,
-  proportionalMargin,
-} from "../../domain/odds.ts";
+import { americanToDecimal, expectedValue, proportionalMargin } from "../../domain/odds.ts";
 import { VALUE_THRESHOLD } from "../../domain/threshold.ts";
 import { anchorFromQuote } from "./anchor.ts";
 import type { ModelArtifact } from "./artifact.ts";
@@ -125,10 +121,7 @@ export type ArtifactComparison = {
   }[];
 };
 
-export function multiclassBrier(
-  probability: SideProbability,
-  outcome: Outcome,
-): number {
+export function multiclassBrier(probability: SideProbability, outcome: Outcome): number {
   const predicted = {
     win: probability.win,
     loss: probability.loss,
@@ -140,10 +133,7 @@ export function multiclassBrier(
   }, 0);
 }
 
-export function multiclassLogLoss(
-  probability: SideProbability,
-  outcome: Outcome,
-): number {
+export function multiclassLogLoss(probability: SideProbability, outcome: Outcome): number {
   const chosen = probability[outcome];
   return -Math.log(Math.min(1 - EPS, Math.max(EPS, chosen)));
 }
@@ -162,11 +152,7 @@ export function settleTotal(total: number, line: number): Outcome {
 }
 
 /** Removes the vig proportionally and leaves room for the model's push probability. */
-function noVig(
-  side: PriceSide,
-  other: PriceSide,
-  push: number,
-): SideProbability | null {
+function noVig(side: PriceSide, other: PriceSide, push: number): SideProbability | null {
   const fair = proportionalMargin([
     { side: "side", american: side.american },
     { side: "other", american: other.american },
@@ -183,11 +169,7 @@ function conservativeValue(
   american: number | null,
 ): number | null {
   if (american === null) return null;
-  const assessed = conservativeProbabilities(
-    artifact.uncertainty,
-    market,
-    probability,
-  );
+  const assessed = conservativeProbabilities(artifact.uncertainty, market, probability);
   if (!assessed.available) return null;
   return expectedValue({
     decimalOdds: americanToDecimal(american),
@@ -236,16 +218,12 @@ export function scoreHoldout(
             ...(marginAnchor === null
               ? {}
               : {
-                  marginMean:
-                    marginAnchor +
-                    shift(predictedRaw.drivers.margin.contributions),
+                  marginMean: marginAnchor + shift(predictedRaw.drivers.margin.contributions),
                 }),
             ...(totalAnchor === null
               ? {}
               : {
-                  totalMean:
-                    totalAnchor +
-                    shift(predictedRaw.drivers.total.contributions),
+                  totalMean: totalAnchor + shift(predictedRaw.drivers.total.contributions),
                 }),
           });
     const slate = slateOf(game.kickoff);
@@ -264,12 +242,7 @@ export function scoreHoldout(
       priceState: prices?.moneyline ? "present" : "missing",
       slate,
       americanOdds: moneylineOdds,
-      conservativeExpectedValue: conservativeValue(
-        artifact,
-        "moneyline",
-        moneyline,
-        moneylineOdds,
-      ),
+      conservativeExpectedValue: conservativeValue(artifact, "moneyline", moneyline, moneylineOdds),
     });
     if (prices?.spread) {
       const spread = predicted.spread(prices.spread.line).home;
@@ -278,11 +251,7 @@ export function scoreHoldout(
         market: "spread",
         side: "home",
         probability: spread,
-        marketBaseline: noVig(
-          prices.spread.home,
-          prices.spread.away,
-          spread.push,
-        ),
+        marketBaseline: noVig(prices.spread.home, prices.spread.away, spread.push),
         baseRate: null,
         outcome: settleMargin(marginHome(game), prices.spread.line),
         priceState: "present",
@@ -305,11 +274,7 @@ export function scoreHoldout(
         market: "total",
         side: "over",
         probability: total,
-        marketBaseline: noVig(
-          prices.total.over,
-          prices.total.under,
-          total.push,
-        ),
+        marketBaseline: noVig(prices.total.over, prices.total.under, total.push),
         baseRate: null,
         outcome: settleTotal(totalPoints(game), prices.total.line),
         priceState: "present",
@@ -329,11 +294,7 @@ export function scoreHoldout(
   return forecasts;
 }
 
-function missing(
-  market: "spread" | "total",
-  gameId: string,
-  slate: string,
-): ScoredForecast {
+function missing(market: "spread" | "total", gameId: string, slate: string): ScoredForecast {
   return {
     gameId,
     market,
@@ -355,14 +316,10 @@ function scores(
 ): Scores {
   return {
     brier: average(
-      members.map((forecast) =>
-        multiclassBrier(probability(forecast), forecast.outcome),
-      ),
+      members.map((forecast) => multiclassBrier(probability(forecast), forecast.outcome)),
     ),
     logLoss: average(
-      members.map((forecast) =>
-        multiclassLogLoss(probability(forecast), forecast.outcome),
-      ),
+      members.map((forecast) => multiclassLogLoss(probability(forecast), forecast.outcome)),
     ),
   };
 }
@@ -376,32 +333,22 @@ function differenceInterval(
     const difference =
       multiclassLogLoss(forecast.probability, forecast.outcome) -
       multiclassLogLoss(baseline(forecast), forecast.outcome);
-    bySlate.set(forecast.slate, [
-      ...(bySlate.get(forecast.slate) ?? []),
-      difference,
-    ]);
+    bySlate.set(forecast.slate, [...(bySlate.get(forecast.slate) ?? []), difference]);
   }
   return clusteredInterval(
     [...bySlate.values()],
     (sample) => {
       const all = sample.flat();
-      return all.length === 0
-        ? null
-        : all.reduce((sum, value) => sum + value, 0) / all.length;
+      return all.length === 0 ? null : all.reduce((sum, value) => sum + value, 0) / all.length;
     },
     UNCERTAINTY_OPTIONS,
   );
 }
 
 function winRate(sample: readonly ScoredForecast[][]): number | null {
-  const forecasts = sample
-    .flat()
-    .filter((forecast) => forecast.outcome !== "push");
+  const forecasts = sample.flat().filter((forecast) => forecast.outcome !== "push");
   if (forecasts.length === 0) return null;
-  return (
-    forecasts.filter((forecast) => forecast.outcome === "win").length /
-    forecasts.length
-  );
+  return forecasts.filter((forecast) => forecast.outcome === "win").length / forecasts.length;
 }
 
 const THRESHOLD_NOTE =
@@ -410,27 +357,18 @@ const THRESHOLD_NOTE =
 function thresholdReport(
   members: readonly ScoredForecast[],
 ): EvaluationSummary["threshold"]["markets"][Market] {
-  const assessed = members.filter(
-    (forecast) => forecast.conservativeExpectedValue !== null,
-  );
+  const assessed = members.filter((forecast) => forecast.conservativeExpectedValue !== null);
   const candidates = assessed.filter(
-    (forecast) =>
-      forecast.conservativeExpectedValue! >
-      VALUE_THRESHOLD.conservativeExpectedValue,
+    (forecast) => forecast.conservativeExpectedValue! > VALUE_THRESHOLD.conservativeExpectedValue,
   );
   const decisive = candidates.filter((forecast) => forecast.outcome !== "push");
   const wins = decisive.filter((forecast) => forecast.outcome === "win");
   const breakEvens = candidates.flatMap((forecast) =>
-    forecast.americanOdds === null
-      ? []
-      : [1 / americanToDecimal(forecast.americanOdds)],
+    forecast.americanOdds === null ? [] : [1 / americanToDecimal(forecast.americanOdds)],
   );
   const bySlate = new Map<string, ScoredForecast[]>();
   for (const forecast of candidates) {
-    bySlate.set(forecast.slate, [
-      ...(bySlate.get(forecast.slate) ?? []),
-      forecast,
-    ]);
+    bySlate.set(forecast.slate, [...(bySlate.get(forecast.slate) ?? []), forecast]);
   }
   return {
     assessed: assessed.length,
@@ -442,20 +380,13 @@ function thresholdReport(
       breakEvens.length === 0
         ? null
         : breakEvens.reduce((sum, value) => sum + value, 0) / breakEvens.length,
-    interval: clusteredInterval(
-      [...bySlate.values()],
-      winRate,
-      UNCERTAINTY_OPTIONS,
-    ),
+    interval: clusteredInterval([...bySlate.values()], winRate, UNCERTAINTY_OPTIONS),
   };
 }
 
-export function summarize(
-  forecasts: readonly ScoredForecast[],
-): EvaluationSummary {
+export function summarize(forecasts: readonly ScoredForecast[]): EvaluationSummary {
   const graded = forecasts.filter(
-    (forecast) =>
-      forecast.market === "moneyline" || forecast.priceState === "present",
+    (forecast) => forecast.market === "moneyline" || forecast.priceState === "present",
   );
   const overall = scores(graded, (forecast) => forecast.probability);
   const bins = [0, 0.2, 0.4, 0.6, 0.8, 1];
@@ -464,10 +395,7 @@ export function summarize(
     const members = graded.filter((forecast) => {
       const probability = forecast.probability.win;
       // The top bin also takes values a rounding error above 1.
-      return (
-        probability >= lower &&
-        (index === bins.length - 2 || probability < upper)
-      );
+      return probability >= lower && (index === bins.length - 2 || probability < upper);
     });
     return {
       lower,
@@ -476,8 +404,7 @@ export function summarize(
       observed:
         members.length === 0
           ? 0
-          : members.filter((forecast) => forecast.outcome === "win").length /
-            members.length,
+          : members.filter((forecast) => forecast.outcome === "win").length / members.length,
     };
   });
   const markets = ["moneyline", "spread", "total"] as const;
@@ -499,16 +426,12 @@ export function summarize(
       count: rated.length,
       model: scores(rated, (forecast) => forecast.probability),
       baseline: scores(rated, (forecast) => forecast.baseRate!),
-      logLossDifferenceInterval: differenceInterval(
-        rated,
-        (forecast) => forecast.baseRate!,
-      ),
+      logLossDifferenceInterval: differenceInterval(rated, (forecast) => forecast.baseRate!),
     });
   }
   for (const market of markets) {
     const members = graded.filter(
-      (forecast) =>
-        forecast.market === market && forecast.marketBaseline !== null,
+      (forecast) => forecast.market === market && forecast.marketBaseline !== null,
     );
     if (members.length === 0) continue;
     baselines.push({
@@ -524,9 +447,7 @@ export function summarize(
     });
   }
 
-  const priced = forecasts.filter(
-    (forecast) => forecast.priceState === "present",
-  ).length;
+  const priced = forecasts.filter((forecast) => forecast.priceState === "present").length;
   const thresholdMarkets = {} as EvaluationSummary["threshold"]["markets"];
   for (const market of markets) {
     thresholdMarkets[market] = thresholdReport(
@@ -541,9 +462,7 @@ export function summarize(
     baselines,
     coverage: {
       priced,
-      missingPrices: forecasts.filter(
-        (forecast) => forecast.priceState === "missing",
-      ).length,
+      missingPrices: forecasts.filter((forecast) => forecast.priceState === "missing").length,
     },
     byMarket,
     threshold: {
@@ -583,23 +502,16 @@ export function compareArtifacts(
     candidateIds.length !== previousIds.length ||
     candidateIds.some((id, index) => id !== previousIds[index])
   ) {
-    throw new Error(
-      "The two artifacts do not cover the same games, so they cannot be compared.",
-    );
+    throw new Error("The two artifacts do not cover the same games, so they cannot be compared.");
   }
   const graded = (forecasts: readonly ScoredForecast[]) =>
     forecasts.filter(
-      (forecast) =>
-        forecast.market === "moneyline" || forecast.priceState === "present",
+      (forecast) => forecast.market === "moneyline" || forecast.priceState === "present",
     );
   const left = graded(candidate);
-  const rightByKey = new Map(
-    graded(previous).map((forecast) => [forecastKey(forecast), forecast]),
-  );
+  const rightByKey = new Map(graded(previous).map((forecast) => [forecastKey(forecast), forecast]));
   if (left.some((forecast) => !rightByKey.has(forecastKey(forecast)))) {
-    throw new Error(
-      "The two artifacts do not cover the same games, so they cannot be compared.",
-    );
+    throw new Error("The two artifacts do not cover the same games, so they cannot be compared.");
   }
   return {
     previousChecksum,
@@ -639,23 +551,14 @@ export function ablateGroup(input: {
 }): AblationGroup {
   const graded = (forecasts: readonly ScoredForecast[]) =>
     forecasts.filter(
-      (forecast) =>
-        forecast.market === "moneyline" || forecast.priceState === "present",
+      (forecast) => forecast.market === "moneyline" || forecast.priceState === "present",
     );
   const left = graded(input.withGroup);
   const rightByKey = new Map(
-    graded(input.withoutGroup).map((forecast) => [
-      forecastKey(forecast),
-      forecast,
-    ]),
+    graded(input.withoutGroup).map((forecast) => [forecastKey(forecast), forecast]),
   );
-  if (
-    left.length === 0 ||
-    left.some((forecast) => !rightByKey.has(forecastKey(forecast)))
-  ) {
-    throw new Error(
-      `The ${input.group} ablation does not cover the same games.`,
-    );
+  if (left.length === 0 || left.some((forecast) => !rightByKey.has(forecastKey(forecast)))) {
+    throw new Error(`The ${input.group} ablation does not cover the same games.`);
   }
   return {
     group: input.group,
@@ -672,10 +575,7 @@ export function ablateGroup(input: {
           market,
           count: paired.length,
           withGroup: scores(paired, (forecast) => forecast.probability),
-          withoutGroup: scores(
-            paired,
-            (forecast) => forecast.other.probability,
-          ),
+          withoutGroup: scores(paired, (forecast) => forecast.other.probability),
           logLossDifferenceInterval: differenceInterval(
             paired,
             (forecast) => forecast.other.probability,

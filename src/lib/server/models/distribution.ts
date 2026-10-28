@@ -53,8 +53,7 @@ export function keyNumberWeights(
   const smooth = (points: number) => {
     let value = 0;
     for (let offset = -reach; offset <= reach; offset += 1) {
-      value +=
-        (counts.get(points - offset) ?? 0) * (kernelMass[offset + reach] ?? 0);
+      value += (counts.get(points - offset) ?? 0) * (kernelMass[offset + reach] ?? 0);
     }
     return value / kernelTotal;
   };
@@ -78,8 +77,7 @@ export function fitResidualDistribution(
   padding = 14,
   keyWeights: KeyWeight[] = [],
 ): ResidualDistribution {
-  if (residuals.length === 0)
-    throw new Error("Residual distribution needs training residuals");
+  if (residuals.length === 0) throw new Error("Residual distribution needs training residuals");
   if (bandwidth <= 0) throw new Error("Residual bandwidth must be positive");
   const low = Math.min(...residuals);
   const high = Math.max(...residuals);
@@ -134,17 +132,11 @@ function densityAt(grid: DensityGrid, x: number): number {
   const index = Math.floor(position);
   if (index < 0 || index + 1 >= grid.values.length) return 0;
   const fraction = position - index;
-  return (
-    (grid.values[index] ?? 0) * (1 - fraction) +
-    (grid.values[index + 1] ?? 0) * fraction
-  );
+  return (grid.values[index] ?? 0) * (1 - fraction) + (grid.values[index + 1] ?? 0) * fraction;
 }
 
 /** Integer outcome probabilities from the smoothed residuals alone, before key weights. */
-export function smoothMass(
-  distribution: ResidualDistribution,
-  mean: number,
-): MassBin[] {
+export function smoothMass(distribution: ResidualDistribution, mean: number): MassBin[] {
   const grid = densityGrid(distribution);
   const bins: MassBin[] = [];
   let total = 0;
@@ -162,13 +154,8 @@ export function smoothMass(
   }));
 }
 
-export function integerMass(
-  distribution: ResidualDistribution,
-  mean: number,
-): MassBin[] {
-  const keyWeight = new Map(
-    distribution.keyWeights.map((entry) => [entry.points, entry.weight]),
-  );
+export function integerMass(distribution: ResidualDistribution, mean: number): MassBin[] {
+  const keyWeight = new Map(distribution.keyWeights.map((entry) => [entry.points, entry.weight]));
   const weighted = smoothMass(distribution, mean).map((bin) => ({
     points: bin.points,
     probability: bin.probability * (keyWeight.get(bin.points) ?? 1),
@@ -208,10 +195,7 @@ export function moneylineFromMargin(bins: readonly MassBin[]): {
  * The margin mean whose home win probability is closest to the no-vig price. The anchor uses it
  * so a moneyline price and a spread line live on the same scale.
  */
-export function marginMeanForHomeWin(
-  distribution: ResidualDistribution,
-  homeWin: number,
-): number {
+export function marginMeanForHomeWin(distribution: ResidualDistribution, homeWin: number): number {
   let best = 0;
   let bestGap = Infinity;
   for (let mean = -30; mean <= 30; mean += 0.25) {

@@ -129,42 +129,26 @@ export function parseOffer(input: OfferInput): Offer {
   if (input.market === "moneyline" && input.rules.tie === undefined) {
     throw new OfferError("A moneyline requires a tie rule");
   }
-  if (
-    input.market === "spread" &&
-    input.selection !== "home" &&
-    input.selection !== "away"
-  ) {
+  if (input.market === "spread" && input.selection !== "home" && input.selection !== "away") {
     throw new OfferError("A spread selection must be home or away");
   }
-  if (
-    input.market === "total" &&
-    input.selection !== "over" &&
-    input.selection !== "under"
-  ) {
+  if (input.market === "total" && input.selection !== "over" && input.selection !== "under") {
     throw new OfferError("A total selection must be over or under");
   }
-  if (
-    input.market === "moneyline" &&
-    input.selection !== "home" &&
-    input.selection !== "away"
-  ) {
+  if (input.market === "moneyline" && input.selection !== "home" && input.selection !== "away") {
     throw new OfferError("A moneyline selection must be home or away");
   }
 
   if (input.opposing) {
     // The anchor's two sides must be one sportsbook. A shopped price may come from another.
-    const sameBook =
-      input.opposing.sportsbook === input.sportsbook || input.shopped === true;
+    const sameBook = input.opposing.sportsbook === input.sportsbook || input.shopped === true;
     // The other side of home -3.5 is away +3.5; the other side of over 44.5 is under 44.5.
     const expectedLine =
       input.market === "spread" && input.pointLine !== undefined
         ? -input.pointLine
         : (input.pointLine ?? null);
     const sameLine = (input.opposing.pointLine ?? null) === expectedLine;
-    const opposingObserved = requireTime(
-      input.opposing.observedAt,
-      "opposing observation time",
-    );
+    const opposingObserved = requireTime(input.opposing.observedAt, "opposing observation time");
     const closeInTime = Math.abs(opposingObserved - observed) <= 15 * 60 * 1000;
     if (!sameBook || !sameLine || !closeInTime) {
       throw new OfferError("Opposing price is not comparable");

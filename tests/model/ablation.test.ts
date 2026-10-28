@@ -1,10 +1,4 @@
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -43,32 +37,22 @@ function forecast(
 }
 
 describe("artifact comparison", () => {
-  const candidate = [
-    forecast("g1", 0.8, "win", "2024-09"),
-    forecast("g2", 0.7, "win", "2024-10"),
-  ];
-  const previous = [
-    forecast("g1", 0.4, "win", "2024-09"),
-    forecast("g2", 0.4, "win", "2024-10"),
-  ];
+  const candidate = [forecast("g1", 0.8, "win", "2024-09"), forecast("g2", 0.7, "win", "2024-10")];
+  const previous = [forecast("g1", 0.4, "win", "2024-09"), forecast("g2", 0.4, "win", "2024-10")];
 
   it("compares two artifacts on the same games and labels the result development evidence", () => {
     const comparison = compareArtifacts(candidate, previous, "b".repeat(64));
     expect(comparison.evidence).toBe("development");
-    const moneyline = comparison.markets.find(
-      (market) => market.market === "moneyline",
-    );
+    const moneyline = comparison.markets.find((market) => market.market === "moneyline");
     expect(moneyline?.count).toBe(2);
-    expect(moneyline!.candidate.logLoss).toBeLessThan(
-      moneyline!.previous.logLoss,
-    );
+    expect(moneyline!.candidate.logLoss).toBeLessThan(moneyline!.previous.logLoss);
     expect(moneyline?.logLossDifferenceInterval).not.toBeNull();
   });
 
   it("refuses a comparison when the game sets differ", () => {
-    expect(() =>
-      compareArtifacts(candidate, previous.slice(0, 1), "b".repeat(64)),
-    ).toThrow(/same games/);
+    expect(() => compareArtifacts(candidate, previous.slice(0, 1), "b".repeat(64))).toThrow(
+      /same games/,
+    );
   });
 });
 
@@ -190,33 +174,27 @@ describe("evaluation report sections", () => {
   }
 
   it("accepts a report that labels its history as development evidence", () => {
-    expect(
-      parseEvaluationReport({ value: report(), artifact }).artifactChecksum,
-    ).toBe(artifact.checksum);
+    expect(parseEvaluationReport({ value: report(), artifact }).artifactChecksum).toBe(
+      artifact.checksum,
+    );
   });
 
   it("rejects a comparison that covers a different number of games", () => {
     const value = report();
     value.comparison.markets[0]!.count = 12;
-    expect(() => parseEvaluationReport({ value, artifact })).toThrow(
-      /same games/,
-    );
+    expect(() => parseEvaluationReport({ value, artifact })).toThrow(/same games/);
   });
 
   it("rejects a comparison presented as release evidence", () => {
     const value = report();
     value.comparison.evidence = "released";
-    expect(() => parseEvaluationReport({ value, artifact })).toThrow(
-      /development evidence/,
-    );
+    expect(() => parseEvaluationReport({ value, artifact })).toThrow(/development evidence/);
   });
 
   it("rejects an ablation with no features", () => {
     const value = report();
     value.ablation[0]!.features = [];
-    expect(() => parseEvaluationReport({ value, artifact })).toThrow(
-      /features/,
-    );
+    expect(() => parseEvaluationReport({ value, artifact })).toThrow(/features/);
   });
 });
 
@@ -285,16 +263,10 @@ describe("model:evaluate report", () => {
     { timeout: 30_000 },
     () => {
       const full = JSON.parse(
-        readFileSync(
-          resolve("tests/model/fixtures/synthetic-games.json"),
-          "utf8",
-        ),
+        readFileSync(resolve("tests/model/fixtures/synthetic-games.json"), "utf8"),
       ) as { games: { id: string }[] };
       const shorter = join(directory, "shorter.json");
-      writeFileSync(
-        shorter,
-        JSON.stringify({ games: full.games.slice(0, -1) }),
-      );
+      writeFileSync(shorter, JSON.stringify({ games: full.games.slice(0, -1) }));
       const other = join(directory, "other.json");
       const fitted = spawnSync(
         process.execPath,

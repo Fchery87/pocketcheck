@@ -14,8 +14,7 @@ export const browserFixture = {
   POCKETCHECK_JOURNAL: "memory",
   POCKETCHECK_NOW: "2026-10-25T16:00:00.000Z",
   POCKETCHECK_SCHEDULE_CSV: "tests/fixtures/sources/games-minimized.csv",
-  POCKETCHECK_INJURY_CSV:
-    "tests/fixtures/sources/injuries-2026-live-sample.csv",
+  POCKETCHECK_INJURY_CSV: "tests/fixtures/sources/injuries-2026-live-sample.csv",
   POCKETCHECK_WEATHER: "off",
   POCKETCHECK_MODEL_ARTIFACT: FIXTURE_MODEL.artifact,
   DATABASE_URL: "",
@@ -40,18 +39,14 @@ function unsafe(key: string): Error {
 function assertFixtureModel(read: ReadText): void {
   let artifact: Record<string, unknown>;
   try {
-    artifact = JSON.parse(read(FIXTURE_MODEL.artifact)) as Record<
-      string,
-      unknown
-    >;
+    artifact = JSON.parse(read(FIXTURE_MODEL.artifact)) as Record<string, unknown>;
   } catch {
     throw unsafe("POCKETCHECK_MODEL_ARTIFACT");
   }
   const { checksum, ...body } = artifact;
   if (
     checksum !== FIXTURE_MODEL.checksum ||
-    artifactChecksum(body as Parameters<typeof artifactChecksum>[0]) !==
-      checksum ||
+    artifactChecksum(body as Parameters<typeof artifactChecksum>[0]) !== checksum ||
     artifact.releaseStatus !== FIXTURE_MODEL.releaseStatus ||
     artifact.trainingCutoff !== FIXTURE_MODEL.trainingCutoff
   ) {

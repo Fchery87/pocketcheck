@@ -1,11 +1,5 @@
 import { americanToDecimal, PriceError } from "./odds.ts";
-import {
-  OfferError,
-  parseOffer,
-  type Market,
-  type Offer,
-  type TieRule,
-} from "./offer.ts";
+import { OfferError, parseOffer, type Market, type Offer, type TieRule } from "./offer.ts";
 
 /** Both moneyline prices as the sportsbook lists them. A blank side is undefined. */
 export type BoardMoneylineInput = {
@@ -87,9 +81,7 @@ export function bestAvailablePrice(
   return quotes.map((quote) => {
     const sameLine = quote.pointLine === anchorLine;
     const best =
-      sameLine &&
-      americanToDecimal(quote.americanOdds) ===
-        bestBySelection.get(quote.selection);
+      sameLine && americanToDecimal(quote.americanOdds) === bestBySelection.get(quote.selection);
     return { ...quote, sameLine, best };
   });
 }
@@ -113,9 +105,7 @@ function pricedSide(
   selection: BoardQuote["selection"],
   quotes: readonly BoardQuoteResult[],
 ): { american: number; sportsbook: string | null } {
-  const best = quotes.find(
-    (quote) => quote.best && quote.selection === selection,
-  );
+  const best = quotes.find((quote) => quote.best && quote.selection === selection);
   if (!best) return { american: anchorOdds, sportsbook: null };
   return americanToDecimal(best.americanOdds) > americanToDecimal(anchorOdds)
     ? { american: best.americanOdds, sportsbook: best.sportsbook }
@@ -133,9 +123,7 @@ function moneyline(
   const { home, away } = prices;
   if (!entered(home) && !entered(away)) return undefined;
   if (!entered(home) || !entered(away)) {
-    throw new BoardError(
-      "Enter both moneyline prices, home and away, to compare the two sides.",
-    );
+    throw new BoardError("Enter both moneyline prices, home and away, to compare the two sides.");
   }
   americanToDecimal(home);
   americanToDecimal(away);
@@ -169,24 +157,17 @@ function moneyline(
   };
 }
 
-function spread(
-  input: GameBoardInput,
-  prices: BoardSpreadInput,
-): BoardMarketOffers | undefined {
+function spread(input: GameBoardInput, prices: BoardSpreadInput): BoardMarketOffers | undefined {
   const { homeLine, awayLine, home, away } = prices;
   if (![homeLine, awayLine, home, away].some(entered)) return undefined;
   if (!entered(home) || !entered(away)) {
-    throw new BoardError(
-      "Enter both spread prices, home and away, to compare the two sides.",
-    );
+    throw new BoardError("Enter both spread prices, home and away, to compare the two sides.");
   }
   if (!entered(homeLine) || !Number.isFinite(homeLine)) {
     throw new BoardError("Enter the home spread line.");
   }
   if (!entered(awayLine) || !Number.isFinite(awayLine)) {
-    throw new BoardError(
-      "Enter the away spread line, the mirror of the home line.",
-    );
+    throw new BoardError("Enter the away spread line, the mirror of the home line.");
   }
   if (awayLine !== -homeLine) {
     throw new BoardError(
@@ -227,16 +208,11 @@ function spread(
   };
 }
 
-function total(
-  input: GameBoardInput,
-  prices: BoardTotalInput,
-): BoardMarketOffers | undefined {
+function total(input: GameBoardInput, prices: BoardTotalInput): BoardMarketOffers | undefined {
   const { overLine, underLine, over, under } = prices;
   if (![overLine, underLine, over, under].some(entered)) return undefined;
   if (!entered(over) || !entered(under)) {
-    throw new BoardError(
-      "Enter both total prices, over and under, to compare the two sides.",
-    );
+    throw new BoardError("Enter both total prices, over and under, to compare the two sides.");
   }
   if (!entered(overLine) || !entered(underLine) || !Number.isFinite(overLine)) {
     throw new BoardError("Enter the total.");
@@ -277,8 +253,7 @@ function total(
  * price, a missing tie rule, and an observation at or after kickoff.
  */
 export function parseGameBoard(input: GameBoardInput): BoardMarketOffers[] {
-  if (!input.sportsbook.trim())
-    throw new BoardError("Enter the sportsbook for this board.");
+  if (!input.sportsbook.trim()) throw new BoardError("Enter the sportsbook for this board.");
   const markets: BoardMarketOffers[] = [];
   try {
     for (const priced of [

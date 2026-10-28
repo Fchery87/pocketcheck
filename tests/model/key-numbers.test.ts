@@ -25,9 +25,7 @@ function footballLeague(count: number): PricedGame[] {
     if (homeScore === awayScore) homeScore += 3;
     return {
       id: `g${String(index).padStart(4, "0")}`,
-      kickoff: new Date(
-        Date.UTC(2020, 8, 1) + index * 3_600_000 * 20,
-      ).toISOString(),
+      kickoff: new Date(Date.UTC(2020, 8, 1) + index * 3_600_000 * 20).toISOString(),
       home: `T${home}`,
       away: `T${away}`,
       homeScore,
@@ -44,18 +42,13 @@ function footballLeague(count: number): PricedGame[] {
   });
 }
 
-function weightAt(
-  weights: ReturnType<typeof keyNumberWeights>,
-  points: number,
-): number {
+function weightAt(weights: ReturnType<typeof keyNumberWeights>, points: number): number {
   return weights.find((entry) => entry.points === points)?.weight ?? 1;
 }
 
 describe("key-number weights", () => {
   it("lifts margins that happen more often than a smooth curve says and lowers ties", () => {
-    const margins = footballLeague(3000).map(
-      (game) => game.homeScore - game.awayScore,
-    );
+    const margins = footballLeague(3000).map((game) => game.homeScore - game.awayScore);
     const weights = keyNumberWeights(margins);
     expect(weightAt(weights, 3)).toBeGreaterThan(1.2);
     expect(weightAt(weights, -3)).toBe(weightAt(weights, 3));
@@ -89,10 +82,7 @@ describe("key-number weights", () => {
       bins.find((bin) => bin.points === points)?.probability ?? 0;
     const plain = integerMass(smooth, 2);
     const weighted = integerMass(keyed, 2);
-    expect(weighted.reduce((sum, bin) => sum + bin.probability, 0)).toBeCloseTo(
-      1,
-      10,
-    );
+    expect(weighted.reduce((sum, bin) => sum + bin.probability, 0)).toBeCloseTo(1, 10);
     expect(mass(weighted, 3) / mass(weighted, 4)).toBeCloseTo(
       (2 * mass(plain, 3)) / mass(plain, 4),
       10,
@@ -107,8 +97,7 @@ describe("fitted margins", { timeout: 60_000 }, () => {
     const artifact = fitArtifact(games, games[999]!.kickoff);
     const row = buildFeatureRows(games, artifact.featureParameters).at(-1)!;
     const bins = predictGame(artifact, row).marginBins;
-    const at = (points: number) =>
-      bins.find((bin) => bin.points === points)?.probability ?? 0;
+    const at = (points: number) => bins.find((bin) => bin.points === points)?.probability ?? 0;
     expect(at(0)).toBeLessThan(0.01);
     expect(at(3)).toBeGreaterThan(at(2));
     expect(at(3)).toBeGreaterThan(at(5));

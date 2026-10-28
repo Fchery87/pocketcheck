@@ -63,10 +63,7 @@ export const CHRONOLOGY = {
 } as const;
 
 /** The fallback is a conservative policy estimate, never a source publication timestamp. */
-export function resultAvailableMs(game: {
-  kickoff: string;
-  resultAvailableAt?: string;
-}): number {
+export function resultAvailableMs(game: { kickoff: string; resultAvailableAt?: string }): number {
   const kickoff = kickoffMs(game);
   if (game.resultAvailableAt === undefined) return kickoff + 86_400_000;
   const available = Date.parse(game.resultAvailableAt);

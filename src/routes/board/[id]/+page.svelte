@@ -306,6 +306,16 @@
         Entered: {sideName(market.offers[0].selection)}{lined(market.offers[0].pointLine)} {signed(market.offers[0].americanOdds)},
         {sideName(market.offers[1].selection)}{lined(market.offers[1].pointLine)} {signed(market.offers[1].americanOdds)}{#if market.offers[0].rules.tie}, tie rule {market.offers[0].rules.tie}{/if}.
       </p>
+      {#if market.quotes.length > 0}
+        <ul data-testid="board-quotes">
+          {#each market.quotes as quote}
+            <li>
+              {quote.sportsbook}: {sideName(quote.selection)}{lined(quote.pointLine)} {signed(quote.americanOdds)}
+              {#if quote.best}(best price){:else if !quote.sameLine}(different line, not compared){/if}
+            </li>
+          {/each}
+        </ul>
+      {/if}
     </section>
   {/each}
 

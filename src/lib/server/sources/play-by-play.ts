@@ -37,15 +37,7 @@ export type PlayByPlayRead = {
   gaps: string[];
 };
 
-const REQUIRED = [
-  "game_id",
-  "posteam",
-  "defteam",
-  "play_type",
-  "epa",
-  "season",
-  "week",
-] as const;
+const REQUIRED = ["game_id", "posteam", "defteam", "play_type", "epa", "season", "week"] as const;
 
 export const PLAY_BY_PLAY_LICENSE = {
   name: "CC BY 4.0",
@@ -57,11 +49,9 @@ const EXPLOSIVE_YARDS = 20;
 
 /** One season file becomes one summary per team per game. A bad file is a gap, not a guess. */
 export function teamSummariesFromPlayByPlay(csv: string): PlayByPlayRead {
-  if (csv.trim() === "")
-    return { summaries: [], gaps: ["Play-by-play file is empty."] };
+  if (csv.trim() === "") return { summaries: [], gaps: ["Play-by-play file is empty."] };
   const rows = parseCsv(csv);
-  if (rows.length === 0)
-    return { summaries: [], gaps: ["Play-by-play file has no plays."] };
+  if (rows.length === 0) return { summaries: [], gaps: ["Play-by-play file has no plays."] };
   const header = new Set(Object.keys(rows[0] ?? {}));
   const missing = REQUIRED.filter((column) => !header.has(column));
   if (missing.length > 0) {
@@ -85,21 +75,15 @@ export function teamSummariesFromPlayByPlay(csv: string): PlayByPlayRead {
   for (const [gameId, byTeam] of games) {
     for (const [team, plays] of byTeam) {
       const opponent = plays.find((play) => play.defense !== "")?.defense ?? "";
-      const faced = [...byTeam.values()]
-        .flat()
-        .filter((play) => play.defense === team);
+      const faced = [...byTeam.values()].flat().filter((play) => play.defense === team);
       summaries.push(summarize(gameId, team, opponent, plays, faced));
     }
   }
   return {
     summaries: summaries.sort(
-      (a, b) =>
-        a.gameId.localeCompare(b.gameId) || a.team.localeCompare(b.team),
+      (a, b) => a.gameId.localeCompare(b.gameId) || a.team.localeCompare(b.team),
     ),
-    gaps:
-      summaries.length === 0
-        ? ["Play-by-play file has no offensive plays."]
-        : [],
+    gaps: summaries.length === 0 ? ["Play-by-play file has no offensive plays."] : [],
   };
 }
 
@@ -149,12 +133,7 @@ type Play = {
 };
 
 function playOf(row: Record<string, string>): Play {
-  const kind =
-    row.play_type === "pass"
-      ? "pass"
-      : row.play_type === "run"
-        ? "rush"
-        : "other";
+  const kind = row.play_type === "pass" ? "pass" : row.play_type === "run" ? "rush" : "other";
   return {
     season: Number(row.season),
     week: Number(row.week),
@@ -192,27 +171,21 @@ function summarize(
     offensivePlays: offense.length,
     defensivePlays: defense.length,
     offenseEpaPerPlay: perPlay(rated),
-    defenseEpaPerPlay:
-      perPlay(faced) === null ? null : -(perPlay(faced) as number),
+    defenseEpaPerPlay: perPlay(faced) === null ? null : -(perPlay(faced) as number),
     passEpaPerPlay: perPlay(passes),
     rushEpaPerPlay: perPlay(rushes),
     successRate:
-      rated.length === 0
-        ? null
-        : rated.filter((play) => (play.epa ?? 0) > 0).length / rated.length,
+      rated.length === 0 ? null : rated.filter((play) => (play.epa ?? 0) > 0).length / rated.length,
     earlyDownEpaPerPlay: perPlay(early),
     explosiveRate:
       offense.length === 0
         ? null
-        : offense.filter((play) => (play.yards ?? 0) >= EXPLOSIVE_YARDS)
-            .length / offense.length,
+        : offense.filter((play) => (play.yards ?? 0) >= EXPLOSIVE_YARDS).length / offense.length,
     secondsPerPlay: average(
       offense.flatMap((play) => (play.seconds === null ? [] : [play.seconds])),
     ),
     passRateOverExpected: average(
-      passes.flatMap((play) =>
-        play.passOverExpected === null ? [] : [play.passOverExpected],
-      ),
+      passes.flatMap((play) => (play.passOverExpected === null ? [] : [play.passOverExpected])),
     ),
     turnovers: offense.filter((play) => play.turnover).length,
     fumbleRecoveries: defense.filter((play) => play.fumbleLost).length,
@@ -231,8 +204,7 @@ function average(values: readonly number[]): number | null {
 }
 
 function finite(value: string | undefined): number | null {
-  if (value === undefined || value === "" || value.toUpperCase() === "NA")
-    return null;
+  if (value === undefined || value === "" || value.toUpperCase() === "NA") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }

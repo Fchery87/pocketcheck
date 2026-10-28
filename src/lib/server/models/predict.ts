@@ -7,11 +7,7 @@ import {
   type SideProbability,
 } from "./distribution.ts";
 import type { FeatureRow } from "./features.ts";
-import {
-  meanContributions,
-  predictMean,
-  type MeanContributions,
-} from "./fit.ts";
+import { meanContributions, predictMean, type MeanContributions } from "./fit.ts";
 import type { ModelArtifact } from "./artifact.ts";
 
 export type GameProbabilities = {
@@ -35,8 +31,7 @@ export function predictGame(
   row: FeatureRow,
   anchor?: { marginMean?: number; totalMean?: number },
 ): GameProbabilities {
-  const marginMean =
-    anchor?.marginMean ?? predictMean(artifact.margin.model, row);
+  const marginMean = anchor?.marginMean ?? predictMean(artifact.margin.model, row);
   const totalMean = anchor?.totalMean ?? predictMean(artifact.total.model, row);
   const marginBins = integerMass(artifact.margin.residuals, marginMean);
   const totalBins = integerMass(artifact.total.residuals, totalMean);

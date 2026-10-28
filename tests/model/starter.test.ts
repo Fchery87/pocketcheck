@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import {
-  starterDecision,
-  type InjuryDesignation,
-} from "../../src/lib/server/models/starter.ts";
+import { starterDecision, type InjuryDesignation } from "../../src/lib/server/models/starter.ts";
 import type { DepthChartEntry } from "../../src/lib/server/sources/roster.ts";
 
 const chart = (
@@ -21,11 +18,7 @@ const chart = (
   updatedAt,
 });
 
-const injury = (
-  playerId: string,
-  status: string,
-  publishedAt: string,
-): InjuryDesignation => ({
+const injury = (playerId: string, status: string, publishedAt: string): InjuryDesignation => ({
   team: "PHI",
   playerId,
   status,
@@ -97,8 +90,6 @@ describe("starter state", () => {
   });
 
   it("is unknown with no history and no timestamped chart", () => {
-    expect(decide({ usualStarter: null, depthChart: [] }).state).toBe(
-      "unknown",
-    );
+    expect(decide({ usualStarter: null, depthChart: [] }).state).toBe("unknown");
   });
 });

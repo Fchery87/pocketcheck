@@ -23,11 +23,15 @@ const header = result.ok ? (result.body.split(/\r?\n/, 1)[0] ?? "") : "";
 const columns = header.split(",");
 const failure = !result.ok
   ? result.failure
-  : ["game_id", "posteam", "defteam", "play_type", "epa"].every((column) => columns.includes(column))
+  : ["game_id", "posteam", "defteam", "play_type", "epa"].every((column) =>
+        columns.includes(column),
+      )
     ? null
     : "schema mismatch: the play-by-play file is missing expected columns";
 if (failure) {
-  console.error(`Play-by-play download failed: ${failure}. The existing file, if any, is unchanged.`);
+  console.error(
+    `Play-by-play download failed: ${failure}. The existing file, if any, is unchanged.`,
+  );
   process.exit(1);
 }
 
@@ -44,4 +48,6 @@ const record = {
   rows: body.split(/\r?\n/).filter((line) => line.length > 0).length - 1,
 };
 writeFileSync(`${output}.json`, `${JSON.stringify(record, null, 2)}\n`);
-console.log(JSON.stringify({ output, retrievedAt, rows: record.rows, license: record.license.name }));
+console.log(
+  JSON.stringify({ output, retrievedAt, rows: record.rows, license: record.license.name }),
+);

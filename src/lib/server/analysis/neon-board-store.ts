@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Sql, TransactionSql } from "postgres";
 import { parentsFirst } from "../db/order.ts";
+import type { BoardQuoteResult } from "#lib/domain/board.ts";
 import type { Market, Offer } from "#lib/domain/offer.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
 import {
@@ -52,6 +53,7 @@ type BoardRow = {
 type MarketRow = {
   market: Market;
   offers: [Offer, Offer];
+  quotes: BoardQuoteResult[] | null;
   no_pick_reason: string | null;
 };
 
@@ -114,6 +116,7 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
         return {
           market: row.market,
           offers: row.offers,
+          quotes: row.quotes ?? [],
           pick: pick ? toPick(pick) : null,
           noPickReason: row.no_pick_reason,
         };
@@ -187,8 +190,8 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
       if (inserted.length === 0) return null;
       for (const market of input.markets) {
         await tx`
-          INSERT INTO board_markets (id, board_id, market, offers)
-          VALUES (${randomUUID()}, ${id}, ${market.market}, ${tx.json(market.offers as never)})
+          INSERT INTO board_markets (id, board_id, market, offers, quotes)
+          VALUES (${randomUUID()}, ${id}, ${market.market}, ${tx.json(market.offers as never)}, ${tx.json(market.quotes as never)})
         `;
       }
       return id;

@@ -101,9 +101,7 @@ describe("frozen prospective forecasts", () => {
       eligible: false,
     });
     expect(
-      frozen.probabilities.win +
-        frozen.probabilities.loss +
-        frozen.probabilities.push,
+      frozen.probabilities.win + frozen.probabilities.loss + frozen.probabilities.push,
     ).toBeCloseTo(1);
   });
 

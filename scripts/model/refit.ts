@@ -1,17 +1,7 @@
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { parseArtifact } from "../../src/lib/server/models/inputs.ts";
-import {
-  assertUnreleased,
-  fitArtifact,
-  readGames,
-} from "../../src/lib/server/models/train.ts";
+import { assertUnreleased, fitArtifact, readGames } from "../../src/lib/server/models/train.ts";
 
 // Fits the latest eligible data into a new unreleased artifact and writes it beside the artifact
 // in use. It never replaces the artifact in use unless --replace is given. Invalid inputs leave
@@ -19,13 +9,9 @@ import {
 
 const replace = process.argv.includes("--replace");
 const args = process.argv.slice(2).filter((arg) => arg !== "--replace");
-const gamesPath = resolve(
-  args[0] ?? "tests/model/fixtures/synthetic-games.json",
-);
+const gamesPath = resolve(args[0] ?? "tests/model/fixtures/synthetic-games.json");
 const inUse = resolve(args[1] ?? "data/artifacts/baseline.json");
-const output = replace
-  ? inUse
-  : resolve(args[2] ?? "data/artifacts/baseline-next.json");
+const output = replace ? inUse : resolve(args[2] ?? "data/artifacts/baseline-next.json");
 
 try {
   if (!existsSync(gamesPath)) throw new Error(`Games not found: ${gamesPath}`);
@@ -33,13 +19,9 @@ try {
   const artifact = fitArtifact(games);
   assertUnreleased(artifact);
   if (existsSync(inUse)) {
-    const current = parseArtifact(
-      JSON.parse(readFileSync(inUse, "utf8")) as unknown,
-    );
+    const current = parseArtifact(JSON.parse(readFileSync(inUse, "utf8")) as unknown);
     if (artifact.checksum === current.checksum && !replace) {
-      console.log(
-        JSON.stringify({ unchanged: true, checksum: artifact.checksum }),
-      );
+      console.log(JSON.stringify({ unchanged: true, checksum: artifact.checksum }));
       process.exit(0);
     }
   }

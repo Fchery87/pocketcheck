@@ -47,15 +47,11 @@ export function datasetHash(payload: unknown): string {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
 }
 
-export function artifactChecksum(
-  artifact: Omit<ModelArtifact, "checksum">,
-): string {
+export function artifactChecksum(artifact: Omit<ModelArtifact, "checksum">): string {
   return createHash("sha256").update(JSON.stringify(artifact)).digest("hex");
 }
 
-export function withChecksum(
-  artifact: Omit<ModelArtifact, "checksum">,
-): ModelArtifact {
+export function withChecksum(artifact: Omit<ModelArtifact, "checksum">): ModelArtifact {
   return { ...artifact, checksum: artifactChecksum(artifact) };
 }
 
@@ -66,8 +62,7 @@ export function valueEligibility(
   if (artifact.releaseStatus !== "released-experimental") {
     return {
       eligible: false,
-      reason:
-        "Unreleased artifacts are not eligible for a value recommendation.",
+      reason: "Unreleased artifacts are not eligible for a value recommendation.",
     };
   }
   if (!artifact.releasedMarkets.includes(market)) {

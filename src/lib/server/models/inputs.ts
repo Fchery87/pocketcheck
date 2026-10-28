@@ -6,11 +6,7 @@ import { UNCERTAINTY_OPTIONS } from "./uncertainty.ts";
 
 const MARKETS = ["moneyline", "spread", "total"] as const;
 
-function requireValue(
-  condition: boolean,
-  path: string,
-  expected: string,
-): asserts condition {
+function requireValue(condition: boolean, path: string, expected: string): asserts condition {
   if (!condition) throw new Error(`Invalid ${path}: ${expected}.`);
 }
 
@@ -28,17 +24,9 @@ function array(value: unknown, path: string): unknown[] {
   return value;
 }
 
-function number(
-  value: unknown,
-  path: string,
-  minimum = -Infinity,
-  maximum = Infinity,
-): number {
+function number(value: unknown, path: string, minimum = -Infinity, maximum = Infinity): number {
   requireValue(
-    typeof value === "number" &&
-      Number.isFinite(value) &&
-      value >= minimum &&
-      value <= maximum,
+    typeof value === "number" && Number.isFinite(value) && value >= minimum && value <= maximum,
     path,
     `expected a finite number between ${minimum} and ${maximum}`,
   );
@@ -58,20 +46,15 @@ function text(value: unknown, path: string): string {
 
 function hash(value: unknown, path: string): string {
   const parsed = text(value, path);
-  requireValue(
-    /^[a-f0-9]{64}$/.test(parsed),
-    path,
-    "expected a SHA-256 checksum",
-  );
+  requireValue(/^[a-f0-9]{64}$/.test(parsed), path, "expected a SHA-256 checksum");
   return parsed;
 }
 
 function timestamp(value: unknown, path: string): number {
   const parsed = text(value, path);
   requireValue(
-    /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(
-      parsed,
-    ) && Number.isFinite(Date.parse(parsed)),
+    /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(parsed) &&
+      Number.isFinite(Date.parse(parsed)),
     path,
     "expected an ISO timestamp with timezone",
   );
@@ -90,25 +73,12 @@ function interval(value: unknown, path: string, probabilities = false): void {
   if (value === null) return;
   const bounds = array(value, path);
   requireValue(bounds.length === 2, path, "expected two interval endpoints");
-  const low = number(
-    bounds[0],
-    path,
-    probabilities ? 0 : -Infinity,
-    probabilities ? 1 : Infinity,
-  );
-  const high = number(
-    bounds[1],
-    path,
-    probabilities ? 0 : -Infinity,
-    probabilities ? 1 : Infinity,
-  );
+  const low = number(bounds[0], path, probabilities ? 0 : -Infinity, probabilities ? 1 : Infinity);
+  const high = number(bounds[1], path, probabilities ? 0 : -Infinity, probabilities ? 1 : Infinity);
   requireValue(low <= high, path, "interval endpoints are reversed");
 }
 
-function scores(
-  value: unknown,
-  path: string,
-): { brier: number; logLoss: number } {
+function scores(value: unknown, path: string): { brier: number; logLoss: number } {
   const parsed = record(value, path);
   return {
     brier: number(parsed.brier, `${path}.brier`, 0, 2),
@@ -123,10 +93,7 @@ function modelSide(value: unknown, path: string): void {
   for (const field of ["coefficients", "featureMeans", "featureScales"]) {
     const values = record(model[field], `${path}.model.${field}`);
     for (const feature of FEATURE_DEFINITIONS) {
-      const parsed = number(
-        values[feature.name],
-        `${path}.model.${field}.${feature.name}`,
-      );
+      const parsed = number(values[feature.name], `${path}.model.${field}.${feature.name}`);
       if (field === "featureScales")
         requireValue(parsed > 0, path, "feature scales must be positive");
     }
@@ -140,11 +107,7 @@ function modelSide(value: unknown, path: string): void {
   requireValue(low < high, path, "residual support must increase");
   for (const value of values) {
     const residual = number(value, `${path}.residual`);
-    requireValue(
-      residual >= low && residual <= high,
-      path,
-      "support must contain all residuals",
-    );
+    requireValue(residual >= low && residual <= high, path, "support must contain all residuals");
   }
   requireValue(
     number(residuals.bandwidth, `${path}.bandwidth`, 0) > 0,
@@ -171,11 +134,7 @@ function modelSide(value: unknown, path: string): void {
 
 function isModelArtifact(value: unknown): value is ModelArtifact {
   const artifact = record(value, "artifact");
-  requireValue(
-    artifact.kind === "pocketcheck-baseline",
-    "artifact.kind",
-    "unsupported model kind",
-  );
+  requireValue(artifact.kind === "pocketcheck-baseline", "artifact.kind", "unsupported model kind");
   requireValue(
     artifact.version === 5,
     "artifact.version",
@@ -189,10 +148,7 @@ function isModelArtifact(value: unknown): value is ModelArtifact {
     "artifact.anchor",
     "unsupported anchor definition",
   );
-  const excluded = record(
-    anchor.excludedNoClose,
-    "artifact.anchor.excludedNoClose",
-  );
+  const excluded = record(anchor.excludedNoClose, "artifact.anchor.excludedNoClose");
   for (const market of MARKETS) {
     count(excluded[market], `artifact.anchor.excludedNoClose.${market}`);
   }
@@ -216,42 +172,30 @@ function isModelArtifact(value: unknown): value is ModelArtifact {
   );
   requireValue(
     (artifact.releaseStatus === "unreleased" && released.length === 0) ||
-      (artifact.releaseStatus === "released-experimental" &&
-        released.length > 0),
+      (artifact.releaseStatus === "released-experimental" && released.length > 0),
     "artifact.releaseStatus",
     "release status and markets must agree",
   );
   requireValue(
-    artifact.residualSource === "walk-forward" ||
-      artifact.residualSource === "in-sample",
+    artifact.residualSource === "walk-forward" || artifact.residualSource === "in-sample",
     "artifact.residualSource",
     "unsupported residual source",
   );
-  const definitions = array(
-    artifact.featureDefinitions,
-    "artifact.featureDefinitions",
-  );
+  const definitions = array(artifact.featureDefinitions, "artifact.featureDefinitions");
   requireValue(
     definitions.length === FEATURE_DEFINITIONS.length,
     "artifact.featureDefinitions",
     "feature definitions must match the artifact",
   );
   FEATURE_DEFINITIONS.forEach((feature, index) => {
-    const definition = record(
-      definitions[index],
-      "artifact.featureDefinitions",
-    );
+    const definition = record(definitions[index], "artifact.featureDefinitions");
     requireValue(
-      definition.name === feature.name &&
-        definition.description === feature.description,
+      definition.name === feature.name && definition.description === feature.description,
       "artifact.featureDefinitions",
       "feature definitions must match the artifact",
     );
   });
-  const features = record(
-    artifact.featureParameters,
-    "artifact.featureParameters",
-  );
+  const features = record(artifact.featureParameters, "artifact.featureParameters");
   for (const key of ["gameDecay", "seasonCarry", "qbDecay"]) {
     requireValue(
       probability(features[key], `artifact.featureParameters.${key}`) > 0,
@@ -270,11 +214,7 @@ function isModelArtifact(value: unknown): value is ModelArtifact {
   const fit = record(artifact.fitParameters, "artifact.fitParameters");
   number(fit.ridge, "artifact.fitParameters.ridge", 0);
   requireValue(
-    number(
-      fit.residualBandwidth,
-      "artifact.fitParameters.residualBandwidth",
-      0,
-    ) > 0,
+    number(fit.residualBandwidth, "artifact.fitParameters.residualBandwidth", 0) > 0,
     "artifact.fitParameters",
     "residual bandwidth must be positive",
   );
@@ -287,11 +227,7 @@ function isModelArtifact(value: unknown): value is ModelArtifact {
     probability(base.win, "artifact.baseRates.win") +
     probability(base.loss, "artifact.baseRates.loss") +
     probability(base.push, "artifact.baseRates.push");
-  requireValue(
-    Math.abs(sum - 1) < 1e-9,
-    "artifact.baseRates",
-    "probabilities must sum to one",
-  );
+  requireValue(Math.abs(sum - 1) < 1e-9, "artifact.baseRates", "probabilities must sum to one");
   modelSide(artifact.margin, "artifact.margin");
   modelSide(artifact.total, "artifact.total");
   const uncertainty = record(artifact.uncertainty, "artifact.uncertainty");
@@ -310,10 +246,7 @@ function isModelArtifact(value: unknown): value is ModelArtifact {
   }
   const markets = record(uncertainty.markets, "artifact.uncertainty.markets");
   for (const market of MARKETS) {
-    const bins = array(
-      markets[market],
-      `artifact.uncertainty.markets.${market}`,
-    );
+    const bins = array(markets[market], `artifact.uncertainty.markets.${market}`);
     requireValue(
       bins.length === Math.round(1 / UNCERTAINTY_OPTIONS.binWidth),
       "artifact.uncertainty",
@@ -336,10 +269,7 @@ function isModelArtifact(value: unknown): value is ModelArtifact {
         "artifact.calibrationBin",
         "slate and side counts must agree",
       );
-      const mean = nullableProbability(
-        bin.meanPredicted,
-        "artifact.calibrationBin.meanPredicted",
-      );
+      const mean = nullableProbability(bin.meanPredicted, "artifact.calibrationBin.meanPredicted");
       const observed = nullableProbability(
         bin.observedRate,
         "artifact.calibrationBin.observedRate",
@@ -351,19 +281,13 @@ function isModelArtifact(value: unknown): value is ModelArtifact {
       requireValue(
         sides === 0
           ? mean === null && observed === null
-          : mean !== null &&
-              observed !== null &&
-              mean >= low - 1e-9 &&
-              mean <= high + 1e-9,
+          : mean !== null && observed !== null && mean >= low - 1e-9 && mean <= high + 1e-9,
         "artifact.calibrationBin",
         "rates must agree with bin support",
       );
       requireValue(
         conservative === null ||
-          (sides > 0 &&
-            slates >= 2 &&
-            observed !== null &&
-            conservative <= observed),
+          (sides > 0 && slates >= 2 && observed !== null && conservative <= observed),
         "artifact.calibrationBin",
         "conservative rate requires sufficient calibration evidence",
       );
@@ -384,10 +308,7 @@ export function parseArtifact(value: unknown): ModelArtifact {
   return value;
 }
 
-function isEvaluationReport(
-  value: unknown,
-  artifact: ModelArtifact,
-): value is EvaluationReport {
+function isEvaluationReport(value: unknown, artifact: ModelArtifact): value is EvaluationReport {
   const report = record(value, "evaluation");
   requireValue(
     report.version === 1,
@@ -395,8 +316,7 @@ function isEvaluationReport(
     "unsupported report version. Rerun npm run model:evaluate",
   );
   requireValue(
-    hash(report.artifactChecksum, "evaluation.artifactChecksum") ===
-      artifact.checksum,
+    hash(report.artifactChecksum, "evaluation.artifactChecksum") === artifact.checksum,
     "evaluation.artifactChecksum",
     "evaluation is of a different artifact",
   );
@@ -417,10 +337,7 @@ function isEvaluationReport(
   const total = count(summary.count, "evaluation.summary.count");
   const coverage = record(summary.coverage, "evaluation.coverage");
   const priced = count(coverage.priced, "evaluation.coverage.priced");
-  const missing = count(
-    coverage.missingPrices,
-    "evaluation.coverage.missingPrices",
-  );
+  const missing = count(coverage.missingPrices, "evaluation.coverage.missingPrices");
   requireValue(
     priced + missing === games * MARKETS.length &&
       total >= priced &&
@@ -445,12 +362,7 @@ function isEvaluationReport(
       "evaluation.byMarket",
       "market counts must agree with holdout games",
     );
-    const brier = number(
-      entry.brier,
-      `evaluation.byMarket.${market}.brier`,
-      0,
-      2,
-    );
+    const brier = number(entry.brier, `evaluation.byMarket.${market}.brier`, 0, 2);
     weightedBrier += n * brier;
     marketBrier.set(market, brier);
     marketCounts.set(market, n);
@@ -491,11 +403,7 @@ function isEvaluationReport(
     const entry = record(value, "evaluation.baseline");
     const market = text(entry.market, "evaluation.baseline.market");
     const n = marketCounts.get(market);
-    requireValue(
-      n !== undefined,
-      "evaluation.baseline.market",
-      "unsupported market",
-    );
+    requireValue(n !== undefined, "evaluation.baseline.market", "unsupported market");
     requireValue(
       entry.name === "market-no-vig" ||
         (entry.name === "training-base-rate" && market === "moneyline"),
@@ -506,11 +414,7 @@ function isEvaluationReport(
     requireValue(!seen.has(key), "evaluation.baselines", "duplicate baseline");
     seen.add(key);
     const sample = count(entry.count, "evaluation.baseline.count", 1);
-    requireValue(
-      sample <= n,
-      "evaluation.baseline.count",
-      "baseline count exceeds market count",
-    );
+    requireValue(sample <= n, "evaluation.baseline.count", "baseline count exceeds market count");
     if (entry.name === "market-no-vig") {
       pricedComparisons += sample;
       if (market !== "moneyline")
@@ -542,26 +446,13 @@ function isEvaluationReport(
     "evaluation.threshold.version",
     "threshold identity is required",
   );
-  number(
-    threshold.conservativeExpectedValue,
-    "evaluation.threshold.conservativeExpectedValue",
-    0,
-  );
+  number(threshold.conservativeExpectedValue, "evaluation.threshold.conservativeExpectedValue", 0);
   text(threshold.note, "evaluation.threshold.note");
-  const thresholdMarkets = record(
-    threshold.markets,
-    "evaluation.threshold.markets",
-  );
+  const thresholdMarkets = record(threshold.markets, "evaluation.threshold.markets");
   for (const market of MARKETS) {
-    const entry = record(
-      thresholdMarkets[market],
-      `evaluation.threshold.${market}`,
-    );
+    const entry = record(thresholdMarkets[market], `evaluation.threshold.${market}`);
     const assessed = count(entry.assessed, "evaluation.threshold.assessed");
-    const candidates = count(
-      entry.candidates,
-      "evaluation.threshold.candidates",
-    );
+    const candidates = count(entry.candidates, "evaluation.threshold.candidates");
     const decisive = count(entry.decisive, "evaluation.threshold.decisive");
     const wins = count(entry.wins, "evaluation.threshold.wins");
     requireValue(
@@ -572,10 +463,7 @@ function isEvaluationReport(
       "evaluation.threshold",
       "threshold counts must agree",
     );
-    const observed = nullableProbability(
-      entry.observedRate,
-      "evaluation.threshold.observedRate",
-    );
+    const observed = nullableProbability(entry.observedRate, "evaluation.threshold.observedRate");
     const breakEven = nullableProbability(
       entry.meanBreakEven,
       "evaluation.threshold.meanBreakEven",
@@ -599,8 +487,7 @@ function isEvaluationReport(
       "no interval without decisive outcomes",
     );
   }
-  if ("comparison" in report)
-    comparisonSection(report.comparison, marketCounts);
+  if ("comparison" in report) comparisonSection(report.comparison, marketCounts);
   if ("ablation" in report) ablationSection(report.ablation, marketCounts);
   if ("evidence" in report) {
     requireValue(
@@ -612,10 +499,7 @@ function isEvaluationReport(
   return true;
 }
 
-function comparisonSection(
-  value: unknown,
-  marketCounts: ReadonlyMap<string, number>,
-): void {
+function comparisonSection(value: unknown, marketCounts: ReadonlyMap<string, number>): void {
   const comparison = record(value, "evaluation.comparison");
   hash(comparison.previousChecksum, "evaluation.comparison.previousChecksum");
   requireValue(
@@ -624,23 +508,12 @@ function comparisonSection(
     "a historical comparison is development evidence and cannot release a market",
   );
   const seen = new Set<string>();
-  for (const entry of array(
-    comparison.markets,
-    "evaluation.comparison.markets",
-  )) {
+  for (const entry of array(comparison.markets, "evaluation.comparison.markets")) {
     const market = record(entry, "evaluation.comparison.market");
     const name = text(market.market, "evaluation.comparison.market.market");
     const expected = marketCounts.get(name);
-    requireValue(
-      expected !== undefined,
-      "evaluation.comparison.market",
-      "unsupported market",
-    );
-    requireValue(
-      !seen.has(name),
-      "evaluation.comparison.markets",
-      "duplicate market",
-    );
+    requireValue(expected !== undefined, "evaluation.comparison.market", "unsupported market");
+    requireValue(!seen.has(name), "evaluation.comparison.markets", "duplicate market");
     seen.add(name);
     requireValue(
       count(market.count, "evaluation.comparison.market.count", 1) === expected,
@@ -649,17 +522,11 @@ function comparisonSection(
     );
     scores(market.candidate, "evaluation.comparison.candidate");
     scores(market.previous, "evaluation.comparison.previous");
-    interval(
-      market.logLossDifferenceInterval,
-      "evaluation.comparison.interval",
-    );
+    interval(market.logLossDifferenceInterval, "evaluation.comparison.interval");
   }
 }
 
-function ablationSection(
-  value: unknown,
-  marketCounts: ReadonlyMap<string, number>,
-): void {
+function ablationSection(value: unknown, marketCounts: ReadonlyMap<string, number>): void {
   const seen = new Set<string>();
   for (const entry of array(value, "evaluation.ablation")) {
     const group = record(entry, "evaluation.ablation.group");
@@ -676,15 +543,11 @@ function ablationSection(
       "evaluation.ablation.features",
       "an input group names its features",
     );
-    for (const feature of features)
-      text(feature, "evaluation.ablation.feature");
+    for (const feature of features) text(feature, "evaluation.ablation.feature");
     const markets = new Set<string>();
     for (const item of array(group.markets, "evaluation.ablation.markets")) {
       const market = record(item, "evaluation.ablation.market");
-      const marketName = text(
-        market.market,
-        "evaluation.ablation.market.market",
-      );
+      const marketName = text(market.market, "evaluation.ablation.market.market");
       const expected = marketCounts.get(marketName);
       requireValue(
         expected !== undefined && !markets.has(marketName),
@@ -699,10 +562,7 @@ function ablationSection(
       );
       scores(market.withGroup, "evaluation.ablation.withGroup");
       scores(market.withoutGroup, "evaluation.ablation.withoutGroup");
-      interval(
-        market.logLossDifferenceInterval,
-        "evaluation.ablation.interval",
-      );
+      interval(market.logLossDifferenceInterval, "evaluation.ablation.interval");
     }
   }
 }

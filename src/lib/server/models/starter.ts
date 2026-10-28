@@ -60,8 +60,7 @@ export function starterDecision(input: {
       Date.parse(entry.publishedAt) < cutoff,
   );
   const usualOut =
-    input.usualStarter !== null &&
-    injured.some((entry) => entry.playerId === input.usualStarter);
+    input.usualStarter !== null && injured.some((entry) => entry.playerId === input.usualStarter);
 
   if (
     listed &&
@@ -82,9 +81,7 @@ export function starterDecision(input: {
       state: "assumed",
       playerId: backup.playerId,
       source: "injury report",
-      sourceAt:
-        injured.find((entry) => entry.playerId === input.usualStarter)
-          ?.publishedAt ?? null,
+      sourceAt: injured.find((entry) => entry.playerId === input.usualStarter)?.publishedAt ?? null,
       reason: null,
     };
   }

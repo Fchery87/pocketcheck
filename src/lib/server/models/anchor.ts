@@ -35,9 +35,7 @@ export function anchorFromQuote(
     { side: "away", american: quote.awayAmerican },
   ]);
   if (!fair.available) {
-    throw new Error(
-      `${market} has no two-sided quote, so it has no anchor line and no forecast.`,
-    );
+    throw new Error(`${market} has no two-sided quote, so it has no anchor line and no forecast.`);
   }
   if (market === "total") {
     if (quote.line === undefined) {
@@ -51,8 +49,7 @@ export function anchorFromQuote(
     };
   }
   if (market === "spread") {
-    if (quote.line === undefined)
-      throw new Error("A spread anchor needs the home line.");
+    if (quote.line === undefined) throw new Error("A spread anchor needs the home line.");
     return {
       market,
       sportsbook: quote.sportsbook,

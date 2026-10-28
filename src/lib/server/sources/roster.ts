@@ -136,8 +136,7 @@ function read<T>(
 ): RosterRead<T> {
   if (csv.trim() === "") return { rows: [], gaps: [`${label} file is empty.`] };
   const parsed = parseCsv(csv);
-  if (parsed.length === 0)
-    return { rows: [], gaps: [`${label} file has no rows.`] };
+  if (parsed.length === 0) return { rows: [], gaps: [`${label} file has no rows.`] };
   const rows = parsed.flatMap((row) => {
     const value = rowOf(row);
     return value === null ? [] : [value];

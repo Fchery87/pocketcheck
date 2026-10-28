@@ -39,13 +39,13 @@ It would also be incorrect to declare the feed healthy from documentation alone.
 
 The market-anchored forecasting model reads these, each downloaded to `data/sources` with a retrieval record and kept out of the journal:
 
-| Source | Used for | License |
-| --- | --- | --- |
-| nflverse play-by-play | Quarterback and team efficiency, pace, pass rate over expected | CC BY 4.0, nflverse |
-| nflverse weekly depth charts | The starter, live only where timestamped (2025 on) | CC BY 4.0, nflverse |
-| nflverse weekly rosters | Player identity and position | CC BY 4.0, nflverse |
-| nflverse snap counts | Injury weight by recent snap share | CC BY 4.0, nflverse |
-| NWS forecast | Wind, precipitation, and temperature for outdoor games | Public, api.weather.gov |
+| Source                       | Used for                                                       | License                 |
+| ---------------------------- | -------------------------------------------------------------- | ----------------------- |
+| nflverse play-by-play        | Quarterback and team efficiency, pace, pass rate over expected | CC BY 4.0, nflverse     |
+| nflverse weekly depth charts | The starter, live only where timestamped (2025 on)             | CC BY 4.0, nflverse     |
+| nflverse weekly rosters      | Player identity and position                                   | CC BY 4.0, nflverse     |
+| nflverse snap counts         | Injury weight by recent snap share                             | CC BY 4.0, nflverse     |
+| NWS forecast                 | Wind, precipitation, and temperature for outdoor games         | Public, api.weather.gov |
 
 A missing or malformed file is a gap for that season and leaves the others readable. FTN charting data is not used.
 

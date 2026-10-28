@@ -18,18 +18,15 @@ export const FEATURE_DEFINITIONS = [
   },
   {
     name: "away_prior_points_for",
-    description:
-      "Away team's recency-weighted points scored, shrunk toward the league mean.",
+    description: "Away team's recency-weighted points scored, shrunk toward the league mean.",
   },
   {
     name: "home_prior_points_against",
-    description:
-      "Home team's recency-weighted points allowed, shrunk toward the league mean.",
+    description: "Home team's recency-weighted points allowed, shrunk toward the league mean.",
   },
   {
     name: "away_prior_points_against",
-    description:
-      "Away team's recency-weighted points allowed, shrunk toward the league mean.",
+    description: "Away team's recency-weighted points allowed, shrunk toward the league mean.",
   },
   {
     name: "home_rest_days",
@@ -92,8 +89,7 @@ export const FEATURE_DEFINITIONS = [
   },
   {
     name: "pace_seconds",
-    description:
-      "Combined seconds per offensive play for both teams. Lower is faster.",
+    description: "Combined seconds per offensive play for both teams. Lower is faster.",
   },
   {
     name: "pass_rate_over_expected",
@@ -139,12 +135,7 @@ export const INPUT_GROUPS: readonly {
   { group: "rest", features: ["home_rest_days", "away_rest_days"] },
   {
     group: "quarterback",
-    features: [
-      "home_qb_share",
-      "away_qb_share",
-      "home_qb_rating",
-      "away_qb_rating",
-    ],
+    features: ["home_qb_share", "away_qb_share", "home_qb_rating", "away_qb_rating"],
   },
   { group: "home field", features: ["home_indicator"] },
   {
@@ -153,12 +144,7 @@ export const INPUT_GROUPS: readonly {
   },
   {
     group: "team efficiency",
-    features: [
-      "home_offense_epa",
-      "away_offense_epa",
-      "home_defense_epa",
-      "away_defense_epa",
-    ],
+    features: ["home_offense_epa", "away_offense_epa", "home_defense_epa", "away_defense_epa"],
   },
   { group: "pace", features: ["pace_seconds", "pass_rate_over_expected"] },
   {
@@ -223,9 +209,7 @@ const QB_WINDOW = 8;
 export function seasonOf(game: { kickoff: string; season?: number }): number {
   if (game.season !== undefined) return game.season;
   const date = new Date(kickoffMs(game));
-  return date.getUTCMonth() < 2
-    ? date.getUTCFullYear() - 1
-    : date.getUTCFullYear();
+  return date.getUTCMonth() < 2 ? date.getUTCFullYear() - 1 : date.getUTCFullYear();
 }
 
 function emptyState(): TeamState {
@@ -292,11 +276,7 @@ function scale(state: TeamState, factor: number): void {
 }
 
 /** Carries form into a new season at reduced weight, and forgets the previous kickoff for rest. */
-function enterSeason(
-  state: TeamState,
-  season: number,
-  params: FeatureParameters,
-): void {
+function enterSeason(state: TeamState, season: number, params: FeatureParameters): void {
   if (state.season === season) return;
   if (state.season !== null) scale(state, params.seasonCarry);
   state.season = season;
@@ -348,32 +328,21 @@ function featureBuilder(params: FeatureParameters) {
     const state = starter === undefined ? undefined : quarterbacks.get(starter);
     const weight = (state?.weight ?? 0) + params.qbPriorWeight;
     if (weight === 0) return params.qbReplacement;
-    return (
-      ((state?.marginSum ?? 0) + params.qbPriorWeight * params.qbReplacement) /
-      weight
-    );
+    return ((state?.marginSum ?? 0) + params.qbPriorWeight * params.qbReplacement) / weight;
   };
   const shrunkEfficiency = (state: TeamState, sum: number) => {
     const weight = state.efficiencyWeight + params.priorWeight;
     return weight === 0 ? 0 : sum / weight;
   };
   const pace = (state: TeamState) =>
-    state.efficiencyWeight === 0
-      ? 0
-      : state.secondsPerPlay / state.efficiencyWeight;
+    state.efficiencyWeight === 0 ? 0 : state.secondsPerPlay / state.efficiencyWeight;
   const passRate = (state: TeamState) =>
-    state.efficiencyWeight === 0
-      ? 0
-      : state.passOverExpected / state.efficiencyWeight;
+    state.efficiencyWeight === 0 ? 0 : state.passOverExpected / state.efficiencyWeight;
   const efficiencyRating = (qb: string | undefined) => {
     const state = qb === undefined ? undefined : quarterbacks.get(qb);
     const weight = (state?.efficiencyWeight ?? 0) + params.qbPriorWeight;
     if (weight === 0) return params.qbReplacement;
-    return (
-      ((state?.efficiencySum ?? 0) +
-        params.qbPriorWeight * params.qbReplacement) /
-      weight
-    );
+    return ((state?.efficiencySum ?? 0) + params.qbPriorWeight * params.qbReplacement) / weight;
   };
   const recordRating = (qb: string | undefined, margin: number) => {
     if (qb === undefined) return;
@@ -424,16 +393,12 @@ function featureBuilder(params: FeatureParameters) {
       const league = leagueTeamGames === 0 ? 0 : leaguePoints / leagueTeamGames;
       const shrunk = (state: TeamState, sum: number, toward: number) => {
         const weight = state.weight + params.priorWeight;
-        return weight === 0
-          ? toward
-          : (sum + params.priorWeight * toward) / weight;
+        return weight === 0 ? toward : (sum + params.priorWeight * toward) / weight;
       };
       return {
         gameId: game.id,
         kickoff: game.kickoff,
-        ...(game.resultAvailableAt
-          ? { resultAvailableAt: game.resultAvailableAt }
-          : {}),
+        ...(game.resultAvailableAt ? { resultAvailableAt: game.resultAvailableAt } : {}),
         features: {
           home_prior_margin: shrunk(home, home.marginSum, 0),
           away_prior_margin: shrunk(away, away.marginSum, 0),
@@ -513,10 +478,7 @@ export function buildFeatureRows(
     const cutoff = kickoffMs(ordered[from]!);
     let to = from + 1;
     while (to < ordered.length && kickoffMs(ordered[to]!) === cutoff) to += 1;
-    while (
-      applied < pending.length &&
-      resultAvailableMs(pending[applied]!) < cutoff
-    ) {
+    while (applied < pending.length && resultAvailableMs(pending[applied]!) < cutoff) {
       builder.apply(pending[applied]!);
       applied += 1;
     }
@@ -534,9 +496,7 @@ export function featureRowForGame(
   cutoff: string = game.kickoff,
 ): FeatureRow {
   const builder = featureBuilder(params);
-  const before = history.filter(
-    (past) => resultAvailableMs(past) < kickoffMs({ kickoff: cutoff }),
-  );
+  const before = history.filter((past) => resultAvailableMs(past) < kickoffMs({ kickoff: cutoff }));
   for (const past of [...before].sort(
     (a, b) => resultAvailableMs(a) - resultAvailableMs(b) || byKickoff(a, b),
   )) {

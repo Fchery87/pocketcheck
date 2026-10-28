@@ -12,10 +12,7 @@ import type { CompletedGame } from "./games.ts";
 import { offerProbabilities } from "./offer-probability.ts";
 import type { MeanContributions } from "./fit.ts";
 import { predictGame } from "./predict.ts";
-import {
-  conservativeProbabilities,
-  type UncertaintyAssessment,
-} from "./uncertainty.ts";
+import { conservativeProbabilities, type UncertaintyAssessment } from "./uncertainty.ts";
 
 export const FORECAST_RECORD_VERSION = 1;
 
@@ -75,21 +72,12 @@ const UNKNOWN: StarterAssumption = {
   evidenceAt: null,
 };
 
-function starterFor(
-  recorded: StarterAssumption | undefined,
-  cutoff: string,
-): StarterAssumption {
-  if (
-    !recorded ||
-    recorded.state === "unknown" ||
-    !recorded.identity ||
-    !recorded.evidenceAt
-  ) {
+function starterFor(recorded: StarterAssumption | undefined, cutoff: string): StarterAssumption {
+  if (!recorded || recorded.state === "unknown" || !recorded.identity || !recorded.evidenceAt) {
     return UNKNOWN;
   }
   if (Date.parse(recorded.evidenceAt) > Date.parse(cutoff)) return UNKNOWN;
-  if (recorded.state !== "known" && recorded.state !== "assumed")
-    return UNKNOWN;
+  if (recorded.state !== "known" && recorded.state !== "assumed") return UNKNOWN;
   return {
     state: recorded.state,
     identity: recorded.identity,
@@ -98,9 +86,7 @@ function starterFor(
 }
 
 /** Freeze the inputs and probabilities available at the decision cutoff. */
-export function freezeProspectiveForecast(
-  input: ForecastInputs,
-): ProspectiveForecast {
+export function freezeProspectiveForecast(input: ForecastInputs): ProspectiveForecast {
   const home = starterFor(input.game.starters?.home, input.cutoff);
   const away = starterFor(input.game.starters?.away, input.cutoff);
   const game: UpcomingGame = {
@@ -110,12 +96,8 @@ export function freezeProspectiveForecast(
     home: input.game.home,
     away: input.game.away,
     ...(input.game.neutral ? { neutral: true } : {}),
-    ...(home.state === "known" || home.state === "assumed"
-      ? { homeQb: home.identity! }
-      : {}),
-    ...(away.state === "known" || away.state === "assumed"
-      ? { awayQb: away.identity! }
-      : {}),
+    ...(home.state === "known" || home.state === "assumed" ? { homeQb: home.identity! } : {}),
+    ...(away.state === "known" || away.state === "assumed" ? { awayQb: away.identity! } : {}),
   };
   const row = featureRowForGame(
     input.history,
@@ -136,14 +118,8 @@ export function freezeProspectiveForecast(
   const unanchored = predictGame(input.artifact, row);
   const adjustment =
     input.offer.market === "total"
-      ? unanchored.drivers.total.contributions.reduce(
-          (sum, item) => sum + item.points,
-          0,
-        )
-      : unanchored.drivers.margin.contributions.reduce(
-          (sum, item) => sum + item.points,
-          0,
-        );
+      ? unanchored.drivers.total.contributions.reduce((sum, item) => sum + item.points, 0)
+      : unanchored.drivers.margin.contributions.reduce((sum, item) => sum + item.points, 0);
   const predicted = predictGame(
     input.artifact,
     row,
