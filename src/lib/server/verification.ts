@@ -4,7 +4,7 @@ import { artifactChecksum } from "./models/artifact.ts";
 /** Checked-in deterministic forecasting model. Fitted from tests/model/fixtures/synthetic-games.json. */
 const FIXTURE_MODEL = {
   artifact: "tests/fixtures/models/browser-forecasting-model.json",
-  checksum: "56bd99b398f9912e0eda6f598323843cbfaa626e3c7c2fa01917dfc7ffab7d76",
+  checksum: "51f78e07657c2a4af3f8fb50d711f4ca6515069c6d22d5b3e05a184d59442c2e",
   releaseStatus: "unreleased",
   trainingCutoff: "2024-09-22T17:00:00Z",
 } as const;
@@ -14,7 +14,8 @@ export const browserFixture = {
   POCKETCHECK_JOURNAL: "memory",
   POCKETCHECK_NOW: "2026-10-25T16:00:00.000Z",
   POCKETCHECK_SCHEDULE_CSV: "tests/fixtures/sources/games-minimized.csv",
-  POCKETCHECK_INJURY_CSV: "tests/fixtures/sources/injuries-2026-live-sample.csv",
+  POCKETCHECK_INJURY_CSV:
+    "tests/fixtures/sources/injuries-2026-live-sample.csv",
   POCKETCHECK_WEATHER: "off",
   POCKETCHECK_MODEL_ARTIFACT: FIXTURE_MODEL.artifact,
   DATABASE_URL: "",
@@ -39,14 +40,18 @@ function unsafe(key: string): Error {
 function assertFixtureModel(read: ReadText): void {
   let artifact: Record<string, unknown>;
   try {
-    artifact = JSON.parse(read(FIXTURE_MODEL.artifact)) as Record<string, unknown>;
+    artifact = JSON.parse(read(FIXTURE_MODEL.artifact)) as Record<
+      string,
+      unknown
+    >;
   } catch {
     throw unsafe("POCKETCHECK_MODEL_ARTIFACT");
   }
   const { checksum, ...body } = artifact;
   if (
     checksum !== FIXTURE_MODEL.checksum ||
-    artifactChecksum(body as Parameters<typeof artifactChecksum>[0]) !== checksum ||
+    artifactChecksum(body as Parameters<typeof artifactChecksum>[0]) !==
+      checksum ||
     artifact.releaseStatus !== FIXTURE_MODEL.releaseStatus ||
     artifact.trainingCutoff !== FIXTURE_MODEL.trainingCutoff
   ) {

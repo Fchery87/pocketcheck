@@ -1,15 +1,23 @@
 import { describe, expect, it } from "vite-plus/test";
 import { loadFixtureGames } from "#lib/server/analysis/games.ts";
-import { runGameBoard, type GameBoardRequest } from "#lib/server/analysis/board-run.ts";
+import {
+  runGameBoard,
+  type GameBoardRequest,
+} from "#lib/server/analysis/board-run.ts";
 import { createMemoryStore } from "#lib/server/analysis/store.ts";
+import { FEATURE_DEFINITIONS } from "#lib/server/models/features.ts";
 import type { EvidenceCollector } from "#lib/server/analysis/evidence.ts";
-import { createArtifactForecast, createArtifactModel } from "#lib/server/analysis/model.ts";
+import {
+  createArtifactForecast,
+  createArtifactModel,
+} from "#lib/server/analysis/model.ts";
 import { quiet, scriptedModel } from "../../../../tests/board-fixtures.ts";
 
 const NOW = "2026-10-25T16:00:00.000Z";
-const game = loadFixtureGames("tests/fixtures/sources/games-minimized.csv", NOW).find(
-  (item) => item.id === "2026_07_DAL_PHI",
-)!;
+const game = loadFixtureGames(
+  "tests/fixtures/sources/games-minimized.csv",
+  NOW,
+).find((item) => item.id === "2026_07_DAL_PHI")!;
 
 function board(overrides: Partial<GameBoardRequest> = {}): GameBoardRequest {
   return {
@@ -41,7 +49,9 @@ describe("model pick drivers", () => {
     expect(saved).toEqual(outcome.board);
     const drivers = saved.markets[0].pick!.forecast!.drivers!;
     for (const part of [drivers.margin, drivers.total]) {
-      expect(part.contributions.map((item) => item.feature)).toHaveLength(13);
+      expect(part.contributions.map((item) => item.feature)).toHaveLength(
+        FEATURE_DEFINITIONS.length,
+      );
     }
     // The pick's own forecast probabilities and the drivers come from one prediction: the
     // fixture model gives PHI no chance, which only a very large negative margin mean does.
@@ -70,8 +80,12 @@ describe("model pick drivers", () => {
     expect(outcome.ok, outcome.ok ? "" : outcome.error).toBe(true);
     for (const entry of outcome.board!.markets) {
       const drivers = entry.pick!.forecast!.drivers!;
-      expect(drivers.margin.contributions).toHaveLength(13);
-      expect(drivers.total.contributions).toHaveLength(13);
+      expect(drivers.margin.contributions).toHaveLength(
+        FEATURE_DEFINITIONS.length,
+      );
+      expect(drivers.total.contributions).toHaveLength(
+        FEATURE_DEFINITIONS.length,
+      );
     }
     expect(outcome.board!.markets.map((entry) => entry.market)).toEqual([
       "moneyline",
@@ -121,11 +135,16 @@ describe("manual evidence on a game board", () => {
   it("caps the grade at lean while material evidence is missing", async () => {
     const outcome = await run({});
     const pick = outcome.board!.markets[0].pick!;
-    expect(pick.calculation.sides[0].conservativeExpectedValue).toBeGreaterThan(0);
+    expect(pick.calculation.sides[0].conservativeExpectedValue).toBeGreaterThan(
+      0,
+    );
     expect(pick.calculation.grade).toBe("lean");
     expect(pick.calculation.materialEvidenceMissing).toBe(true);
     expect(outcome.board!.gaps).toEqual(
-      expect.arrayContaining(["Injury report was not collected.", "Weather was not collected."]),
+      expect.arrayContaining([
+        "Injury report was not collected.",
+        "Weather was not collected.",
+      ]),
     );
   });
 
@@ -141,31 +160,56 @@ describe("manual evidence on a game board", () => {
     const manual = saved.evidence.filter((item) => item.origin === "manual");
     expect(manual).toHaveLength(2);
     expect(manual[0].retrievedAt).toBe(NOW);
-    expect(saved.gaps.join(" ")).toMatch(/injury report comes from manual evidence/);
-    expect(saved.gaps.join(" ")).toMatch(/kickoff forecast comes from manual evidence/);
+    expect(saved.gaps.join(" ")).toMatch(
+      /injury report comes from manual evidence/,
+    );
+    expect(saved.gaps.join(" ")).toMatch(
+      /kickoff forecast comes from manual evidence/,
+    );
   });
 
   it("keeps the gap for late, stale, unrelated, or untimed evidence and says why", async () => {
     const cases = [
-      { name: "dated after the cutoff", entry: weather("2026-10-26T12:00:00.000Z") },
+      {
+        name: "dated after the cutoff",
+        entry: weather("2026-10-26T12:00:00.000Z"),
+      },
       { name: "older than its window", entry: weather(hoursBefore(20)) },
       { name: "without a source time", entry: weather("unknown") },
     ];
     for (const item of cases) {
-      const outcome = await run({ manualEvidence: [injury(hoursBefore(3)), item.entry] });
+      const outcome = await run({
+        manualEvidence: [injury(hoursBefore(3)), item.entry],
+      });
       const saved = outcome.board!;
       expect(saved.markets[0].pick!.calculation.grade, item.name).toBe("lean");
-      expect(saved.markets[0].pick!.calculation.materialEvidenceMissing, item.name).toBe(true);
+      expect(
+        saved.markets[0].pick!.calculation.materialEvidenceMissing,
+        item.name,
+      ).toBe(true);
     }
     const late = await run({
-      manualEvidence: [injury(hoursBefore(3)), weather("2026-10-26T12:00:00.000Z")],
+      manualEvidence: [
+        injury(hoursBefore(3)),
+        weather("2026-10-26T12:00:00.000Z"),
+      ],
     });
-    expect(late.board!.gaps.join(" ")).toMatch(/1 evidence item dated after the decision cutoff/);
+    expect(late.board!.gaps.join(" ")).toMatch(
+      /1 evidence item dated after the decision cutoff/,
+    );
     expect(late.board!.gaps.join(" ")).toContain("Kickoff 52F, wind 8 mph.");
-    expect(late.board!.evidence.filter((item) => item.origin === "manual")).toHaveLength(1);
-    const stale = await run({ manualEvidence: [injury(hoursBefore(3)), weather(hoursBefore(20))] });
-    expect(stale.board!.gaps.join(" ")).toMatch(/20 hours old; the kickoff forecast needs one/);
-    const untimed = await run({ manualEvidence: [injury(hoursBefore(3)), weather("unknown")] });
+    expect(
+      late.board!.evidence.filter((item) => item.origin === "manual"),
+    ).toHaveLength(1);
+    const stale = await run({
+      manualEvidence: [injury(hoursBefore(3)), weather(hoursBefore(20))],
+    });
+    expect(stale.board!.gaps.join(" ")).toMatch(
+      /20 hours old; the kickoff forecast needs one/,
+    );
+    const untimed = await run({
+      manualEvidence: [injury(hoursBefore(3)), weather("unknown")],
+    });
     expect(untimed.board!.gaps.join(" ")).toMatch(/has no source time/);
   });
 
@@ -173,7 +217,9 @@ describe("manual evidence on a game board", () => {
     const collect: EvidenceCollector = async () => ({
       items: [],
       gaps: ["PHI week 7 injury coverage is not established."],
-      materialGaps: [{ kind: "injury-report", team: "PHI", text: "PHI coverage unknown." }],
+      materialGaps: [
+        { kind: "injury-report", team: "PHI", text: "PHI coverage unknown." },
+      ],
     });
     const outcome = await runGameBoard(
       board({ manualEvidence: [injury(hoursBefore(3), { team: "DAL" })] }),
@@ -181,13 +227,17 @@ describe("manual evidence on a game board", () => {
     );
     const saved = outcome.board!;
     expect(saved.markets[0].pick!.calculation.grade).toBe("lean");
-    expect(saved.gaps.join(" ")).toMatch(/not for PHI, so it does not clear that team's coverage/);
+    expect(saved.gaps.join(" ")).toMatch(
+      /not for PHI, so it does not clear that team's coverage/,
+    );
   });
 
   it("refuses manual evidence with neither text nor a link without saving a board", async () => {
     const store = createMemoryStore();
     const outcome = await runGameBoard(
-      board({ manualEvidence: [{ text: " ", url: "", sourceTime: "unknown" }] }),
+      board({
+        manualEvidence: [{ text: " ", url: "", sourceTime: "unknown" }],
+      }),
       { store, collect: quiet },
     );
     expect(outcome.ok).toBe(false);
@@ -213,7 +263,11 @@ describe("private lean on a game board", () => {
                 version: 1,
                 provenance: "captured",
                 decisionCutoff: NOW,
-                inputAvailability: { version: "v", results: "r", starters: "s" },
+                inputAvailability: {
+                  version: "v",
+                  results: "r",
+                  starters: "s",
+                },
                 artifact: { checksum: model.artifact.checksum, version: 4 },
                 features: {},
                 starters: {
@@ -238,11 +292,14 @@ describe("private lean on a game board", () => {
   });
 
   it("stays null when none is entered and does not change the pick", async () => {
-    const withLean = await runGameBoard(board({ requestId: "lean-a", lean: LEAN }), {
-      store: createMemoryStore(),
-      collect: quiet,
-      model: scriptedModel({ home: { win: 0.6, loss: 0.4, push: 0 } }),
-    });
+    const withLean = await runGameBoard(
+      board({ requestId: "lean-a", lean: LEAN }),
+      {
+        store: createMemoryStore(),
+        collect: quiet,
+        model: scriptedModel({ home: { win: 0.6, loss: 0.4, push: 0 } }),
+      },
+    );
     const without = await runGameBoard(board({ requestId: "lean-b" }), {
       store: createMemoryStore(),
       collect: quiet,
@@ -256,15 +313,21 @@ describe("private lean on a game board", () => {
 
   it("is part of what identifies a submission", async () => {
     const store = createMemoryStore();
-    const first = await runGameBoard(board({ requestId: "lean-c", lean: LEAN }), {
-      store,
-      collect: quiet,
-    });
+    const first = await runGameBoard(
+      board({ requestId: "lean-c", lean: LEAN }),
+      {
+        store,
+        collect: quiet,
+      },
+    );
     expect(first.ok).toBe(true);
-    const changed = await runGameBoard(board({ requestId: "lean-c", lean: "Take Philadelphia" }), {
-      store,
-      collect: quiet,
-    });
+    const changed = await runGameBoard(
+      board({ requestId: "lean-c", lean: "Take Philadelphia" }),
+      {
+        store,
+        collect: quiet,
+      },
+    );
     expect(changed.ok).toBe(false);
     expect(changed.ok ? "" : changed.error).toMatch(/different inputs/);
   });
