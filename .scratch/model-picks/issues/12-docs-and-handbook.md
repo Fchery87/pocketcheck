@@ -10,10 +10,14 @@ The handbook page explains the forecasting model vs. the drafter, no-vig probabi
 
 **Blocked by:** 06, 09, 11
 
-**Status:** ready-for-agent
+**Status:** claimed
 
-- [ ] README describes the game board and model pick workflow and its honest limits
-- [ ] AGENTS.md Journal and Release sections reflect ADR 0002 without loosening the release gate
-- [ ] The handbook page covers the terms above using the glossary vocabulary
-- [ ] `docs/testing.md` matches the actual verification setup
-- [ ] `npm run verify` passes
+- [x] README describes the game board and model pick workflow and its honest limits
+- [x] AGENTS.md Journal and Release sections reflect ADR 0002 without loosening the release gate
+- [x] The handbook page covers the terms above using the glossary vocabulary
+- [x] `docs/testing.md` matches the actual verification setup
+- [x] `npm run verify` passes
+
+## Answer
+
+README, AGENTS.md Journal and Release, the handbook, `docs/testing.md`, and the glossary now describe game boards and model picks. The glossary gained **primary model pick**. Export stays version 1, with boards as optional lists. The release gate and protocol `prospective-2026-10-26` are unchanged. `npm run verify` passed on this worktree.
