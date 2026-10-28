@@ -288,3 +288,52 @@ describe("model:evaluate report", () => {
     },
   );
 });
+
+describe("model:refit", () => {
+  const directory = mkdtempSync(join(tmpdir(), "pocketcheck-refit-"));
+  afterAll(() => rmSync(directory, { recursive: true, force: true }));
+  const games = resolve("tests/model/fixtures/synthetic-games.json");
+  const inUse = join(directory, "in-use.json");
+
+  function refit(args: string[]) {
+    return spawnSync(
+      process.execPath,
+      ["--experimental-strip-types", resolve("scripts/model/refit.ts"), ...args],
+      { encoding: "utf8" },
+    );
+  }
+
+  it("leaves the artifact in use untouched when the games file is missing", () => {
+    const seeded = spawnSync(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        resolve("scripts/model/fit.ts"),
+        games,
+        inUse,
+        "2024-09-15T20:00:00Z",
+      ],
+      { encoding: "utf8" },
+    );
+    expect(seeded.status, seeded.stderr).toBe(0);
+    const before = readFileSync(inUse, "utf8");
+    const result = refit([join(directory, "missing.json"), inUse, join(directory, "next.json")]);
+    expect(result.status, result.stderr).toBe(1);
+    expect(result.stderr).toMatch(/not found/);
+    expect(readFileSync(inUse, "utf8")).toBe(before);
+    expect(existsSync(join(directory, "next.json"))).toBe(false);
+  });
+
+  it("writes a new unreleased artifact beside the one in use", () => {
+    const before = readFileSync(inUse, "utf8");
+    const next = join(directory, "next.json");
+    const changed = join(directory, "one-game.json");
+    const full = JSON.parse(readFileSync(games, "utf8")) as { games: unknown[] };
+    writeFileSync(changed, JSON.stringify({ games: full.games.slice(0, -1) }));
+    const result = refit([changed, inUse, next]);
+    expect(result.status, result.stderr).toBe(0);
+    const written = JSON.parse(readFileSync(next, "utf8")) as { releaseStatus: string };
+    expect(written.releaseStatus).toBe("unreleased");
+    expect(readFileSync(inUse, "utf8")).toBe(before);
+  });
+});

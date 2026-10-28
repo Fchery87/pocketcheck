@@ -336,6 +336,15 @@ export function describeModelPickPerformanceContract(
         expect(grades.reduce((sum, item) => sum + (item.counts.primary ?? 0), 0)).toBe(3);
         expect(grades.reduce((sum, item) => sum + item.counts.settled, 0)).toBe(2);
         expect(grades.reduce((sum, item) => sum + item.counts.push, 0)).toBe(1);
+        // The same picks grouped by the artifact that produced them, with the same denominators.
+        expect(performance.byArtifact).toHaveLength(1);
+        expect(performance.byArtifact[0]!.checksum).toBe(
+          board.markets[0]!.pick!.forecastingModel.checksum,
+        );
+        expect(performance.byArtifact[0]!.summary.denominators).toEqual(
+          performance.overall.denominators,
+        );
+        expect(performance.byArtifact[0]!.summary.counts.missingClosing).toBe(2);
       });
 
       it("returns stake on a void and leaves it out of the return denominator", async () => {
