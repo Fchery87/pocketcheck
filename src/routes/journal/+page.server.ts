@@ -41,7 +41,7 @@ async function pickStart(journal: ReturnType<typeof store>, pickId: string) {
     modelPickId: pick.id,
     boardId: board.id,
     game: `${board.game.away} at ${board.game.home}`,
-    sportsbook: board.sportsbook,
+    sportsbook: offer.sportsbook,
     market: market.market,
     selection: offer.selection,
     pointLine: offer.pointLine,
