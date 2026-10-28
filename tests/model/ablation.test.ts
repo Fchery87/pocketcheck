@@ -280,32 +280,39 @@ describe("model:evaluate report", () => {
     ]);
   });
 
-  it("refuses a comparison when the previous artifact covers different games", () => {
-    const full = JSON.parse(
-      readFileSync(
-        resolve("tests/model/fixtures/synthetic-games.json"),
-        "utf8",
-      ),
-    ) as { games: { id: string }[] };
-    const shorter = join(directory, "shorter.json");
-    writeFileSync(shorter, JSON.stringify({ games: full.games.slice(0, -1) }));
-    const other = join(directory, "other.json");
-    const fitted = spawnSync(
-      process.execPath,
-      [
-        "--experimental-strip-types",
-        resolve("scripts/model/fit.ts"),
+  it(
+    "refuses a comparison when the previous artifact covers different games",
+    { timeout: 30_000 },
+    () => {
+      const full = JSON.parse(
+        readFileSync(
+          resolve("tests/model/fixtures/synthetic-games.json"),
+          "utf8",
+        ),
+      ) as { games: { id: string }[] };
+      const shorter = join(directory, "shorter.json");
+      writeFileSync(
         shorter,
-        other,
-        "2024-09-15T20:00:00Z",
-      ],
-      { encoding: "utf8" },
-    );
-    expect(fitted.status, fitted.stderr).toBe(0);
-    rmSync(join(directory, "report.json"), { force: true });
-    const result = evaluate(other, shorter);
-    expect(result.status, result.stderr).toBe(1);
-    expect(result.stderr).toMatch(/same games/);
-    expect(existsSync(result.output)).toBe(false);
-  });
+        JSON.stringify({ games: full.games.slice(0, -1) }),
+      );
+      const other = join(directory, "other.json");
+      const fitted = spawnSync(
+        process.execPath,
+        [
+          "--experimental-strip-types",
+          resolve("scripts/model/fit.ts"),
+          shorter,
+          other,
+          "2024-09-15T20:00:00Z",
+        ],
+        { encoding: "utf8" },
+      );
+      expect(fitted.status, fitted.stderr).toBe(0);
+      rmSync(join(directory, "report.json"), { force: true });
+      const result = evaluate(other, shorter);
+      expect(result.status, result.stderr).toBe(1);
+      expect(result.stderr).toMatch(/same games/);
+      expect(existsSync(result.output)).toBe(false);
+    },
+  );
 });

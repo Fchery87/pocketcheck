@@ -7,7 +7,7 @@ import {
   type ProspectiveForecast,
 } from "../../src/lib/server/models/forecast.ts";
 import { fitArtifact } from "../../src/lib/server/models/train.ts";
-import type { CompletedGame } from "../../src/lib/server/models/games.ts";
+import type { PricedGame } from "../../src/lib/server/models/games.ts";
 import type { Offer } from "../../src/lib/domain/offer.ts";
 
 function played(
@@ -16,7 +16,7 @@ function played(
   home: string,
   away: string,
   homeQb: string,
-): CompletedGame {
+): PricedGame {
   return {
     id,
     kickoff,
@@ -26,6 +26,10 @@ function played(
     awayScore: 17,
     homeQb,
     awayQb: `${away}-qb`,
+    prices: {
+      spread: { line: -3, home: { american: -110 }, away: { american: -110 } },
+      total: { line: 44, over: { american: -110 }, under: { american: -110 } },
+    },
   };
 }
 

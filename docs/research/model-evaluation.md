@@ -101,6 +101,16 @@ The learned weight at 3 was about the same in every band (2.4 to 2.9). Within th
 
 The gap is in games the market lined at 3. The market knows those games are close, and the model's mean is less sharp. Closing it means a better mean, not different key weights. Using the offered line as an input would make a comparison against that same line circular.
 
+## Market-anchored forecasting model
+
+Version 5 starts every forecast from the anchor line and fits only the deviation from it. The anchor is one sportsbook's two sides: the no-vig home win probability mapped to an implied margin for a moneyline, the home line for a spread, and the total line for a total. History anchors on the recorded close. A row without a close is counted in `anchor.excludedNoClose` and left out. A board market without a two-sided quote has no forecast.
+
+The added input groups are quarterback efficiency, opponent-adjusted team efficiency, pace, and rest situation. A group is kept only when dropping it makes held-out log loss worse. The ablation is in the evaluation report. Close-anchored scores are development evidence. They use the closing line, which already contains late news, so they overstate a decision-time forecast and cannot release a market.
+
+`npm run model:refit` writes a new unreleased artifact beside the one in use. It replaces the artifact in use only with `--replace`. A version 4 artifact is refused with a refit-required reason.
+
+No real-data refit has been run for version 5, so this note records no new score and makes no accuracy claim. The numbers above are the version 4 model.
+
 ## Release gate
 
 `releaseDecision` (`src/lib/server/models/release.ts`) compares each market with the `market-no-vig` baseline on the artifact's historical holdout. A clean comparison still needs:

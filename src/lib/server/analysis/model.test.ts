@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 import { parseOffer, type Offer } from "#lib/domain/offer.ts";
-import { withChecksum, type ModelArtifact } from "#lib/server/models/artifact.ts";
+import {
+  withChecksum,
+  type ModelArtifact,
+} from "#lib/server/models/artifact.ts";
+import { FEATURE_DEFINITIONS } from "#lib/server/models/features.ts";
 import { predictMean } from "#lib/server/models/fit.ts";
 import { releaseArtifact } from "#lib/server/models/release.ts";
 import {
@@ -14,7 +18,12 @@ import {
 } from "#lib/server/models/prospective.ts";
 import { fitArtifact } from "#lib/server/models/train.ts";
 import type { ScheduledGame } from "#lib/server/sources/contracts.ts";
-import { createArtifactForecast, createArtifactModel, forDisplay, noModel } from "./model.ts";
+import {
+  createArtifactForecast,
+  createArtifactModel,
+  forDisplay,
+  noModel,
+} from "./model.ts";
 
 const HEADER =
   "game_id,season,game_type,week,gameday,weekday,gametime,away_team,away_score,home_team,home_score,location,result,total,overtime,old_game_id,gsis,nfl_detail_id,pfr,pff,espn,ftn,away_rest,home_rest,away_moneyline,home_moneyline,spread_line,away_spread_odds,home_spread_odds,total_line,under_odds,over_odds,div_game,roof,surface,temp,wind,away_qb_id,home_qb_id,away_qb_name,home_qb_name,away_coach,home_coach,referee,stadium_id,stadium";
@@ -50,7 +59,9 @@ function csv(rows: Row[]): string {
 
 // Ten teams, 60 finished games through November, then one upcoming game in December.
 const finished: Row[] = Array.from({ length: 60 }, (_, index) => {
-  const day = new Date(Date.UTC(2024, 8, 5) + index * 86_400_000).toISOString().slice(0, 10);
+  const day = new Date(Date.UTC(2024, 8, 5) + index * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
   const home = `T${index % 10}`;
   const away = `T${(index * 3 + 1) % 10 === index % 10 ? (index + 1) % 10 : (index * 3 + 1) % 10}`;
   return {
@@ -111,6 +122,10 @@ const trainingGames = finished.map((row) => ({
   away: row.away,
   homeScore: row.scores![0],
   awayScore: row.scores![1],
+  prices: {
+    spread: { line: -3, home: { american: -110 }, away: { american: -110 } },
+    total: { line: 44, over: { american: -110 }, under: { american: -110 } },
+  },
 }));
 const artifact = fitArtifact(trainingGames, "2024-10-15T00:00:00.000Z");
 
@@ -135,7 +150,9 @@ describe("the model a run uses", () => {
     });
     const result = await model(game, CUTOFF, spreadOffer("home", -3));
     expect(result).toMatchObject({ status: "unavailable" });
-    expect(result.status === "unavailable" && result.reason).toMatch(/npm run model:fit/);
+    expect(result.status === "unavailable" && result.reason).toMatch(
+      /npm run model:fit/,
+    );
   });
 
   it("returns an unavailable model for malformed artifacts even with matching checksums", async () => {
@@ -179,7 +196,9 @@ describe("the model a run uses", () => {
             ? value
             : {
                 ...value,
-                checksum: createHash("sha256").update(JSON.stringify(value)).digest("hex"),
+                checksum: createHash("sha256")
+                  .update(JSON.stringify(value))
+                  .digest("hex"),
               },
         ),
       );
@@ -228,7 +247,9 @@ describe("the model a run uses", () => {
         path,
         JSON.stringify({
           ...value,
-          checksum: createHash("sha256").update(JSON.stringify(value)).digest("hex"),
+          checksum: createHash("sha256")
+            .update(JSON.stringify(value))
+            .digest("hex"),
         }),
       );
       const result = await createArtifactModel({
@@ -251,17 +272,24 @@ describe("the model a run uses", () => {
       artifactPath: tampered,
       schedulePath,
     })(game, CUTOFF, spreadOffer("home", -3));
-    expect(result.status === "unavailable" && result.reason).toMatch(/checksum/);
+    expect(result.status === "unavailable" && result.reason).toMatch(
+      /checksum/,
+    );
   });
 
   it("refuses an artifact from an older version, whose features no longer match", async () => {
     const { checksum: _checksum, ...body } = artifact;
-    const old = withChecksum({ ...body, version: 2 } as unknown as Omit<ModelArtifact, "checksum">);
+    const old = withChecksum({ ...body, version: 2 } as unknown as Omit<
+      ModelArtifact,
+      "checksum"
+    >);
     const result = await createArtifactModel({
       artifactPath: saved("old.json", old),
       schedulePath,
     })(game, CUTOFF, spreadOffer("home", -3));
-    expect(result.status === "unavailable" && result.reason).toMatch(/version 2 is not supported/);
+    expect(result.status === "unavailable" && result.reason).toMatch(
+      /version 2 is not supported/,
+    );
   });
 
   it("refuses an artifact trained on games through this one", async () => {
@@ -270,7 +298,9 @@ describe("the model a run uses", () => {
       artifactPath: saved("plain.json", artifact),
       schedulePath,
     })(early, "2024-09-30T12:00:00.000Z", spreadOffer("home", -3));
-    expect(result.status === "unavailable" && result.reason).toMatch(/trained on games through/);
+    expect(result.status === "unavailable" && result.reason).toMatch(
+      /trained on games through/,
+    );
   });
 
   it("refuses an artifact trained after the research decision cutoff", async () => {
@@ -306,9 +336,13 @@ describe("the model a run uses", () => {
       id: "prospective-2026-10-26",
       role: "independent",
     });
-    expect(result.protocol.blockingReason).toMatch(/independent prospective evidence is missing/);
+    expect(result.protocol.blockingReason).toMatch(
+      /independent prospective evidence is missing/,
+    );
     expect(result.uncertainty).toMatchObject({ available: false });
-    expect(!result.uncertainty.available && result.uncertainty.reason).toMatch(/fewer than 60/);
+    expect(!result.uncertainty.available && result.uncertainty.reason).toMatch(
+      /fewer than 60/,
+    );
     const path = saved("plain.json", artifact);
     const forecast = await createArtifactForecast({
       artifactPath: path,
@@ -319,13 +353,17 @@ describe("the model a run uses", () => {
     expect(forecast?.marketEligibility.eligible).toBe(false);
     expect(forecast?.artifact.checksum).toBe(artifact.checksum);
     // The frozen forecast records what moved the margin and the total, in points.
-    const row = { gameId: "next", kickoff: game.kickoff, features: forecast!.features } as never;
+    const row = {
+      gameId: "next",
+      kickoff: game.kickoff,
+      features: forecast!.features,
+    } as never;
     for (const [name, model] of [
       ["margin", artifact.margin.model],
       ["total", artifact.total.model],
     ] as const) {
       const drivers = forecast!.drivers![name];
-      expect(drivers.contributions).toHaveLength(13);
+      expect(drivers.contributions).toHaveLength(FEATURE_DEFINITIONS.length);
       const sum = drivers.contributions.reduce(
         (value, item) => value + item.points,
         drivers.intercept,
@@ -408,7 +446,9 @@ describe("the model a run uses", () => {
       protocol: { id: "prospective-2026-10-26" },
     });
     if (moneylineOnly.status === "computed") {
-      expect(moneylineOnly.protocol.blockingReason).toMatch(/has not released the spread/);
+      expect(moneylineOnly.protocol.blockingReason).toMatch(
+        /has not released the spread/,
+      );
     }
   });
 
@@ -419,7 +459,8 @@ describe("the model a run uses", () => {
     });
     const home = await model(game, CUTOFF, spreadOffer("home", -3));
     const away = await model(game, CUTOFF, spreadOffer("away", 3));
-    if (home.status !== "computed" || away.status !== "computed") throw new Error("not computed");
+    if (home.status !== "computed" || away.status !== "computed")
+      throw new Error("not computed");
     expect(away.probabilities.win).toBeCloseTo(home.probabilities.loss, 10);
     expect(away.probabilities.push).toBeCloseTo(home.probabilities.push, 10);
   });
