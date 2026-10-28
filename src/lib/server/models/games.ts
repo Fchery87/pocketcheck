@@ -13,6 +13,22 @@ export type CompletedGame = {
   /** Starting quarterbacks' player ids, when known. */
   homeQb?: string;
   awayQb?: string;
+  /**
+   * Opponent-adjusted efficiency from play-by-play, present only when that game's plays were
+   * available. Absent numbers stay unknown and contribute nothing.
+   */
+  efficiency?: {
+    homeOffenseEpa: number;
+    awayOffenseEpa: number;
+    homeDefenseEpa: number;
+    awayDefenseEpa: number;
+    homeSecondsPerPlay: number | null;
+    awaySecondsPerPlay: number | null;
+    homePassOverExpected: number | null;
+    awayPassOverExpected: number | null;
+    homeQbEpa: number | null;
+    awayQbEpa: number | null;
+  };
 };
 
 export type Market = "moneyline" | "spread" | "total";
@@ -47,7 +63,10 @@ export const CHRONOLOGY = {
 } as const;
 
 /** The fallback is a conservative policy estimate, never a source publication timestamp. */
-export function resultAvailableMs(game: { kickoff: string; resultAvailableAt?: string }): number {
+export function resultAvailableMs(game: {
+  kickoff: string;
+  resultAvailableAt?: string;
+}): number {
   const kickoff = kickoffMs(game);
   if (game.resultAvailableAt === undefined) return kickoff + 86_400_000;
   const available = Date.parse(game.resultAvailableAt);

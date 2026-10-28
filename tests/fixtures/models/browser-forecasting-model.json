@@ -73,6 +73,50 @@
     {
       "name": "home_indicator",
       "description": "1 when the game is not neutral, otherwise 0."
+    },
+    {
+      "name": "home_qb_efficiency",
+      "description": "Home starter's recency-weighted EPA per dropback plus completion percentage over expected, shrunk toward qbReplacement by qbPriorWeight. Uses only plays from games eligible before the cutoff."
+    },
+    {
+      "name": "away_qb_efficiency",
+      "description": "The same quarterback efficiency for the away starter."
+    },
+    {
+      "name": "home_offense_epa",
+      "description": "Home offense's opponent-adjusted, recency-weighted EPA per play, carried from last season at seasonCarry."
+    },
+    {
+      "name": "away_offense_epa",
+      "description": "The same offensive efficiency for the away team."
+    },
+    {
+      "name": "home_defense_epa",
+      "description": "Home defense's opponent-adjusted EPA per play allowed, negated so higher is better."
+    },
+    {
+      "name": "away_defense_epa",
+      "description": "The same defensive efficiency for the away team."
+    },
+    {
+      "name": "pace_seconds",
+      "description": "Combined seconds per offensive play for both teams. Lower is faster."
+    },
+    {
+      "name": "pass_rate_over_expected",
+      "description": "Combined pass rate over expected for both teams."
+    },
+    {
+      "name": "rest_differential",
+      "description": "Home rest days minus away rest days."
+    },
+    {
+      "name": "short_week",
+      "description": "1 when either team is on fewer than 6 days of rest."
+    },
+    {
+      "name": "off_bye",
+      "description": "1 when either team is coming off 13 or more days of rest."
     }
   ],
   "featureParameters": {
@@ -658,19 +702,30 @@
     "model": {
       "intercept": -0.7500000000000002,
       "coefficients": {
-        "home_prior_margin": -4.005089368648999,
-        "away_prior_margin": -5.357336267055583,
-        "home_prior_points_for": -1.3763289372909164,
-        "away_prior_points_for": -1.4290766902894785,
-        "home_prior_points_against": -0.9106889475714814,
-        "away_prior_points_against": -0.9643189685660107,
+        "home_prior_margin": -2.7011314880182247,
+        "away_prior_margin": -4.053378386424809,
+        "home_prior_points_for": -1.3189459826462946,
+        "away_prior_points_for": -1.3568779024281679,
+        "home_prior_points_against": -0.9828877354327925,
+        "away_prior_points_against": -1.021701923210632,
         "home_rest_days": 0,
-        "away_rest_days": -5.733291390557172,
+        "away_rest_days": -4.136275663743984,
         "home_qb_share": 0,
         "away_qb_share": 0,
         "home_qb_rating": 0,
         "away_qb_rating": 0,
-        "home_indicator": 0
+        "home_indicator": 0,
+        "home_qb_efficiency": 0,
+        "away_qb_efficiency": 0,
+        "home_offense_epa": 0,
+        "away_offense_epa": 0,
+        "home_defense_epa": 0,
+        "away_defense_epa": 0,
+        "pace_seconds": 0,
+        "pass_rate_over_expected": 0,
+        "rest_differential": 4.136275663743985,
+        "short_week": 0,
+        "off_bye": 0
       },
       "featureMeans": {
         "home_prior_margin": -0.5833333333333334,
@@ -685,7 +740,18 @@
         "away_qb_share": 1,
         "home_qb_rating": -3,
         "away_qb_rating": -3,
-        "home_indicator": 1
+        "home_indicator": 1,
+        "home_qb_efficiency": -3,
+        "away_qb_efficiency": -3,
+        "home_offense_epa": 0,
+        "away_offense_epa": 0,
+        "home_defense_epa": 0,
+        "away_defense_epa": 0,
+        "pace_seconds": 0,
+        "pass_rate_over_expected": 0,
+        "rest_differential": 0,
+        "short_week": 0,
+        "off_bye": 0
       },
       "featureScales": {
         "home_prior_margin": 1.0103629710818451,
@@ -700,15 +766,26 @@
         "away_qb_share": 1,
         "home_qb_rating": 1,
         "away_qb_rating": 1,
-        "home_indicator": 1
+        "home_indicator": 1,
+        "home_qb_efficiency": 1,
+        "away_qb_efficiency": 1,
+        "home_offense_epa": 1,
+        "away_offense_epa": 1,
+        "home_defense_epa": 1,
+        "away_defense_epa": 1,
+        "pace_seconds": 1,
+        "pass_rate_over_expected": 1,
+        "rest_differential": 0.08838834764831845,
+        "short_week": 1,
+        "off_bye": 1
       }
     },
     "residuals": {
       "residuals": [
-        5.292770041552208,
-        -4.707229958447792,
-        1.734254568838507,
-        -2.319794651942921
+        5.292770041552207,
+        -4.707229958447793,
+        1.1696242437929243,
+        -1.75516432689734
       ],
       "bandwidth": 1.5,
       "support": {
@@ -1048,18 +1125,29 @@
       "intercept": -1.166666666666666,
       "coefficients": {
         "home_prior_margin": 0,
-        "away_prior_margin": 0.13025651232383767,
-        "home_prior_points_for": 0.13025651232383786,
-        "away_prior_points_for": 0.13025651232383748,
-        "home_prior_points_against": 0.13025651232383784,
-        "away_prior_points_against": 0.13025651232383745,
+        "away_prior_margin": 0.11249426064331434,
+        "home_prior_points_for": 0.11249426064331453,
+        "away_prior_points_for": 0.11249426064331414,
+        "home_prior_points_against": 0.1124942606433145,
+        "away_prior_points_against": 0.11249426064331411,
         "home_rest_days": 0,
-        "away_rest_days": 0.13025651232383792,
+        "away_rest_days": 0.11249426064331457,
         "home_qb_share": 0,
         "away_qb_share": 0,
         "home_qb_rating": 0,
         "away_qb_rating": 0,
-        "home_indicator": 0
+        "home_indicator": 0,
+        "home_qb_efficiency": 0,
+        "away_qb_efficiency": 0,
+        "home_offense_epa": 0,
+        "away_offense_epa": 0,
+        "home_defense_epa": 0,
+        "away_defense_epa": 0,
+        "pace_seconds": 0,
+        "pass_rate_over_expected": 0,
+        "rest_differential": -0.11249426064331448,
+        "short_week": 0,
+        "off_bye": 0
       },
       "featureMeans": {
         "home_prior_margin": 0,
@@ -1074,7 +1162,18 @@
         "away_qb_share": 1,
         "home_qb_rating": -3,
         "away_qb_rating": -3,
-        "home_indicator": 1
+        "home_indicator": 1,
+        "home_qb_efficiency": -3,
+        "away_qb_efficiency": -3,
+        "home_offense_epa": 0,
+        "away_offense_epa": 0,
+        "home_defense_epa": 0,
+        "away_defense_epa": 0,
+        "pace_seconds": 0,
+        "pass_rate_over_expected": 0,
+        "rest_differential": -0.041666666666666664,
+        "short_week": 0,
+        "off_bye": 0
       },
       "featureScales": {
         "home_prior_margin": 1,
@@ -1089,14 +1188,25 @@
         "away_qb_share": 1,
         "home_qb_rating": 1,
         "away_qb_rating": 1,
-        "home_indicator": 1
+        "home_indicator": 1,
+        "home_qb_efficiency": 1,
+        "away_qb_efficiency": 1,
+        "home_offense_epa": 1,
+        "away_offense_epa": 1,
+        "home_defense_epa": 1,
+        "away_defense_epa": 1,
+        "pace_seconds": 1,
+        "pass_rate_over_expected": 1,
+        "rest_differential": 0.05892556509887896,
+        "short_week": 1,
+        "off_bye": 1
       }
     },
     "residuals": {
       "residuals": [
-        -1.7807017543859647,
-        1.7192982456140353,
-        0.06140350877192985
+        -1.7765151515151516,
+        1.7234848484848484,
+        0.05303030303030279
       ],
       "bandwidth": 1.5,
       "support": {
@@ -1106,5 +1216,5 @@
       "keyWeights": []
     }
   },
-  "checksum": "4aac618b7343df4124890178f4555dc554cc2778040877a41826d8e8956d50f1"
+  "checksum": "51f78e07657c2a4af3f8fb50d711f4ca6515069c6d22d5b3e05a184d59442c2e"
 }

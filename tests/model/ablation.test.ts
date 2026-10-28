@@ -273,6 +273,10 @@ describe("model:evaluate report", () => {
       "rest",
       "quarterback",
       "home field",
+      "quarterback efficiency",
+      "team efficiency",
+      "pace",
+      "situational",
     ]);
   });
 
