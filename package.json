@@ -14,7 +14,7 @@
     "prepare": "svelte-kit sync || echo ''",
     "check": "vp check && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "test": "node --experimental-strip-types scripts/unit-test.ts",
-    "test:integration": "vp test run tests/integration",
+    "test:integration": "vp test run tests/integration --testTimeout=30000 --hookTimeout=30000",
     "db:migrate": "node scripts/migrate.mjs",
     "data:import": "node --experimental-strip-types scripts/data/import.ts",
     "data:schedule": "node --experimental-strip-types scripts/data/schedule.ts",

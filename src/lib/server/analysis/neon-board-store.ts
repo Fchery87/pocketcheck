@@ -191,7 +191,7 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
       for (const market of input.markets) {
         await tx`
           INSERT INTO board_markets (id, board_id, market, offers, quotes)
-          VALUES (${randomUUID()}, ${id}, ${market.market}, ${tx.json(market.offers as never)}, ${tx.json(market.quotes as never)})
+          VALUES (${randomUUID()}, ${id}, ${market.market}, ${tx.json(market.offers as never)}, ${tx.json((market.quotes ?? []) as never)})
         `;
       }
       return id;

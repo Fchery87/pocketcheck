@@ -34,6 +34,8 @@ TEST_DATABASE_URL='postgresql://test_user:password@localhost/test_database?sslmo
 
 Use `sslmode=disable` only when the disposable server does not support TLS. Other connections require TLS. Integration tests never load `.env` and never use `DATABASE_URL` as a fallback. Missing `TEST_DATABASE_URL` fails the command.
 
+The database command gives each test and hook 30 seconds instead of the unit default of 5. Every test migrates a fresh schema, and four files do that against one server at once, so the default limit fails on a quiet machine as migrations accumulate. Unit tests keep their 5-second limit.
+
 Each test creates a random `it_` schema, applies every SQL migration there, and runs the shared storage contracts and journal recovery checks. Cleanup drops only the schema that test created, including after a migration failure. The public schema is untouched.
 
 CI's separate `database` job provisions a PostgreSQL 16 service with a disposable database, explicitly sets `TEST_DATABASE_URL`, and invokes `npm run verify:database`. Both jobs must pass before the change is considered verified. Repository maintainers must require both jobs in branch protection.

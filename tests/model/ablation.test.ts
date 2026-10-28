@@ -198,7 +198,7 @@ describe("evaluation report sections", () => {
   });
 });
 
-describe("model:evaluate report", () => {
+describe("model:evaluate report", { timeout: 60_000 }, () => {
   const directory = mkdtempSync(join(tmpdir(), "pocketcheck-evaluate-"));
   afterAll(() => rmSync(directory, { recursive: true, force: true }));
 

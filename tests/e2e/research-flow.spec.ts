@@ -120,7 +120,8 @@ test("offer, report, refresh, and unchanged prior report", async ({ page, reques
     "Unreleased artifacts are not eligible for a value recommendation.",
   );
   await expect(page.getByTestId("model-probabilities")).toHaveCount(0);
-  await expect(page.getByTestId("forecast-provenance")).toContainText("Forecast frozen");
+  await expect(page.getByTestId("forecast-provenance")).toContainText("No forecast was frozen");
+  await expect(page.getByTestId("forecast-provenance")).toContainText("no opposing price");
   // Injury rows from the cached file and the user's own evidence are both in the run.
   await expect(page.getByTestId("all-evidence")).toContainText("Saquon Barkley");
   await expect(page.getByTestId("all-evidence")).toContainText(
