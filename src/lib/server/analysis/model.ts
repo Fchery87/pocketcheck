@@ -13,7 +13,6 @@ import {
 } from "../models/forecast.ts";
 import { recentStarter, starterAssumption, starterDecision } from "../models/starter.ts";
 import { depthChartFromCsv, readSeasonFiles } from "../sources/roster.ts";
-import { parseCsv } from "../sources/nflverse.ts";
 import type { Market } from "../models/games.ts";
 import { pricedGamesFromNflverseCsv, upcomingGameFromCsv } from "../models/history.ts";
 import { offerProbabilities } from "../models/offer-probability.ts";
@@ -198,7 +197,6 @@ export function createArtifactForecast(input: {
             line: offer.market === "spread" && !homeSide ? -offer.pointLine : offer.pointLine,
           }),
     };
-    const week = Number(parseCsv(csv).find((row) => row.game_id === game.id)?.week);
     const depthCharts = input.depthChartPath
       ? readSeasonFiles(
           [{ season: game.season, path: input.depthChartPath(game.season) }],
@@ -212,7 +210,6 @@ export function createArtifactForecast(input: {
         starterDecision({
           team,
           season: game.season,
-          week,
           cutoff: cutoffIso,
           usualStarter: usual?.playerId ?? null,
           depthChart: depthCharts,

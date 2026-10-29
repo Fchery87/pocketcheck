@@ -14,7 +14,6 @@ const chart = (
   season = 2025,
 ): DepthChartEntry => ({
   season,
-  week: 4,
   team: "PHI",
   position: "QB",
   depth,
@@ -34,7 +33,6 @@ const decide = (over: Partial<Parameters<typeof starterDecision>[0]> = {}) =>
   starterDecision({
     team: "PHI",
     season: 2025,
-    week: 4,
     cutoff: "2025-09-28T16:00:00Z",
     usualStarter: "hurts",
     depthChart: [
@@ -134,7 +132,6 @@ describe("starter assumption record", () => {
     const decision = starterDecision({
       team: "PHI",
       season: 2024,
-      week: 4,
       cutoff: "2024-09-28T16:00:00Z",
       usualStarter: "hurts",
       depthChart: [],
@@ -152,7 +149,6 @@ describe("starter assumption record", () => {
     const decision = starterDecision({
       team: "PHI",
       season: 2025,
-      week: 4,
       cutoff: "2025-09-28T16:00:00Z",
       usualStarter: null,
       depthChart: [],

@@ -34,7 +34,6 @@ const OUT = new Set(["out", "doubtful"]);
 export function starterDecision(input: {
   team: string;
   season: number;
-  week: number;
   cutoff: string;
   /** The most frequent recent starter, the latest on a tie. */
   usualStarter: string | null;
@@ -42,17 +41,19 @@ export function starterDecision(input: {
   injuries: readonly InjuryDesignation[];
 }): StarterDecision {
   const cutoff = Date.parse(input.cutoff);
-  const chart = input.depthChart
-    .filter(
-      (entry) =>
-        entry.team === input.team &&
-        entry.season === input.season &&
-        entry.week === input.week &&
-        entry.position === "QB" &&
-        entry.updatedAt !== null &&
-        Date.parse(entry.updatedAt) < cutoff,
-    )
-    .sort((a, b) => a.depth - b.depth || Date.parse(b.updatedAt!) - Date.parse(a.updatedAt!));
+  const before = input.depthChart.filter(
+    (entry) =>
+      entry.team === input.team &&
+      entry.season === input.season &&
+      entry.position === "QB" &&
+      entry.updatedAt !== null &&
+      Date.parse(entry.updatedAt) < cutoff,
+  );
+  // Depth charts are daily snapshots. Only the latest one before the cutoff speaks.
+  const latest = Math.max(...before.map((entry) => Date.parse(entry.updatedAt!)));
+  const chart = before
+    .filter((entry) => Date.parse(entry.updatedAt!) === latest)
+    .sort((a, b) => a.depth - b.depth);
   const listed = chart.find((entry) => entry.depth === 1) ?? null;
   const backup = chart.find((entry) => entry.depth === 2) ?? null;
   const injured = input.injuries.filter(
