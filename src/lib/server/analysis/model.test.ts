@@ -533,6 +533,63 @@ describe("what the report page receives", () => {
   });
 });
 
+describe("live pricing starts from the offer's own market", () => {
+  const totalOffer = (opposing: boolean, line = 44): Offer =>
+    parseOffer({
+      gameId: "next",
+      sportsbook: "Book",
+      market: "total",
+      selection: "over",
+      pointLine: line,
+      americanOdds: -110,
+      observedAt: "2024-12-07T11:00:00.000Z",
+      kickoffAt: game.kickoff,
+      rules: { period: "full-game", overtime: "included" },
+      ...(opposing
+        ? {
+            opposing: {
+              sportsbook: "Book",
+              pointLine: line,
+              americanOdds: -110,
+              observedAt: "2024-12-07T11:00:00.000Z",
+            },
+          }
+        : {}),
+    });
+
+  it("prices an over at the market's own total near even when the model adds nothing", async () => {
+    const { checksum: _checksum, ...body } = artifact;
+    const coefficients = Object.fromEntries(
+      Object.keys(artifact.total.model.coefficients).map((name) => [name, 0]),
+    ) as ModelArtifact["total"]["model"]["coefficients"];
+    const neutral = withChecksum({
+      ...body,
+      total: { ...body.total, model: { ...body.total.model, intercept: 0, coefficients } },
+    });
+    const model = createArtifactModel({
+      artifactPath: saved("neutral.json", neutral),
+      schedulePath,
+    });
+    for (const line of [44, 54]) {
+      const result = await model(game, CUTOFF, totalOffer(true, line));
+      if (result.status !== "computed") throw new Error(result.reason);
+      expect(result.probabilities.win).toBeGreaterThan(0.4);
+      expect(result.probabilities.win).toBeLessThan(0.6);
+    }
+  });
+
+  it("gives no price without both sides from one sportsbook", async () => {
+    const result = await createArtifactModel({
+      artifactPath: saved("anchored.json", artifact),
+      schedulePath,
+    })(game, CUTOFF, totalOffer(false));
+    expect(result).toMatchObject({
+      status: "unavailable",
+      reason: expect.stringMatching(/both sides/),
+    });
+  });
+});
+
 describe("quarterback injuries in the starter choice", () => {
   const item = (facts: Record<string, string | null>, publishedAt = "unknown") => ({
     id: "i",

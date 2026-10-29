@@ -183,6 +183,29 @@ The moneyline and spread gaps to the close shrank by about 90%. The spread inter
 
 The group choices in the version 6 ablation were made with the reversed anchor. They should be rechecked on fresh prospective games, not on this holdout again. The reversed artifact is kept as `baseline.v6-flipped-anchor.json`.
 
+## Key numbers from final margins
+
+Since version 5 the margin targets are distances from the close, and key-number weights and base rates were counted from those distances. A distance of 0 is common, so the weight it earned was applied to a final margin of 0, and a tie came out near 4.5% against 0.38% in real games since 2016 (11 of 2,868). Weights at 3 and 7 learned nothing about real margins. Weights and base rates now come from the final margins themselves.
+
+Same cutoff (2023-10-22) and the same 862 holdout games, with the schedule refreshed through 2026 week 7:
+
+| Market    | Before log loss | After log loss | Close, after | Model minus close (90% interval), after |
+| --------- | --------------- | -------------- | ------------ | --------------------------------------- |
+| Moneyline | 0.6636          | 0.6334         | 0.6272       | -0.0007 to +0.0135                      |
+| Spread    | 0.7724          | 0.7627         | 0.7610       | -0.0054 to +0.0090                      |
+
+Most of the drop is pushes and ties priced realistically. The no-vig close borrows the model's push probability, so it improves too. The gap to the close is about the same on moneyline and smaller on spread. It is better calibration, not an edge. `data/artifacts/baseline.json` is the default refit on this code, checksum `c6de83756e85`, with training through 2023-10-22.
+
+## Live forecasts match training
+
+A live board priced each side differently from how the model was trained and scored:
+
+- History came from the schedule alone, so every play-by-play efficiency rate read 0. Success rates near 0.45 in training became 0 live, which moved single features by up to 30 points.
+- The side and grade came from an unanchored prediction that ignored starters. Since version 5 the model only learns distances from the line, so an unanchored total centered near 0 points and priced every over at 0%.
+- A full season of depth-chart snapshots overflowed the call stack when read.
+
+Now one function prices every offer: history joined to play-by-play, decision-time starters with the injury report, and the anchor sportsbook's two sides. A shopped price changes what a side pays, not where the forecast starts. The board picks each side from its frozen forecast. Season play-by-play summaries are cached beside each file, so a joined history read takes about 4 seconds instead of 150. A single offer without its other side has no forecast.
+
 ## Release gate
 
 `releaseDecision` (`src/lib/server/models/release.ts`) compares each market with the `market-no-vig` baseline on the artifact's historical holdout. A clean comparison still needs:

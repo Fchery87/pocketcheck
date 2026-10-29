@@ -114,14 +114,14 @@ test("offer, report, refresh, and unchanged prior report", async ({ page, reques
   // Gaps come from evidence collection, not from the drafter.
   await expect(page.getByTestId("evidence-gaps")).toContainText("Weather collection is off");
   await expect(page.getByTestId("evidence-gaps")).toContainText("no publication time");
-  // The fixture forecasting model computes, but an unreleased market's numbers stay hidden.
-  await expect(page.getByTestId("probability-model")).toContainText("Artifact 69aed22c0fde");
+  // One side's price cannot anchor the forecasting model, so it prices nothing.
   await expect(page.getByTestId("probability-model")).toContainText(
-    "Unreleased artifacts are not eligible for a value recommendation.",
+    "needs both sides of this market from one sportsbook",
   );
   await expect(page.getByTestId("model-probabilities")).toHaveCount(0);
-  await expect(page.getByTestId("forecast-provenance")).toContainText("No forecast was frozen");
-  await expect(page.getByTestId("forecast-provenance")).toContainText("no opposing price");
+  await expect(page.getByTestId("probability-model")).toContainText(
+    "Enter both sides on a game board",
+  );
   // Injury rows from the cached file and the user's own evidence are both in the run.
   await expect(page.getByTestId("all-evidence")).toContainText("Saquon Barkley");
   await expect(page.getByTestId("all-evidence")).toContainText(

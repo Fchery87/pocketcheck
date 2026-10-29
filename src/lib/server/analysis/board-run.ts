@@ -18,6 +18,7 @@ import { gameHasStarted } from "./games.ts";
 import { gatherEvidence } from "./gather-evidence.ts";
 import { noModel, type ModelSource, type RunModel } from "./model.ts";
 import { calculateModelPick } from "./model-pick.ts";
+import type { AnchorQuote } from "../models/anchor.ts";
 import { redactText } from "./redact.ts";
 import {
   combineProviderUsage,
@@ -73,9 +74,10 @@ async function price(
   game: ScheduledGame,
   nowIso: string,
   offer: Offer,
+  anchor: AnchorQuote | undefined,
 ): Promise<RunModel> {
   try {
-    return await model(game, nowIso, offer);
+    return await model(game, nowIso, offer, anchor);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {
@@ -83,6 +85,24 @@ async function price(
       reason: `The forecasting model could not price this market: ${redactText(message)}`,
     };
   }
+}
+
+/**
+ * The anchor sportsbook's own two sides. A shopped price changes what a side pays, never where the
+ * forecast starts, and every board offer names the anchor book's other side as its opposing price.
+ */
+function anchorOf([first, second]: [Offer, Offer]): AnchorQuote | undefined {
+  const homeQuote = second.opposing;
+  const awayQuote = first.opposing;
+  if (!homeQuote || !awayQuote || homeQuote.sportsbook !== awayQuote.sportsbook) return undefined;
+  return {
+    sportsbook: homeQuote.sportsbook,
+    homeAmerican: homeQuote.americanOdds,
+    awayAmerican: awayQuote.americanOdds,
+    ...(homeQuote.pointLine === null || homeQuote.pointLine === undefined
+      ? {}
+      : { line: homeQuote.pointLine }),
+  };
 }
 
 /** A forecast trained through this game, or after the cutoff, is leaked and never a model pick. */
@@ -108,7 +128,10 @@ async function pickMarket(input: {
   evidence: EvidenceItem[];
 }): Promise<FrozenMarketResult> {
   const { market, offers, game, nowIso } = input;
-  const priced = await Promise.all(offers.map((offer) => price(input.model, game, nowIso, offer)));
+  const anchor = anchorOf(offers);
+  const priced = await Promise.all(
+    offers.map((offer) => price(input.model, game, nowIso, offer, anchor)),
+  );
   const [first, second] = priced;
   if (first!.status !== "computed") return { market, noPickReason: first!.reason };
   if (second!.status !== "computed") return { market, noPickReason: second!.reason };
@@ -120,29 +143,38 @@ async function pickMarket(input: {
   }
   const leaked = leakReason(first, game, nowIso);
   if (leaked) return { market, noPickReason: leaked };
-  const conservative = (model: Computed) =>
-    model.uncertainty.available ? model.uncertainty.probabilities : null;
+  // Each side is priced by its frozen forecast when one is configured, so the side is chosen with
+  // the same starters, injuries, and anchor that are recorded with the pick.
+  const forecasts = input.forecast
+    ? await Promise.all(
+        offers.map((offer, index) =>
+          input.forecast!(game, nowIso, offer, priced[index]!, input.evidence, anchor),
+        ),
+      )
+    : null;
+  if (forecasts && (forecasts[0] === null || forecasts[1] === null)) {
+    return {
+      market,
+      noPickReason: "The forecasting model could not freeze a forecast for both sides.",
+    };
+  }
+  const pricing = (index: number, model: Computed) => {
+    const frozen = forecasts?.[index];
+    const source = frozen ?? model;
+    return {
+      offer: offers[index]!,
+      probabilities: source.probabilities,
+      conservative: source.uncertainty.available ? source.uncertainty.probabilities : null,
+    };
+  };
   const graded = calculateModelPick({
     market,
-    sides: [
-      {
-        offer: offers[0],
-        probabilities: first.probabilities,
-        conservative: conservative(first),
-      },
-      {
-        offer: offers[1],
-        probabilities: second.probabilities,
-        conservative: conservative(second),
-      },
-    ],
+    sides: [pricing(0, first), pricing(1, second)],
     released: first.eligible && second.eligible,
     materialEvidenceMissing: input.materialEvidenceMissing,
   });
   const pickedIndex = offers[0].selection === graded.pickedSelection ? 0 : 1;
-  const forecast = input.forecast
-    ? await input.forecast(game, nowIso, offers[pickedIndex], priced[pickedIndex]!, input.evidence)
-    : null;
+  const forecast = forecasts?.[pickedIndex] ?? null;
   const recorded = forecast?.starters;
   const starterUnknown =
     recorded !== undefined &&

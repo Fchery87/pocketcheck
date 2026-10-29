@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { parseCsv } from "./nflverse.ts";
 
 /**
@@ -164,6 +164,12 @@ export function teamSummariesFromSeasonFiles(
       gaps.push(`Play-by-play for ${file.season} is missing.`);
       continue;
     }
+    const cached = cachedSummaries(file.path);
+    if (cached) {
+      for (const summary of cached.summaries) summaries.push(summary);
+      for (const quarterback of cached.quarterbacks) quarterbacks.push(quarterback);
+      continue;
+    }
     let text = "";
     try {
       text = readFileSync(file.path, "utf8");
@@ -176,10 +182,55 @@ export function teamSummariesFromSeasonFiles(
       gaps.push(...read.gaps.map((gap) => `${file.season}: ${gap}`));
       continue;
     }
-    summaries.push(...read.summaries);
-    quarterbacks.push(...read.quarterbacks);
+    saveSummaries(file.path, read);
+    for (const summary of read.summaries) summaries.push(summary);
+    for (const quarterback of read.quarterbacks) quarterbacks.push(quarterback);
   }
   return { summaries, quarterbacks, gaps };
+}
+
+type SummaryCache = {
+  version: 1;
+  sourceSize: number;
+  sourceModifiedMs: number;
+  summaries: TeamGameSummary[];
+  quarterbacks: QuarterbackGameSummary[];
+};
+
+// Parsing a season file takes several seconds, so its summary is kept beside it and reused until
+// the file changes. A stale or unreadable cache is ignored and rebuilt.
+const cachePath = (path: string) => `${path}.summary.json`;
+
+function cachedSummaries(path: string): SummaryCache | null {
+  try {
+    const source = statSync(path);
+    const cache = JSON.parse(readFileSync(cachePath(path), "utf8")) as SummaryCache;
+    const current =
+      cache.version === 1 &&
+      cache.sourceSize === source.size &&
+      cache.sourceModifiedMs === source.mtimeMs &&
+      Array.isArray(cache.summaries) &&
+      Array.isArray(cache.quarterbacks);
+    return current ? cache : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveSummaries(path: string, read: PlayByPlayRead): void {
+  try {
+    const source = statSync(path);
+    const cache: SummaryCache = {
+      version: 1,
+      sourceSize: source.size,
+      sourceModifiedMs: source.mtimeMs,
+      summaries: read.summaries,
+      quarterbacks: read.quarterbacks,
+    };
+    writeFileSync(cachePath(path), JSON.stringify(cache));
+  } catch {
+    // A cache that cannot be written only costs the next read its speed.
+  }
 }
 
 type Play = {
