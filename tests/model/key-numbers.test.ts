@@ -10,7 +10,7 @@ import { predictGame } from "../../src/lib/server/models/predict.ts";
 import { fitArtifact } from "../../src/lib/server/models/train.ts";
 
 /** Scores built from touchdowns and field goals, with ties settled by a field goal. */
-function footballLeague(count: number): PricedGame[] {
+function footballLeague(count: number, homeLine = 0): PricedGame[] {
   let seed = 11;
   const next = () => {
     seed = (seed * 1103515245 + 12345) % 2147483648;
@@ -31,7 +31,7 @@ function footballLeague(count: number): PricedGame[] {
       homeScore,
       awayScore,
       prices: {
-        spread: { line: 0, home: { american: -110 }, away: { american: -110 } },
+        spread: { line: homeLine, home: { american: -110 }, away: { american: -110 } },
         total: {
           line: 44,
           over: { american: -110 },
@@ -102,5 +102,15 @@ describe("fitted margins", { timeout: 60_000 }, () => {
     expect(at(3)).toBeGreaterThan(at(2));
     expect(at(3)).toBeGreaterThan(at(5));
     expect(artifact.total.residuals.keyWeights).toEqual([]);
+  });
+
+  it("learns ties from final margins, not from distances to the line", () => {
+    const games = footballLeague(1200, -7);
+    const artifact = fitArtifact(games, games[999]!.kickoff);
+    const row = buildFeatureRows(games, artifact.featureParameters).at(-1)!;
+    const bins = predictGame(artifact, row, { marginMean: 7 }).marginBins;
+    const tie = bins.find((bin) => bin.points === 0)?.probability ?? 0;
+    expect(tie).toBeLessThan(0.01);
+    expect(artifact.baseRates.moneyline.push).toBe(0);
   });
 });

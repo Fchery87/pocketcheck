@@ -1,5 +1,8 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vite-plus/test";
-import { depthChartFromCsv } from "../../src/lib/server/sources/roster.ts";
+import { depthChartFromCsv, readSeasonFiles } from "../../src/lib/server/sources/roster.ts";
 
 const CURRENT = [
   "dt,team,player_name,espn_id,gsis_id,pos_grp_id,pos_grp,pos_id,pos_name,pos_abb,pos_slot,pos_rank",
@@ -35,5 +38,13 @@ describe("depth chart parser", () => {
   it("reports an empty or unusable file as a gap", () => {
     expect(depthChartFromCsv("").gaps[0]).toMatch(/empty/);
     expect(depthChartFromCsv("a,b\n1,2").gaps[0]).toMatch(/no usable rows/);
+  });
+
+  it("reads a full season file of daily snapshots", { timeout: 30_000 }, () => {
+    const [header, row] = CURRENT.split("\n");
+    const path = join(mkdtempSync(join(tmpdir(), "pocketcheck-roster-")), "depth.csv");
+    writeFileSync(path, [header, ...Array.from({ length: 300_000 }, () => row)].join("\n"));
+    const read = readSeasonFiles([{ season: 2025, path }], depthChartFromCsv, "Depth chart");
+    expect(read.rows).toHaveLength(300_000);
   });
 });

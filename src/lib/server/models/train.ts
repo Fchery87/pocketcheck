@@ -58,7 +58,7 @@ function calibrationSamples(
   byId: ReadonlyMap<string, PricedGame>,
   margins: readonly WalkForwardPrediction[],
   totals: readonly WalkForwardPrediction[],
-  marginTargets: readonly number[],
+  finalMargins: readonly number[],
 ): CalibrationSample[] {
   const samples: CalibrationSample[] = [];
   const distributions = new Map<
@@ -89,7 +89,7 @@ function calibrationSamples(
           DEFAULT_FIT.residualBandwidth,
           undefined,
           keyNumberWeights(
-            marginTargets
+            finalMargins
               .slice(0, blockStart)
               .filter((_, index) => resultAvailableMs(train[index]!) < cutoff),
           ),
@@ -238,8 +238,11 @@ export function fitArtifact(
   }
   const preliminary = fitResidualDistribution(first.marginTargets, DEFAULT_FIT.residualBandwidth);
   const { marginRows, marginTargets, totalRows, totalTargets, excluded } = anchored(preliminary);
-  const homeWins = marginTargets.filter((margin) => margin > 0).length;
-  const ties = marginTargets.filter((margin) => margin === 0).length;
+  // Targets are distances from the close. Ties, home wins, and key numbers are about the final
+  // margin itself, so they are counted from it.
+  const margins = marginRows.map((row) => marginHome(byId.get(row.gameId)!));
+  const homeWins = margins.filter((margin) => margin > 0).length;
+  const ties = margins.filter((margin) => margin === 0).length;
   const marginModel = fitRidge(marginRows, marginTargets, DEFAULT_FIT.ridge);
   const totalModel = fitRidge(totalRows, totalTargets, DEFAULT_FIT.ridge);
   const marginPredictions =
@@ -270,7 +273,7 @@ export function fitArtifact(
     ? totalPredictions.map((entry) => entry.residual)
     : inSample(totalRows, totalTargets, totalModel);
   const uncertainty = fitUncertainty(
-    calibrationSamples(train, byId, marginPredictions, totalPredictions, marginTargets),
+    calibrationSamples(train, byId, marginPredictions, totalPredictions, margins),
   );
   return withChecksum({
     kind: "pocketcheck-baseline",
@@ -300,9 +303,9 @@ export function fitArtifact(
     fitParameters: DEFAULT_FIT,
     baseRates: {
       moneyline: {
-        win: homeWins / train.length,
-        loss: (train.length - homeWins - ties) / train.length,
-        push: ties / train.length,
+        win: homeWins / margins.length,
+        loss: (margins.length - homeWins - ties) / margins.length,
+        push: ties / margins.length,
       },
     },
     uncertainty,
@@ -313,7 +316,7 @@ export function fitArtifact(
         marginResiduals,
         DEFAULT_FIT.residualBandwidth,
         undefined,
-        keyNumberWeights(marginTargets),
+        keyNumberWeights(margins),
       ),
     },
     total: {

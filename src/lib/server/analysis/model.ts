@@ -1,10 +1,10 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { OutcomeProbabilities } from "#lib/domain/odds.ts";
 import type { Offer } from "#lib/domain/offer.ts";
 import { valueEligibility, type ModelArtifact } from "../models/artifact.ts";
 import { PROSPECTIVE_PROTOCOL } from "../models/release.ts";
 import { parseArtifact } from "../models/inputs.ts";
-import { featureRowForGame } from "../models/features.ts";
 import {
   freezeProspectiveForecast,
   INPUT_AVAILABILITY,
@@ -17,14 +17,14 @@ import {
   starterDecision,
   type InjuryDesignation,
 } from "../models/starter.ts";
-import { depthChartFromCsv, readSeasonFiles } from "../sources/roster.ts";
-import type { Market } from "../models/games.ts";
-import { pricedGamesFromNflverseCsv, upcomingGameFromCsv } from "../models/history.ts";
-import { offerProbabilities } from "../models/offer-probability.ts";
-import { predictGame } from "../models/predict.ts";
+import { depthChartFromCsv, readSeasonFiles, type DepthChartEntry } from "../sources/roster.ts";
+import type { Market, PricedGame } from "../models/games.ts";
+import { upcomingGameFromCsv } from "../models/history.ts";
+import { readGames } from "../models/train.ts";
+import type { AnchorQuote } from "../models/anchor.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
 import type { ScheduledGame } from "../sources/contracts.ts";
-import { conservativeProbabilities, type UncertaintyAssessment } from "../models/uncertainty.ts";
+import type { UncertaintyAssessment } from "../models/uncertainty.ts";
 import { POLICY_VERSION } from "./policy.ts";
 import type { SavedForecast } from "./forecast-record.ts";
 import type { ForecastSource } from "./run.ts";
@@ -56,6 +56,8 @@ export type ModelSource = (
   game: ScheduledGame,
   cutoffIso: string,
   offer: Offer,
+  /** The anchor sportsbook's two sides, when the offer's price was shopped from another book. */
+  anchor?: AnchorQuote,
 ) => Promise<RunModel>;
 
 export const noModel: ModelSource = async () => ({
@@ -71,8 +73,10 @@ function unavailable(reason: string): RunModel {
 export function createArtifactModel(input: {
   artifactPath: string;
   schedulePath: string;
+  /** Where npm run data:depth-charts keeps a season's file. Without it starters come from history. */
+  depthChartPath?: (season: number) => string;
 }): ModelSource {
-  return async (game, cutoffIso, offer) => {
+  return async (game, cutoffIso, offer, anchor) => {
     if (!existsSync(input.artifactPath)) {
       return unavailable(`No model artifact at ${input.artifactPath}. Run npm run model:fit.`);
     }
@@ -97,25 +101,9 @@ export function createArtifactModel(input: {
     if (!existsSync(input.schedulePath)) {
       return unavailable(`No schedule at ${input.schedulePath}. Run npm run data:schedule.`);
     }
-    const csv = readFileSync(input.schedulePath, "utf8");
-    const cutoff = Date.parse(cutoffIso);
-    const history = pricedGamesFromNflverseCsv(csv).filter(
-      (past) => Date.parse(past.kickoff) < cutoff,
-    );
-    const upcoming = upcomingGameFromCsv(csv, game.id) ?? {
-      id: game.id,
-      season: game.season,
-      kickoff: game.kickoff,
-      home: game.home,
-      away: game.away,
-    };
-    const row = featureRowForGame(history, upcoming, artifact.featureParameters, cutoffIso);
-    const probabilities = offerProbabilities(predictGame(artifact, row), offer);
-    const uncertainty = conservativeProbabilities(
-      artifact.uncertainty,
-      offer.market,
-      probabilities,
-    );
+    const forecast = forecastOffer(input, artifact, game, cutoffIso, offer, undefined, anchor);
+    if (typeof forecast === "string") return unavailable(forecast);
+    const { probabilities, uncertainty } = forecast;
     const eligibility = valueEligibility(artifact, offer.market);
     const protocolReason = eligibility.eligible
       ? `${PROSPECTIVE_PROTOCOL.id} released this market. Release eligibility is not a profitability claim.`
@@ -185,65 +173,103 @@ function weatherSnapshot(
   };
 }
 
+type ScheduleHistory = { key: string; csv: string; games: PricedGame[] };
+let cachedHistory: ScheduleHistory | null = null;
+
 /**
- * Freezes the forecast beside the model result. Archived starters without decision-time
- * evidence stay unknown. Returns null when the model did not compute a forecast.
+ * Finished games with the play-by-play efficiency the model was trained on. Without it every
+ * efficiency feature reads zero, far outside anything the model saw. Reused until the schedule or
+ * a play-by-play file changes.
  */
-export function createArtifactForecast(input: {
-  artifactPath: string;
-  schedulePath: string;
-  /** Where npm run data:depth-charts keeps a season's file. Without it every starter is unknown. */
-  depthChartPath?: (season: number) => string;
-}): ForecastSource {
-  return async (game, cutoffIso, offer, model, evidence) => {
-    if (model.status !== "computed") return null;
-    if (!existsSync(input.artifactPath) || !existsSync(input.schedulePath)) return null;
-    let artifact: ModelArtifact;
-    try {
-      artifact = parseArtifact(JSON.parse(readFileSync(input.artifactPath, "utf8")) as unknown);
-    } catch {
-      return null;
-    }
-    if (artifact.checksum !== model.artifact.checksum) return null;
-    const csv = readFileSync(input.schedulePath, "utf8");
-    const cutoff = Date.parse(cutoffIso);
-    const history = pricedGamesFromNflverseCsv(csv).filter(
-      (past) => Date.parse(past.kickoff) < cutoff,
+function scheduleHistory(schedulePath: string): ScheduleHistory {
+  const directory = dirname(schedulePath);
+  const files = [
+    schedulePath,
+    ...readdirSync(directory)
+      .filter((name) => /^play_by_play_\d{4}\.csv$/.test(name))
+      .sort()
+      .map((name) => join(directory, name)),
+  ];
+  const key = files.map((file) => `${file}:${statSync(file).mtimeMs}`).join("|");
+  if (cachedHistory?.key !== key) {
+    cachedHistory = {
+      key,
+      csv: readFileSync(schedulePath, "utf8"),
+      games: readGames(schedulePath),
+    };
+  }
+  return cachedHistory;
+}
+
+const depthChartCache = new Map<string, { key: string; rows: DepthChartEntry[] }>();
+
+/** A season's quarterback depth chart, reused until its file changes. */
+function seasonDepthChart(season: number, path: string): DepthChartEntry[] {
+  const key = existsSync(path) ? `${statSync(path).mtimeMs}` : "missing";
+  const cached = depthChartCache.get(path);
+  if (cached?.key === key) return cached.rows;
+  const rows = readSeasonFiles([{ season, path }], depthChartFromCsv, "Depth chart").rows.filter(
+    (entry) => entry.position === "QB",
+  );
+  depthChartCache.set(path, { key, rows });
+  return rows;
+}
+
+/** The offer and its opposing side as one sportsbook's two-sided quote, when they share a book. */
+function sameBookQuote(offer: Offer): AnchorQuote | null {
+  if (!offer.opposing || offer.opposing.sportsbook !== offer.sportsbook) return null;
+  const homeSide = offer.selection === "home" || offer.selection === "over";
+  return {
+    sportsbook: offer.sportsbook,
+    homeAmerican: homeSide ? offer.americanOdds : offer.opposing.americanOdds,
+    awayAmerican: homeSide ? offer.opposing.americanOdds : offer.americanOdds,
+    ...(offer.pointLine === null
+      ? {}
+      : { line: offer.market === "spread" && !homeSide ? -offer.pointLine : offer.pointLine }),
+  };
+}
+
+/**
+ * The one way an offer is priced: play-by-play history, decision-time starters, and the offer's
+ * own two-sided quote as the anchor. Returns the reason when there is no forecast.
+ */
+function forecastOffer(
+  input: { schedulePath: string; depthChartPath?: (season: number) => string },
+  artifact: ModelArtifact,
+  game: ScheduledGame,
+  cutoffIso: string,
+  offer: Offer,
+  evidence: EvidenceItem[] | undefined,
+  anchor: AnchorQuote | undefined,
+): SavedForecast | string {
+  const anchorQuote = anchor ?? sameBookQuote(offer);
+  if (!anchorQuote) {
+    return "The forecasting model needs both sides of this market from one sportsbook to anchor its forecast. Enter both sides on a game board.";
+  }
+  const { csv, games } = scheduleHistory(input.schedulePath);
+  const cutoff = Date.parse(cutoffIso);
+  const history = games.filter((past) => Date.parse(past.kickoff) < cutoff);
+  const upcoming = upcomingGameFromCsv(csv, game.id);
+  const depthCharts = input.depthChartPath
+    ? seasonDepthChart(game.season, input.depthChartPath(game.season))
+    : [];
+  const starterFor = (team: string): StarterAssumption => {
+    const usual = recentStarter(history, team, cutoffIso);
+    return starterAssumption(
+      starterDecision({
+        team,
+        season: game.season,
+        cutoff: cutoffIso,
+        usualStarter: usual?.playerId ?? null,
+        depthChart: depthCharts,
+        injuries: quarterbackInjuries(evidence),
+      }),
+      usual?.at ?? null,
     );
-    const upcoming = upcomingGameFromCsv(csv, game.id);
-    if (!offer.opposing || offer.opposing.sportsbook !== offer.sportsbook) return null;
-    const homeSide = offer.selection === "home" || offer.selection === "over";
-    const anchorQuote = {
-      homeAmerican: homeSide ? offer.americanOdds : offer.opposing.americanOdds,
-      awayAmerican: homeSide ? offer.opposing.americanOdds : offer.americanOdds,
-      ...(offer.pointLine === null
-        ? {}
-        : {
-            line: offer.market === "spread" && !homeSide ? -offer.pointLine : offer.pointLine,
-          }),
-    };
-    const depthCharts = input.depthChartPath
-      ? readSeasonFiles(
-          [{ season: game.season, path: input.depthChartPath(game.season) }],
-          depthChartFromCsv,
-          "Depth chart",
-        ).rows
-      : [];
-    const starterFor = (team: string): StarterAssumption => {
-      const usual = recentStarter(history, team, cutoffIso);
-      return starterAssumption(
-        starterDecision({
-          team,
-          season: game.season,
-          cutoff: cutoffIso,
-          usualStarter: usual?.playerId ?? null,
-          depthChart: depthCharts,
-          injuries: quarterbackInjuries(evidence),
-        }),
-        usual?.at ?? null,
-      );
-    };
-    const frozen = freezeProspectiveForecast({
+  };
+  let frozen: ReturnType<typeof freezeProspectiveForecast>;
+  try {
+    frozen = freezeProspectiveForecast({
       artifact,
       history,
       game: {
@@ -261,22 +287,49 @@ export function createArtifactForecast(input: {
       policyVersion: POLICY_VERSION,
       weather: weatherSnapshot(game, evidence),
     });
-    const saved: SavedForecast = {
-      version: 1,
-      provenance: "captured",
-      decisionCutoff: frozen.decisionCutoff,
-      inputAvailability: INPUT_AVAILABILITY,
-      artifact: frozen.artifact,
-      features: frozen.features,
-      starters: frozen.starters,
-      marketEligibility: frozen.marketEligibility,
-      probabilities: frozen.probabilities,
-      uncertainty: frozen.uncertainty,
-      policyVersion: frozen.policyVersion,
-      ...(frozen.drivers ? { drivers: frozen.drivers } : {}),
-      ...(frozen.weather ? { weather: frozen.weather } : {}),
-    };
-    return saved;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  const saved: SavedForecast = {
+    version: 1,
+    provenance: "captured",
+    decisionCutoff: frozen.decisionCutoff,
+    inputAvailability: INPUT_AVAILABILITY,
+    artifact: frozen.artifact,
+    features: frozen.features,
+    starters: frozen.starters,
+    marketEligibility: frozen.marketEligibility,
+    probabilities: frozen.probabilities,
+    uncertainty: frozen.uncertainty,
+    policyVersion: frozen.policyVersion,
+    ...(frozen.drivers ? { drivers: frozen.drivers } : {}),
+    ...(frozen.weather ? { weather: frozen.weather } : {}),
+  };
+  return saved;
+}
+
+/**
+ * Freezes the forecast beside the model result. Archived starters without decision-time
+ * evidence stay unknown. Returns null when the model did not compute a forecast.
+ */
+export function createArtifactForecast(input: {
+  artifactPath: string;
+  schedulePath: string;
+  /** Where npm run data:depth-charts keeps a season's file. Without it every starter is unknown. */
+  depthChartPath?: (season: number) => string;
+}): ForecastSource {
+  return async (game, cutoffIso, offer, model, evidence, anchor) => {
+    if (model.status !== "computed") return null;
+    if (!existsSync(input.artifactPath) || !existsSync(input.schedulePath)) return null;
+    let artifact: ModelArtifact;
+    try {
+      artifact = parseArtifact(JSON.parse(readFileSync(input.artifactPath, "utf8")) as unknown);
+    } catch {
+      return null;
+    }
+    if (artifact.checksum !== model.artifact.checksum) return null;
+    const forecast = forecastOffer(input, artifact, game, cutoffIso, offer, evidence, anchor);
+    return typeof forecast === "string" ? null : forecast;
   };
 }
 

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import type { AnchorQuote } from "../models/anchor.ts";
 import type { ManualEvidenceInput } from "./attempt.ts";
 import { americanToDecimal, breakEven } from "#lib/domain/odds.ts";
 import {
@@ -70,6 +71,7 @@ export type ForecastSource = (
   offer: Offer,
   model: RunModel,
   evidence?: EvidenceItem[],
+  anchor?: AnchorQuote,
 ) => Promise<SavedForecast | null>;
 
 export type AnalysisDependencies = {

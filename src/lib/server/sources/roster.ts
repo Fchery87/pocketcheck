@@ -140,7 +140,8 @@ export function readSeasonFiles<T>(
       gaps.push(...read.gaps.map((gap) => `${file.season}: ${gap}`));
       continue;
     }
-    rows.push(...read.rows);
+    // Spreading a season of rows into push overflows the call stack.
+    for (const row of read.rows) rows.push(row);
   }
   return { rows, gaps };
 }

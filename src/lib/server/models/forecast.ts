@@ -74,8 +74,11 @@ export type ForecastInputs = {
   cutoff: string;
   offer: Offer;
   policyVersion: string;
-  /** Both sides from one sportsbook. Without it the market has no forecast. */
-  anchorQuote?: { homeAmerican: number; awayAmerican: number; line?: number };
+  /**
+   * Both sides from one sportsbook, which may differ from the offer's when the price was shopped.
+   * Without it the market has no forecast.
+   */
+  anchorQuote?: { sportsbook?: string; homeAmerican: number; awayAmerican: number; line?: number };
   /** The kickoff forecast already collected. Omitted means no weather was considered. */
   weather?: WeatherSnapshot | null;
 };
@@ -182,7 +185,7 @@ export function freezeProspectiveForecast(input: ForecastInputs): ProspectiveFor
   }
   const anchor = anchorFromQuote(
     input.offer.market,
-    { ...input.anchorQuote, sportsbook: input.offer.sportsbook },
+    { sportsbook: input.offer.sportsbook, ...input.anchorQuote },
     input.artifact.margin.residuals,
   );
   const unanchored = predictGame(input.artifact, row);

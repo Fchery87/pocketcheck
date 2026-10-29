@@ -85,6 +85,7 @@ export function modelSource(): ModelSource {
   return createArtifactModel({
     artifactPath: resolve(POCKETCHECK_MODEL_ARTIFACT || "data/artifacts/baseline.json"),
     schedulePath: schedulePath(),
+    depthChartPath: (season) => resolve(`data/sources/depth_charts_${season}.csv`),
   });
 }
 

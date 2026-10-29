@@ -25,6 +25,7 @@ function frozenForecast(win: number, loss: number): SavedForecast {
     decisionCutoff: NOW,
     artifact: { checksum: "f".repeat(64), version: 4 },
     probabilities: { win, loss, push: 0 },
+    uncertainty: { available: false, reason: "Not part of this fixture." },
   } as unknown as SavedForecast;
 }
 
@@ -217,6 +218,8 @@ export function describeModelPickPerformanceContract(
       });
       expect(outcome.ok).toBe(true);
       const priced = model.offers.length;
+      // Both sides are forecast so the pick is chosen from the frozen numbers.
+      expect(captured).toBe(2);
       const listed = await store.listModelPicks();
       const records = prospectiveForecastRecords(listed);
       expect(records).toEqual([
@@ -233,7 +236,7 @@ export function describeModelPickPerformanceContract(
       ]);
       // A later read reclassifies nothing and regenerates nothing.
       await store.listModelPicks();
-      expect(captured).toBe(1);
+      expect(captured).toBe(2);
       expect(model.offers.length).toBe(priced);
       expect(listed[0]!.pick.role).toMatchObject({ protocolId: "prospective-2026-10-26" });
     });
