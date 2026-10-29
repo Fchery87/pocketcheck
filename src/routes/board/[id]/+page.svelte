@@ -241,6 +241,16 @@
           {#if calculation.materialEvidenceMissing}
             <p class="pc-hint">Material evidence is missing, so this model pick cannot be graded strong.</p>
           {/if}
+          {#if pick.forecast}
+            <p class="pc-hint" data-testid="starter-state">
+              Starting quarterbacks:
+              {#each [["away", board.game.away], ["home", board.game.home]] as [side, code] (side)}
+                {@const starter = pick.forecast.starters[side as "home" | "away"]}
+                {code}
+                {starter.state}{starter.identity ? ` (${starter.identity}` : ""}{starter.source ? `, ${starter.source}` : ""}{starter.identity ? ")" : ""}{starter.reason ? `: ${starter.reason}` : ""}{side === "away" ? "; " : "."}
+              {/each}
+            </p>
+          {/if}
         </div>
         <p class="pc-hint" data-testid="forecasting-model">
           Side chosen by forecasting model {pick.forecastingModel.checksum.slice(0, 12)}, version

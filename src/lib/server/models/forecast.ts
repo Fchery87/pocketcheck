@@ -25,10 +25,16 @@ export const INPUT_AVAILABILITY = {
 
 export type StarterState = "known" | "assumed" | "unknown";
 
+export type StarterSource = "depth chart" | "injury report" | "recent starts";
+
 export type StarterAssumption = {
   state: StarterState;
   identity: string | null;
   evidenceAt: string | null;
+  /** What decided the starter. Records frozen before starter sources omit it. */
+  source?: StarterSource | null;
+  /** Why the starter is unknown, when a source conflict or a gap made it so. */
+  reason?: string | null;
 };
 
 export type ProspectiveGame = UpcomingGame & {
@@ -133,6 +139,9 @@ const UNKNOWN: StarterAssumption = {
 };
 
 function starterFor(recorded: StarterAssumption | undefined, cutoff: string): StarterAssumption {
+  if (recorded?.state === "unknown" && recorded.reason) {
+    return { ...UNKNOWN, reason: recorded.reason };
+  }
   if (!recorded || recorded.state === "unknown" || !recorded.identity || !recorded.evidenceAt) {
     return UNKNOWN;
   }
@@ -142,6 +151,7 @@ function starterFor(recorded: StarterAssumption | undefined, cutoff: string): St
     state: recorded.state,
     identity: recorded.identity,
     evidenceAt: recorded.evidenceAt,
+    ...(recorded.source ? { source: recorded.source } : {}),
   };
 }
 

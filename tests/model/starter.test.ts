@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
-import { starterDecision, type InjuryDesignation } from "../../src/lib/server/models/starter.ts";
+import {
+  recentStarter,
+  starterAssumption,
+  starterDecision,
+  type InjuryDesignation,
+} from "../../src/lib/server/models/starter.ts";
 import type { DepthChartEntry } from "../../src/lib/server/sources/roster.ts";
 
 const chart = (
@@ -91,5 +96,74 @@ describe("starter state", () => {
 
   it("is unknown with no history and no timestamped chart", () => {
     expect(decide({ usualStarter: null, depthChart: [] }).state).toBe("unknown");
+  });
+});
+
+describe("recent starter", () => {
+  const game = (day: number, home: string, away: string, homeQb?: string, awayQb?: string) => ({
+    kickoff: `2025-09-${String(day).padStart(2, "0")}T17:00:00Z`,
+    home,
+    away,
+    homeQb,
+    awayQb,
+  });
+
+  it("is the most frequent starter before the cutoff and the date of the latest start", () => {
+    const history = [
+      game(7, "PHI", "DAL", "hurts", "prescott"),
+      game(14, "NYG", "PHI", "jones", "backup"),
+      game(21, "PHI", "WAS", "hurts", "daniels"),
+      game(28, "PHI", "LAR", "hurts", "stafford"),
+    ];
+    expect(recentStarter(history, "PHI", "2025-09-27T00:00:00Z")).toEqual({
+      playerId: "hurts",
+      at: "2025-09-21T17:00:00Z",
+    });
+  });
+
+  it("ignores a game that kicked off at or after the cutoff and games with no recorded starter", () => {
+    expect(
+      recentStarter([game(28, "PHI", "LAR", "hurts")], "PHI", "2025-09-28T17:00:00Z"),
+    ).toBeNull();
+    expect(recentStarter([game(7, "PHI", "DAL")], "PHI", "2025-09-30T00:00:00Z")).toBeNull();
+  });
+});
+
+describe("starter assumption record", () => {
+  it("stamps a starter assumed from history with its latest start and keeps the source", () => {
+    const decision = starterDecision({
+      team: "PHI",
+      season: 2024,
+      week: 4,
+      cutoff: "2024-09-28T16:00:00Z",
+      usualStarter: "hurts",
+      depthChart: [],
+      injuries: [],
+    });
+    expect(starterAssumption(decision, "2024-09-22T17:00:00Z")).toEqual({
+      state: "assumed",
+      identity: "hurts",
+      evidenceAt: "2024-09-22T17:00:00Z",
+      source: "recent starts",
+    });
+  });
+
+  it("keeps the reason an unknown starter is unknown", () => {
+    const decision = starterDecision({
+      team: "PHI",
+      season: 2025,
+      week: 4,
+      cutoff: "2025-09-28T16:00:00Z",
+      usualStarter: null,
+      depthChart: [],
+      injuries: [],
+    });
+    expect(starterAssumption(decision, null)).toEqual({
+      state: "unknown",
+      identity: null,
+      evidenceAt: null,
+      source: null,
+      reason: "No starter is known.",
+    });
   });
 });

@@ -319,8 +319,16 @@ describe("the model a run uses", () => {
       artifactPath: path,
       schedulePath,
     })(game, CUTOFF, spreadOffer("home", -3), result);
-    expect(forecast?.starters.home.state).toBe("unknown");
-    expect(forecast?.starters.away.state).toBe("unknown");
+    // 2024 depth charts carry no timestamp, so each starter is the team's most frequent recent one.
+    for (const side of ["home", "away"] as const) {
+      expect(forecast?.starters[side]).toMatchObject({
+        state: "assumed",
+        source: "recent starts",
+        identity: expect.stringMatching(/-qb$/),
+        evidenceAt: expect.any(String),
+      });
+      expect(Date.parse(forecast!.starters[side].evidenceAt!)).toBeLessThan(Date.parse(CUTOFF));
+    }
     expect(forecast?.marketEligibility.eligible).toBe(false);
     expect(forecast?.artifact.checksum).toBe(artifact.checksum);
     // The frozen forecast records what moved the margin and the total, in points.
