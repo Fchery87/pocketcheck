@@ -16,11 +16,6 @@ import { releaseDecision } from "../../src/lib/server/models/release.ts";
 import { predictWithoutGroup } from "../../src/lib/server/models/predict.ts";
 import { readGames } from "../../src/lib/server/models/train.ts";
 
-// MODEL_SINCE_SEASON keeps schedule games from that season on, e.g. 2016 where play-by-play exists.
-const sinceSeason = process.env.MODEL_SINCE_SEASON
-  ? Number(process.env.MODEL_SINCE_SEASON)
-  : undefined;
-
 const artifactPath = resolve(process.argv[2] ?? "data/artifacts/baseline.json");
 const fixturePath = resolve(process.argv[3] ?? "tests/model/fixtures/synthetic-games.json");
 const output = resolve(process.argv[4] ?? "data/artifacts/baseline-evaluation.json");
@@ -32,7 +27,7 @@ try {
     throw new Error(`Previous artifact not found: ${previousPath}`);
   }
   const stored = parseArtifact(JSON.parse(readFileSync(artifactPath, "utf8")) as unknown);
-  const games = readGames(fixturePath, { since: sinceSeason });
+  const games = readGames(fixturePath);
   const rows = buildFeatureRows(games, stored.featureParameters).filter(
     (row) => kickoffMs(row) > kickoffMs({ kickoff: stored.trainingCutoff }),
   );
@@ -84,7 +79,7 @@ try {
   function previousArtifact(): ArtifactComparison | null {
     if (previousPath === undefined) return null;
     const previous = parseArtifact(JSON.parse(readFileSync(previousPath, "utf8")) as unknown);
-    const previousGames = readGames(previousGamesPath ?? fixturePath, { since: sinceSeason });
+    const previousGames = readGames(previousGamesPath ?? fixturePath);
     const previousRows = buildFeatureRows(previousGames, previous.featureParameters).filter(
       (row) => kickoffMs(row) > kickoffMs({ kickoff: stored.trainingCutoff }),
     );

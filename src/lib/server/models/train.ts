@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { teamSummariesFromSeasonFiles } from "../sources/play-by-play.ts";
 import { attachEfficiency } from "./efficiency-join.ts";
@@ -332,19 +332,27 @@ export function fitArtifact(
  * season files that sit beside it (play_by_play_<season>.csv) and keeps seasons from `since` on,
  * since earlier seasons have no plays to join. Seasons without a file stay without efficiency.
  */
-export function readGames(path: string, options: { since?: number } = {}): PricedGame[] {
+/**
+ * Priced games for fitting and for live forecasts alike. With play-by-play files beside a schedule
+ * CSV, history starts at the first season they cover, so every game has the efficiency inputs the
+ * model is fit on.
+ */
+export function readGames(path: string): PricedGame[] {
   const text = readFileSync(path, "utf8");
   if (path.endsWith(".csv")) {
-    const games = pricedGamesFromNflverseCsv(text).filter(
-      (game) => options.since === undefined || (game.season ?? 0) >= options.since,
+    const directory = dirname(path);
+    const files = readdirSync(directory)
+      .map((name) => /^play_by_play_(\d{4})\.csv$/.exec(name))
+      .filter((match) => match !== null)
+      .map((match) => ({ season: Number(match[1]), path: join(directory, match[0]) }))
+      .sort((a, b) => a.season - b.season);
+    const games = pricedGamesFromNflverseCsv(text);
+    if (files.length === 0) return games;
+    const first = files[0]!.season;
+    return attachEfficiency(
+      games.filter((game) => (game.season ?? 0) >= first),
+      teamSummariesFromSeasonFiles(files),
     );
-    const seasons = [...new Set(games.map((game) => game.season ?? 0))];
-    const files = seasons
-      .map((season) => ({ season, path: join(dirname(path), `play_by_play_${season}.csv`) }))
-      .filter((file) => existsSync(file.path));
-    return files.length === 0
-      ? games
-      : attachEfficiency(games, teamSummariesFromSeasonFiles(files));
   }
   const parsed = JSON.parse(text) as { games: PricedGame[] };
   if (!Array.isArray(parsed.games)) throw new Error("Fixture must contain a games array");

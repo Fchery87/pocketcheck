@@ -3,11 +3,6 @@ import { dirname, resolve } from "node:path";
 import { parseArtifact } from "../../src/lib/server/models/inputs.ts";
 import { assertUnreleased, fitArtifact, readGames } from "../../src/lib/server/models/train.ts";
 
-// MODEL_SINCE_SEASON keeps schedule games from that season on, e.g. 2016 where play-by-play exists.
-const sinceSeason = process.env.MODEL_SINCE_SEASON
-  ? Number(process.env.MODEL_SINCE_SEASON)
-  : undefined;
-
 // Fits the latest eligible data into a new unreleased artifact and writes it beside the artifact
 // in use. It never replaces the artifact in use unless --replace is given. Invalid inputs leave
 // every existing file untouched and exit non-zero.
@@ -20,7 +15,7 @@ const output = replace ? inUse : resolve(args[2] ?? "data/artifacts/baseline-nex
 
 try {
   if (!existsSync(gamesPath)) throw new Error(`Games not found: ${gamesPath}`);
-  const games = readGames(gamesPath, { since: sinceSeason });
+  const games = readGames(gamesPath);
   const artifact = fitArtifact(games);
   assertUnreleased(artifact);
   if (existsSync(inUse)) {
