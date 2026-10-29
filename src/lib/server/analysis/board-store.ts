@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { BoardQuoteResult } from "#lib/domain/board.ts";
 import type { Market, Offer } from "#lib/domain/offer.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
 import type { SavedForecast } from "./forecast-record.ts";
@@ -60,6 +61,8 @@ export type BoardMarket = {
   market: Market;
   /** Home (or over) first, then away (or under), each with the other as its opposing price. */
   offers: [Offer, Offer];
+  /** Extra sportsbook quotes. A quote on a different line is another contract, not a better price. */
+  quotes: BoardQuoteResult[];
   /** Null until the model picks are frozen, and null when the market has no model pick. */
   pick: ModelPick | null;
   /** Why this market has no model pick. Null while a pick exists or before computing. */
@@ -115,7 +118,7 @@ export type NewGameBoard = Pick<
   lean?: PrivateLean | null;
   /** Omitted means no drafter is named for this board. */
   drafter?: BoardDrafter | null;
-  markets: Array<Pick<BoardMarket, "market" | "offers">>;
+  markets: Array<Pick<BoardMarket, "market" | "offers"> & { quotes?: BoardQuoteResult[] }>;
 };
 
 export type BeginBoardResult =
@@ -315,6 +318,7 @@ export function createMemoryBoardStore(notices: StoredNotice[] = []): MemoryBoar
         status: "pending" as const,
         markets: input.markets.map((market) => ({
           ...market,
+          quotes: market.quotes ?? [],
           pick: null,
           noPickReason: null,
         })),

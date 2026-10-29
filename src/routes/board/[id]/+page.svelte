@@ -247,6 +247,24 @@
           {pick.forecastingModel.version}, trained on games through
           {easternTime(pick.forecastingModel.trainingCutoff)}.
         </p>
+        {#if pick.forecast?.weather}
+          {@const weather = pick.forecast.weather}
+          <p class="pc-hint" data-testid="weather-adjustment">
+            {#if weather.reason === "roof"}
+              Weather not applied: the roof is closed.
+            {:else if weather.reason === "missing"}
+              Weather not applied: no outdoor forecast was recorded. Missing is not zero wind.
+            {:else}
+              Weather recorded
+              {#if weather.snapshot}
+                (wind {weather.snapshot.windMph ?? "unknown"} mph, precipitation
+                {weather.snapshot.precipitationChance ?? "unknown"}%,
+                {weather.snapshot.temperatureF ?? "unknown"}F)
+              {/if}
+              and not applied: {weather.version}, no fitted adjustment yet.
+            {/if}
+          </p>
+        {/if}
         {@const explained = board.explanation?.picks.find((item) => item.market === market.market)}
         <div class="pc-explanation" data-testid="explanation-{market.market}">
           <p class="pc-kicker">Explanation written by the drafter, not the forecasting model</p>
@@ -306,6 +324,16 @@
         Entered: {sideName(market.offers[0].selection)}{lined(market.offers[0].pointLine)} {signed(market.offers[0].americanOdds)},
         {sideName(market.offers[1].selection)}{lined(market.offers[1].pointLine)} {signed(market.offers[1].americanOdds)}{#if market.offers[0].rules.tie}, tie rule {market.offers[0].rules.tie}{/if}.
       </p>
+      {#if market.quotes.length > 0}
+        <ul data-testid="board-quotes">
+          {#each market.quotes as quote}
+            <li>
+              {quote.sportsbook}: {sideName(quote.selection)}{lined(quote.pointLine)} {signed(quote.americanOdds)}
+              {#if quote.best}(best price){:else if !quote.sameLine}(different line, not compared){/if}
+            </li>
+          {/each}
+        </ul>
+      {/if}
     </section>
   {/each}
 

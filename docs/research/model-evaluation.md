@@ -101,6 +101,16 @@ The learned weight at 3 was about the same in every band (2.4 to 2.9). Within th
 
 The gap is in games the market lined at 3. The market knows those games are close, and the model's mean is less sharp. Closing it means a better mean, not different key weights. Using the offered line as an input would make a comparison against that same line circular.
 
+## Market-anchored forecasting model
+
+Version 5 starts every forecast from the anchor line and fits only the deviation from it. The anchor is one sportsbook's two sides: the no-vig home win probability mapped to an implied margin for a moneyline, the home line for a spread, and the total line for a total. History anchors on the recorded close. A row without a close is counted in `anchor.excludedNoClose` and left out. A board market without a two-sided quote has no forecast.
+
+The added input groups are quarterback efficiency, opponent-adjusted team efficiency, pace, and rest situation. A group is kept only when dropping it makes held-out log loss worse. The ablation is in the evaluation report. Close-anchored scores are development evidence. They use the closing line, which already contains late news, so they overstate a decision-time forecast and cannot release a market.
+
+`npm run model:refit` writes a new unreleased artifact beside the one in use. It replaces the artifact in use only with `--replace`. A version 4 artifact is refused with a refit-required reason.
+
+No real-data refit has been run for version 5, so this note records no new score and makes no accuracy claim. The numbers above are the version 4 model.
+
 ## Release gate
 
 `releaseDecision` (`src/lib/server/models/release.ts`) compares each market with the `market-no-vig` baseline on the artifact's historical holdout. A clean comparison still needs:
@@ -188,7 +198,9 @@ Each run asks the configured artifact (`POCKETCHECK_MODEL_ARTIFACT`, default `da
 - The no-vig closing market beats the model on every market. Treat any single-game difference from the market as noise unless a later model closes that gap.
 - Pushes on lines of 3 are still under-predicted, because the model's mean is less sharp than the market's (see above).
 - nflverse closing prices come from one archived source per game, not a consensus or a timestamped close.
-- Opponent strength is recency-weighted margin and points plus quarterback share and rating. There are no other injury features and no weather.
+- Opponent strength is recency-weighted margin and points plus quarterback share and rating, with efficiency, pace, and situational features added in version 5.
+- Weather is recorded on a frozen forecast from the kickoff snapshot already collected. A dome or closed roof ignores it, and a missing outdoor forecast is a gap, not zero wind. No points are applied. Past forecasts were never saved, so there is nothing to fit, and the handbook research refuses a number for wind until a fit supports one. The recorded version is `weather-unfitted-v1`.
+- Injury impact weights a player listed out or doubtful by recent snap share times a versioned position value (`position-values-v1`). The quarterback is excluded, because the starter state handles that position. A player with no snap share is counted as unknown, not healthy, and a designation with no publication time is ignored. nflverse injury rows have no publication time, so they cannot be shown to predate the cutoff and do not reach a forecast. The group is not in the fitted model. It stays out until designations carry a publication time and the ablation shows a gain.
 - Most upcoming games list no starter, so the features assume each team's usual starter. A starter ruled out on the injury report is not yet reflected. A frozen forecast records that assumption only when decision-time evidence says the starter was known or assumed. An archived `home_qb_id` or `away_qb_id` without that evidence does not become a known live input.
 - Saving a prospective forecast does not establish independent performance. The record is what a later protocol can read. It is not a released market, and it does not satisfy the 500-game or interval release criteria.
 - A market becomes an experimental value candidate only when its conservative expected value clears the frozen threshold above. No market is released, so no run reaches that conclusion today.

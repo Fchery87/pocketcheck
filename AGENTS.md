@@ -31,6 +31,7 @@ Keep these records separate. Do not copy one into another to fill a gap.
 - Provider accounting sums the original draft and every repair. A missing field stays unknown and the total is partial. An ambiguous provider outcome needs a deliberate new attempt before another paid request.
 - Export version 1 is the only restorable backup. Validate the whole file before writing, apply it atomically, and reject a conflicting identifier. Export omits credentials, settings, and bulk source caches.
 - Mathematics and policy run in code. A model may draft only from supplied evidence. It cannot choose eligibility, invent a probability, or switch providers.
+- A forecast starts from the anchor line, one sportsbook's two sides, and the forecasting model learns only an adjustment to it. A market without both sides has no forecast. The best available price is the highest decimal odds on that same point line. A different line is another contract. Version 4 artifacts are refused with a refit-required reason.
 
 ## Release
 

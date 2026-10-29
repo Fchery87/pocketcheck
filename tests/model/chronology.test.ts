@@ -2,11 +2,22 @@ import { describe, expect, it } from "vite-plus/test";
 import { scoreHoldout } from "../../src/lib/server/models/evaluate.ts";
 import { buildFeatureRows, featureRowForGame } from "../../src/lib/server/models/features.ts";
 import { walkForwardPredictions } from "../../src/lib/server/models/fit.ts";
-import type { CompletedGame } from "../../src/lib/server/models/games.ts";
+import type { CompletedGame, PricedGame } from "../../src/lib/server/models/games.ts";
 import { fitArtifact } from "../../src/lib/server/models/train.ts";
 
-function game(id: string, kickoff: string, homeScore = 20, awayScore = 10): CompletedGame {
-  return { id, kickoff, home: `${id}-home`, away: `${id}-away`, homeScore, awayScore };
+function game(id: string, kickoff: string, homeScore = 20, awayScore = 10): PricedGame {
+  return {
+    id,
+    kickoff,
+    home: `${id}-home`,
+    away: `${id}-away`,
+    homeScore,
+    awayScore,
+    prices: {
+      spread: { line: 0, home: { american: -110 }, away: { american: -110 } },
+      total: { line: 44, over: { american: -110 }, under: { american: -110 } },
+    },
+  };
 }
 
 const training = [
@@ -40,7 +51,12 @@ describe("decision-time model chronology", () => {
       ...game("past", "2024-09-22T17:00:00Z", 30, 10),
       resultAvailableAt: "2024-09-22T21:00:00Z",
     };
-    const upcoming = { id: "next", home: past.home, away: "new", kickoff: "2024-09-23T22:00:00Z" };
+    const upcoming = {
+      id: "next",
+      home: past.home,
+      away: "new",
+      kickoff: "2024-09-23T22:00:00Z",
+    };
     for (const cutoff of ["2024-09-22T18:00:00Z", past.resultAvailableAt]) {
       const row = featureRowForGame([past], upcoming, undefined, cutoff);
       expect(row.features.home_prior_margin).toBe(0);
@@ -72,7 +88,11 @@ describe("decision-time model chronology", () => {
     const changed = fitArtifact([...training, { ...overlap, homeScore: 0, awayScore: 90 }], cutoff);
     expect(original.margin).toEqual(changed.margin);
     expect(original.total).toEqual(changed.total);
-    expect(original.baseRates.moneyline).toEqual({ win: 2 / 3, loss: 1 / 3, push: 0 });
+    expect(original.baseRates.moneyline).toEqual({
+      win: 2 / 3,
+      loss: 1 / 3,
+      push: 0,
+    });
   });
 
   it("keeps kickoff groups intact when fitting walk-forward predictions", () => {

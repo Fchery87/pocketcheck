@@ -35,6 +35,20 @@ Maintainer-linked [2025 issue reports](https://github.com/nflverse/nflreadpy/iss
 
 It would also be incorrect to declare the feed healthy from documentation alone. The current release attachment bodies were not inspected in this audit. Treat current-season automated injury coverage as **unverified** until an implementation-time sample establishes season, week, teams, source/report dates, and expected rows. Never silently substitute 2024 reports for a 2026 analysis.
 
+## Sources the forecasting model uses
+
+The market-anchored forecasting model reads these, each downloaded to `data/sources` with a retrieval record and kept out of the journal:
+
+| Source                       | Used for                                                       | License                 |
+| ---------------------------- | -------------------------------------------------------------- | ----------------------- |
+| nflverse play-by-play        | Quarterback and team efficiency, pace, pass rate over expected | CC BY 4.0, nflverse     |
+| nflverse weekly depth charts | The starter, live only where timestamped (2025 on)             | CC BY 4.0, nflverse     |
+| nflverse weekly rosters      | Player identity and position                                   | CC BY 4.0, nflverse     |
+| nflverse snap counts         | Injury weight by recent snap share                             | CC BY 4.0, nflverse     |
+| NWS forecast                 | Wind, precipitation, and temperature for outdoor games         | Public, api.weather.gov |
+
+A missing or malformed file is a gap for that season and leaves the others readable. FTN charting data is not used.
+
 ## Update and schema details that matter
 
 The [nflverse schedule](https://nflreadr.nflverse.com/articles/nflverse_data_schedule.html) describes frequent schedule refreshes, game-day/nightly play-by-play and team-stat updates, later corrections, and timestamped depth-chart updates from 2025. It also says FTN participation data for 2023 onward arrives after the postseason, making that release unsuitable as a live in-season input. These are expected schedules, not service guarantees.
@@ -92,7 +106,7 @@ Use separate timestamps for `published_at` when actually known, `retrieved_at`, 
 These are unresolved checks to execute before enabling automatic collection. They are not requests for another product interview.
 
 - Fetch current schedule and completed-game samples; measure schema, season/type coverage, freshness, and missing betting columns.
-- Fetch one historical and one current play-by-play/team-stat file; verify identifiers, numeric types, calculation denominators, and file size.
+- Fetch one historical and one current play-by-play/team-stat file; verify identifiers, numeric types, calculation denominators, and file size. The app now downloads play-by-play with `npm run data:play-by-play` and parses it into per-game team summaries. The season file stays on disk under CC BY 4.0 with nflverse attribution. A missing or malformed season is a gap and does not change the other seasons.
 - Fetch current injury data; compare a sample against an official dated team report. Reject missing or stale season/week data.
 - Establish permitted article retrieval for each chosen source; retain a manual path when unavailable.
 - Resolve one stadium through NWS and inspect a kickoff-hour payload, issued time, units, nulls, and response-cache headers.

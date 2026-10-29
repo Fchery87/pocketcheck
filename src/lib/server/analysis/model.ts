@@ -5,11 +5,16 @@ import { valueEligibility, type ModelArtifact } from "../models/artifact.ts";
 import { PROSPECTIVE_PROTOCOL } from "../models/release.ts";
 import { parseArtifact } from "../models/inputs.ts";
 import { featureRowForGame } from "../models/features.ts";
-import { freezeProspectiveForecast, INPUT_AVAILABILITY } from "../models/forecast.ts";
+import {
+  freezeProspectiveForecast,
+  INPUT_AVAILABILITY,
+  type WeatherSnapshot,
+} from "../models/forecast.ts";
 import type { Market } from "../models/games.ts";
 import { pricedGamesFromNflverseCsv, upcomingGameFromCsv } from "../models/history.ts";
 import { offerProbabilities } from "../models/offer-probability.ts";
 import { predictGame } from "../models/predict.ts";
+import type { EvidenceItem } from "../sources/contracts.ts";
 import type { ScheduledGame } from "../sources/contracts.ts";
 import { conservativeProbabilities, type UncertaintyAssessment } from "../models/uncertainty.ts";
 import { POLICY_VERSION } from "./policy.ts";
@@ -131,6 +136,27 @@ export function createArtifactModel(input: {
   };
 }
 
+/** The kickoff forecast already collected, read back as the snapshot the forecast records. */
+function weatherSnapshot(
+  game: ScheduledGame,
+  evidence: EvidenceItem[] | undefined,
+): WeatherSnapshot {
+  const item = evidence?.find((entry) => entry.factKey === "weather:kickoff");
+  const number = (key: string) => {
+    const value = item?.facts[key];
+    return typeof value === "number" ? value : null;
+  };
+  const windText = item?.facts.wind;
+  const wind = typeof windText === "string" ? Number(windText.match(/\d+(\.\d+)?/)?.[0]) : null;
+  return {
+    roof: game.venue.roof,
+    windMph: Number.isFinite(wind) ? wind : null,
+    precipitationChance: number("precipitationChancePercent"),
+    temperatureF: number("temperatureF"),
+    observedAt: item && item.publishedAt !== "unknown" ? item.publishedAt : null,
+  };
+}
+
 /**
  * Freezes the forecast beside the model result. Archived starters without decision-time
  * evidence stay unknown. Returns null when the model did not compute a forecast.
@@ -139,7 +165,7 @@ export function createArtifactForecast(input: {
   artifactPath: string;
   schedulePath: string;
 }): ForecastSource {
-  return async (game, cutoffIso, offer, model) => {
+  return async (game, cutoffIso, offer, model, evidence) => {
     if (model.status !== "computed") return null;
     if (!existsSync(input.artifactPath) || !existsSync(input.schedulePath)) return null;
     let artifact: ModelArtifact;
@@ -155,6 +181,17 @@ export function createArtifactForecast(input: {
       (past) => Date.parse(past.kickoff) < cutoff,
     );
     const upcoming = upcomingGameFromCsv(csv, game.id);
+    if (!offer.opposing || offer.opposing.sportsbook !== offer.sportsbook) return null;
+    const homeSide = offer.selection === "home" || offer.selection === "over";
+    const anchorQuote = {
+      homeAmerican: homeSide ? offer.americanOdds : offer.opposing.americanOdds,
+      awayAmerican: homeSide ? offer.opposing.americanOdds : offer.americanOdds,
+      ...(offer.pointLine === null
+        ? {}
+        : {
+            line: offer.market === "spread" && !homeSide ? -offer.pointLine : offer.pointLine,
+          }),
+    };
     const frozen = freezeProspectiveForecast({
       artifact,
       history,
@@ -168,7 +205,9 @@ export function createArtifactForecast(input: {
       },
       cutoff: cutoffIso,
       offer,
+      anchorQuote,
       policyVersion: POLICY_VERSION,
+      weather: weatherSnapshot(game, evidence),
     });
     const saved: SavedForecast = {
       version: 1,
@@ -183,6 +222,7 @@ export function createArtifactForecast(input: {
       uncertainty: frozen.uncertainty,
       policyVersion: frozen.policyVersion,
       ...(frozen.drivers ? { drivers: frozen.drivers } : {}),
+      ...(frozen.weather ? { weather: frozen.weather } : {}),
     };
     return saved;
   };

@@ -6,6 +6,7 @@ import {
   parseManualEvidence,
   parseObservedAt,
 } from "#lib/server/analysis/form.ts";
+import type { BoardQuote } from "#lib/domain/board.ts";
 import type { TieRule } from "#lib/domain/offer.ts";
 import type { GameBoard } from "#lib/server/analysis/board-store.ts";
 import { runGameBoard } from "#lib/server/analysis/board-run.ts";
@@ -67,6 +68,83 @@ function line(raw: string): { ok: true; value: number | undefined } | { ok: fals
   const value = Number(raw.replace("−", "-"));
   if (!Number.isFinite(value)) return { ok: false, error: `Invalid point line: ${raw}` };
   return { ok: true, value };
+}
+
+type QuoteRow = {
+  sportsbook: string;
+  market: string;
+  selection: string;
+  americanOdds: string;
+  pointLine: string;
+  observedAt: string;
+};
+
+const QUOTE_MARKETS = ["moneyline", "spread", "total"] as const;
+const QUOTE_SELECTIONS = ["home", "away", "over", "under"] as const;
+
+/** One row per entered quote. A blank row is ignored. A half-filled row is an error, with the typed text kept. */
+function parseQuotes(
+  data: FormData,
+):
+  | { ok: true; quotes: BoardQuote[]; rows: QuoteRow[] }
+  | { ok: false; error: string; rows: QuoteRow[] } {
+  const sportsbooks = data.getAll("quoteSportsbook").map(String);
+  const markets = data.getAll("quoteMarket").map(String);
+  const selections = data.getAll("quoteSelection").map(String);
+  const prices = data.getAll("quoteOdds").map(String);
+  const lines = data.getAll("quoteLine").map(String);
+  const times = data.getAll("quoteObservedAt").map(String);
+  const count = Math.max(sportsbooks.length, markets.length, selections.length, prices.length);
+  const rows: QuoteRow[] = [];
+  const quotes: BoardQuote[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const row: QuoteRow = {
+      sportsbook: (sportsbooks[index] ?? "").trim(),
+      market: (markets[index] ?? "").trim(),
+      selection: (selections[index] ?? "").trim(),
+      americanOdds: (prices[index] ?? "").trim(),
+      pointLine: (lines[index] ?? "").trim(),
+      observedAt: (times[index] ?? "").trim(),
+    };
+    rows.push(row);
+    const blank = !row.sportsbook && !row.americanOdds && !row.pointLine && !row.observedAt;
+    if (blank) continue;
+    const market = QUOTE_MARKETS.find((item) => item === row.market);
+    const selection = QUOTE_SELECTIONS.find((item) => item === row.selection);
+    const price = odds(row.americanOdds);
+    const point = line(row.pointLine);
+    const observedAt = parseObservedAt(row.observedAt);
+    if (
+      !row.sportsbook ||
+      !market ||
+      !selection ||
+      !price.ok ||
+      price.value === undefined ||
+      !observedAt
+    ) {
+      return {
+        ok: false,
+        error: "A quote needs a sportsbook, market, side, American price, and time.",
+        rows,
+      };
+    }
+    if (!point.ok) return { ok: false, error: point.error, rows };
+    if (market === "moneyline" && point.value !== undefined) {
+      return { ok: false, error: "A moneyline quote has no point line.", rows };
+    }
+    if (market !== "moneyline" && point.value === undefined) {
+      return { ok: false, error: `A ${market} quote needs its point line.`, rows };
+    }
+    quotes.push({
+      sportsbook: row.sportsbook,
+      market,
+      selection,
+      americanOdds: price.value,
+      pointLine: point.value ?? null,
+      observedAt,
+    });
+  }
+  return { ok: true, quotes, rows };
 }
 
 const signed = (value: number) => (value > 0 ? `+${value}` : String(value));
@@ -150,9 +228,11 @@ export const actions = {
     const values: Values = Object.fromEntries(FIELDS.map((name) => [name, field(data, name)]));
     const manual = parseManualEvidence(data);
     // Every failure hands the entered values back so nothing has to be retyped.
+    const quotes = parseQuotes(data);
     const refuse = (status: number, error: string) =>
-      fail(status, { error, values, manual: manual.rows });
+      fail(status, { error, values, manual: manual.rows, quotes: quotes.rows });
     if (!manual.ok) return refuse(400, manual.error);
+    if (!quotes.ok) return refuse(400, quotes.error);
     const cutoffAt = values.cutoffAt ?? "";
     const nowIso = Number.isFinite(Date.parse(cutoffAt)) ? new Date(cutoffAt).toISOString() : now();
     const schedule = readSchedule(schedulePath());
@@ -216,6 +296,7 @@ export const actions = {
           over: n("totalOver"),
           under: n("totalUnder"),
         },
+        extraQuotes: quotes.quotes,
         manualEvidence: manual.entries,
         lean: values.lean,
         rationale: values.rationale,

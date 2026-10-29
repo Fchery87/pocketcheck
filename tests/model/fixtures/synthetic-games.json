@@ -19,7 +19,11 @@
       "home": "C",
       "away": "D",
       "homeScore": 20,
-      "awayScore": 20
+      "awayScore": 20,
+      "prices": {
+        "spread": { "line": 0, "home": { "american": -110 }, "away": { "american": -110 } },
+        "total": { "line": 40, "over": { "american": -110 }, "under": { "american": -110 } }
+      }
     },
     {
       "id": "g3",

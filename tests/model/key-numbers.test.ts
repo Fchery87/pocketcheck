@@ -5,12 +5,12 @@ import {
   type ResidualDistribution,
 } from "../../src/lib/server/models/distribution.ts";
 import { buildFeatureRows } from "../../src/lib/server/models/features.ts";
-import type { CompletedGame } from "../../src/lib/server/models/games.ts";
+import type { PricedGame } from "../../src/lib/server/models/games.ts";
 import { predictGame } from "../../src/lib/server/models/predict.ts";
 import { fitArtifact } from "../../src/lib/server/models/train.ts";
 
 /** Scores built from touchdowns and field goals, with ties settled by a field goal. */
-function footballLeague(count: number): CompletedGame[] {
+function footballLeague(count: number): PricedGame[] {
   let seed = 11;
   const next = () => {
     seed = (seed * 1103515245 + 12345) % 2147483648;
@@ -30,6 +30,14 @@ function footballLeague(count: number): CompletedGame[] {
       away: `T${away}`,
       homeScore,
       awayScore,
+      prices: {
+        spread: { line: 0, home: { american: -110 }, away: { american: -110 } },
+        total: {
+          line: 44,
+          over: { american: -110 },
+          under: { american: -110 },
+        },
+      },
     };
   });
 }

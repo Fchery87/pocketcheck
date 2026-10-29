@@ -83,7 +83,12 @@ export function fitResidualDistribution(
   const high = Math.max(...residuals);
   const min = Math.floor(Math.min(low - padding, -MIN_SUPPORT));
   const max = Math.ceil(Math.max(high + padding, MIN_SUPPORT));
-  return { residuals: [...residuals], bandwidth, support: { min, max }, keyWeights };
+  return {
+    residuals: [...residuals],
+    bandwidth,
+    support: { min, max },
+    keyWeights,
+  };
 }
 
 function kernel(distance: number, bandwidth: number): number {
@@ -143,7 +148,10 @@ export function smoothMass(distribution: ResidualDistribution, mean: number): Ma
     total += weight;
   }
   if (total <= 0) throw new Error("Residual kernel produced no mass");
-  return bins.map((bin) => ({ points: bin.points, probability: bin.probability / total }));
+  return bins.map((bin) => ({
+    points: bin.points,
+    probability: bin.probability / total,
+  }));
 }
 
 export function integerMass(distribution: ResidualDistribution, mean: number): MassBin[] {
@@ -153,7 +161,10 @@ export function integerMass(distribution: ResidualDistribution, mean: number): M
     probability: bin.probability * (keyWeight.get(bin.points) ?? 1),
   }));
   const total = weighted.reduce((sum, bin) => sum + bin.probability, 0);
-  return weighted.map((bin) => ({ points: bin.points, probability: bin.probability / total }));
+  return weighted.map((bin) => ({
+    points: bin.points,
+    probability: bin.probability / total,
+  }));
 }
 
 export type SideProbability = {
@@ -178,6 +189,24 @@ export function moneylineFromMargin(bins: readonly MassBin[]): {
     home: { win: homeWin, loss: awayWin, push: tie },
     away: { win: awayWin, loss: homeWin, push: tie },
   };
+}
+
+/**
+ * The margin mean whose home win probability is closest to the no-vig price. The anchor uses it
+ * so a moneyline price and a spread line live on the same scale.
+ */
+export function marginMeanForHomeWin(distribution: ResidualDistribution, homeWin: number): number {
+  let best = 0;
+  let bestGap = Infinity;
+  for (let mean = -30; mean <= 30; mean += 0.25) {
+    const win = moneylineFromMargin(integerMass(distribution, mean)).home.win;
+    const gap = Math.abs(win - homeWin);
+    if (gap < bestGap) {
+      best = mean;
+      bestGap = gap;
+    }
+  }
+  return best;
 }
 
 export function spreadFromMargin(

@@ -150,6 +150,8 @@ The methods below are proposed modeling options, not validated PocketCheck compo
 
 ### Baselines first
 
+The forecasting model starts from the anchor line, the no-vig price from one sportsbook's two sides, and learns only an adjustment to it. The anchor is never mixed across sportsbooks. A forecast without both sides is unavailable. Line shopping uses the best price on that same point line. A price on a different line is a different contract. Close-anchored historical scores are development evidence and do not show that the model beats the market.
+
 A market baseline uses complete, contemporaneous prices with an explicit de-vig method. A simple statistical baseline can use previously observed team-strength ratings, home field, and declared availability variables to predict margin or outcome. Compare more complex models against these baselines on the same dates and eligible events. A complicated model should not receive credit merely for predicting favorites successfully.
 
 An illustrative margin model is:

@@ -69,6 +69,7 @@ export type ForecastSource = (
   cutoffIso: string,
   offer: Offer,
   model: RunModel,
+  evidence?: EvidenceItem[],
 ) => Promise<SavedForecast | null>;
 
 export type AnalysisDependencies = {

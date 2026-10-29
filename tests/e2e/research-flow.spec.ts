@@ -25,7 +25,7 @@ test.beforeEach(async ({ request }) => {
     weather: "off",
     model: {
       artifact: "tests/fixtures/models/browser-forecasting-model.json",
-      checksum: "56bd99b398f9912e0eda6f598323843cbfaa626e3c7c2fa01917dfc7ffab7d76",
+      checksum: "51f78e07657c2a4af3f8fb50d711f4ca6515069c6d22d5b3e05a184d59442c2e",
       releaseStatus: "unreleased",
       trainingCutoff: "2024-09-22T17:00:00Z",
     },
@@ -115,12 +115,13 @@ test("offer, report, refresh, and unchanged prior report", async ({ page, reques
   await expect(page.getByTestId("evidence-gaps")).toContainText("Weather collection is off");
   await expect(page.getByTestId("evidence-gaps")).toContainText("no publication time");
   // The fixture forecasting model computes, but an unreleased market's numbers stay hidden.
-  await expect(page.getByTestId("probability-model")).toContainText("Artifact 56bd99b398f9");
+  await expect(page.getByTestId("probability-model")).toContainText("Artifact 51f78e07657c");
   await expect(page.getByTestId("probability-model")).toContainText(
     "Unreleased artifacts are not eligible for a value recommendation.",
   );
   await expect(page.getByTestId("model-probabilities")).toHaveCount(0);
-  await expect(page.getByTestId("forecast-provenance")).toContainText("Forecast frozen");
+  await expect(page.getByTestId("forecast-provenance")).toContainText("No forecast was frozen");
+  await expect(page.getByTestId("forecast-provenance")).toContainText("no opposing price");
   // Injury rows from the cached file and the user's own evidence are both in the run.
   await expect(page.getByTestId("all-evidence")).toContainText("Saquon Barkley");
   await expect(page.getByTestId("all-evidence")).toContainText(

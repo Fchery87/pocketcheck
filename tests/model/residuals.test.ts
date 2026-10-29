@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 import { buildFeatureRows } from "../../src/lib/server/models/features.ts";
 import { fitRidge, predictMean, walkForwardResiduals } from "../../src/lib/server/models/fit.ts";
-import type { CompletedGame } from "../../src/lib/server/models/games.ts";
+import type { PricedGame } from "../../src/lib/server/models/games.ts";
 import { fitArtifact } from "../../src/lib/server/models/train.ts";
 
 // A deterministic league of 8 teams over 60 games with noisy scores.
-function league(count: number): CompletedGame[] {
+function league(count: number): PricedGame[] {
   const games: CompletedGame[] = [];
   let seed = 7;
   const next = () => {
@@ -23,6 +23,14 @@ function league(count: number): CompletedGame[] {
       away: `T${away}`,
       homeScore: Math.round(14 + home * 2 + next() * 20),
       awayScore: Math.round(14 + away * 2 + next() * 20),
+      prices: {
+        spread: { line: 0, home: { american: -110 }, away: { american: -110 } },
+        total: {
+          line: 44,
+          over: { american: -110 },
+          under: { american: -110 },
+        },
+      },
     });
   }
   return games;

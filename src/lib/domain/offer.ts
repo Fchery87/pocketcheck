@@ -28,6 +28,8 @@ export type OfferInput = {
   kickoffAt: string;
   rules: OfferRules;
   opposing?: OpposingPrice;
+  /** True when this price was shopped from a sportsbook other than the anchor's. */
+  shopped?: boolean;
 };
 
 export type Offer = {
@@ -138,7 +140,8 @@ export function parseOffer(input: OfferInput): Offer {
   }
 
   if (input.opposing) {
-    const sameBook = input.opposing.sportsbook === input.sportsbook;
+    // The anchor's two sides must be one sportsbook. A shopped price may come from another.
+    const sameBook = input.opposing.sportsbook === input.sportsbook || input.shopped === true;
     // The other side of home -3.5 is away +3.5; the other side of over 44.5 is under 44.5.
     const expectedLine =
       input.market === "spread" && input.pointLine !== undefined

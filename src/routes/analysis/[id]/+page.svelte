@@ -214,6 +214,12 @@
             This does not make the {run.forecast.marketEligibility.market} market eligible.
           {/if}
         </p>
+      {:else if run.forecast === null && run.probabilityModel && !run.offer.opposing}
+        <p data-testid="forecast-provenance">
+          No forecast was frozen for this analysis: the offer has no opposing price at the same
+          sportsbook, so the market has no anchor line. Enter both sides on a game board to freeze
+          one.
+        </p>
       {:else if run.forecast === null}
         <p data-testid="forecast-provenance">
           Input provenance was not captured with this forecast. It is not an original prospective record.

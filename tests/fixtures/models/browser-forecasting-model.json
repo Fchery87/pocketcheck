@@ -1,8 +1,18 @@
 {
   "kind": "pocketcheck-baseline",
-  "version": 4,
+  "version": 5,
   "releaseStatus": "unreleased",
   "releasedMarkets": [],
+  "anchor": {
+    "definition": "moneyline no-vig home probability mapped to an implied margin; spread home line; total line",
+    "history": "recorded close",
+    "decisionTime": "one sportsbook's two sides",
+    "excludedNoClose": {
+      "moneyline": 0,
+      "spread": 1,
+      "total": 1
+    }
+  },
   "datasetHash": "f886030f47b376f648a5f16781eb5c831edcfe64db14bb748bd0dd1238fc7cbb",
   "trainingCutoff": "2024-09-22T17:00:00Z",
   "chronology": {
@@ -63,6 +73,50 @@
     {
       "name": "home_indicator",
       "description": "1 when the game is not neutral, otherwise 0."
+    },
+    {
+      "name": "home_qb_efficiency",
+      "description": "Home starter's recency-weighted EPA per dropback plus completion percentage over expected, shrunk toward qbReplacement by qbPriorWeight. Uses only plays from games eligible before the cutoff."
+    },
+    {
+      "name": "away_qb_efficiency",
+      "description": "The same quarterback efficiency for the away starter."
+    },
+    {
+      "name": "home_offense_epa",
+      "description": "Home offense's opponent-adjusted, recency-weighted EPA per play, carried from last season at seasonCarry."
+    },
+    {
+      "name": "away_offense_epa",
+      "description": "The same offensive efficiency for the away team."
+    },
+    {
+      "name": "home_defense_epa",
+      "description": "Home defense's opponent-adjusted EPA per play allowed, negated so higher is better."
+    },
+    {
+      "name": "away_defense_epa",
+      "description": "The same defensive efficiency for the away team."
+    },
+    {
+      "name": "pace_seconds",
+      "description": "Combined seconds per offensive play for both teams. Lower is faster."
+    },
+    {
+      "name": "pass_rate_over_expected",
+      "description": "Combined pass rate over expected for both teams."
+    },
+    {
+      "name": "rest_differential",
+      "description": "Home rest days minus away rest days."
+    },
+    {
+      "name": "short_week",
+      "description": "1 when either team is on fewer than 6 days of rest."
+    },
+    {
+      "name": "off_bye",
+      "description": "1 when either team is coming off 13 or more days of rest."
     }
   ],
   "featureParameters": {
@@ -646,21 +700,32 @@
   },
   "margin": {
     "model": {
-      "intercept": -0.25000000000000017,
+      "intercept": -0.7500000000000002,
       "coefficients": {
-        "home_prior_margin": -3.348603157932111,
-        "away_prior_margin": -4.230503309066844,
-        "home_prior_points_for": -0.9300206916318526,
-        "away_prior_points_for": -0.97279066597199,
-        "home_prior_points_against": -0.5531434456764656,
-        "away_prior_points_against": -0.5964888121878797,
+        "home_prior_margin": -2.7011314880182247,
+        "away_prior_margin": -4.053378386424809,
+        "home_prior_points_for": -1.3189459826462946,
+        "away_prior_points_for": -1.3568779024281679,
+        "home_prior_points_against": -0.9828877354327925,
+        "away_prior_points_against": -1.021701923210632,
         "home_rest_days": 0,
-        "away_rest_days": -4.641235887593899,
+        "away_rest_days": -4.136275663743984,
         "home_qb_share": 0,
         "away_qb_share": 0,
         "home_qb_rating": 0,
         "away_qb_rating": 0,
-        "home_indicator": 0
+        "home_indicator": 0,
+        "home_qb_efficiency": 0,
+        "away_qb_efficiency": 0,
+        "home_offense_epa": 0,
+        "away_offense_epa": 0,
+        "home_defense_epa": 0,
+        "away_defense_epa": 0,
+        "pace_seconds": 0,
+        "pass_rate_over_expected": 0,
+        "rest_differential": 4.136275663743985,
+        "short_week": 0,
+        "off_bye": 0
       },
       "featureMeans": {
         "home_prior_margin": -0.5833333333333334,
@@ -675,7 +740,18 @@
         "away_qb_share": 1,
         "home_qb_rating": -3,
         "away_qb_rating": -3,
-        "home_indicator": 1
+        "home_indicator": 1,
+        "home_qb_efficiency": -3,
+        "away_qb_efficiency": -3,
+        "home_offense_epa": 0,
+        "away_offense_epa": 0,
+        "home_defense_epa": 0,
+        "away_defense_epa": 0,
+        "pace_seconds": 0,
+        "pass_rate_over_expected": 0,
+        "rest_differential": 0,
+        "short_week": 0,
+        "off_bye": 0
       },
       "featureScales": {
         "home_prior_margin": 1.0103629710818451,
@@ -690,13 +766,22 @@
         "away_qb_share": 1,
         "home_qb_rating": 1,
         "away_qb_rating": 1,
-        "home_indicator": 1
+        "home_indicator": 1,
+        "home_qb_efficiency": 1,
+        "away_qb_efficiency": 1,
+        "home_offense_epa": 1,
+        "away_offense_epa": 1,
+        "home_defense_epa": 1,
+        "away_defense_epa": 1,
+        "pace_seconds": 1,
+        "pass_rate_over_expected": 1,
+        "rest_differential": 0.08838834764831845,
+        "short_week": 1,
+        "off_bye": 1
       }
     },
     "residuals": {
-      "residuals": [
-        3.6909369836210013, -3.3090630163789987, 1.4499877009809996, -1.8318616682230022
-      ],
+      "residuals": [5.292770041552207, -4.707229958447793, 1.1696242437929243, -1.75516432689734],
       "bandwidth": 1.5,
       "support": {
         "min": -21,
@@ -705,384 +790,415 @@
       "keyWeights": [
         {
           "points": -40,
-          "weight": 0.9999999999481437
+          "weight": 0.9999977752807897
         },
         {
           "points": -39,
-          "weight": 0.9999999995949411
+          "weight": 0.9999910780645502
         },
         {
           "points": -38,
-          "weight": 0.9999999971687409
+          "weight": 0.9999679829816762
         },
         {
           "points": -37,
-          "weight": 0.9999999822913206
+          "weight": 0.999897191970769
         },
         {
           "points": -36,
-          "weight": 0.9999999008853708
+          "weight": 0.9997046307073907
         },
         {
           "points": -35,
-          "weight": 0.9999995035971324
+          "weight": 0.9992408443476243
         },
         {
           "points": -34,
-          "weight": 0.9999977752801807
+          "weight": 0.9982549246201912
         },
         {
           "points": -33,
-          "weight": 0.9999910780586102
+          "weight": 0.996413511029238
         },
         {
           "points": -32,
-          "weight": 0.9999679829298279
+          "weight": 0.9934118790956605
         },
         {
           "points": -31,
-          "weight": 0.999897191565849
+          "weight": 0.9891842371091453
         },
         {
           "points": -30,
-          "weight": 0.9997046278784077
+          "weight": 0.9841246127487403
         },
         {
           "points": -29,
-          "weight": 0.9992408266716981
+          "weight": 0.979147075211662
         },
         {
           "points": -28,
-          "weight": 0.9982548259022588
+          "weight": 0.9754564362574657
         },
         {
           "points": -27,
-          "weight": 0.9964130185769915
+          "weight": 1.1689012912882428
         },
         {
           "points": -26,
-          "weight": 0.9934096863362403
+          "weight": 0.9754280718197015
         },
         {
           "points": -25,
-          "weight": 0.9891755240558741
+          "weight": 0.9790488908269795
         },
         {
           "points": -24,
-          "weight": 0.984093697461061
+          "weight": 0.9838381613330444
         },
         {
           "points": -23,
-          "weight": 0.979048968857575
+          "weight": 0.9884392519667377
         },
         {
           "points": -22,
-          "weight": 0.9751774076054921
+          "weight": 0.9916809302803845
         },
         {
           "points": -21,
-          "weight": 1.168046475778401
+          "weight": 0.9928210957386694
         },
         {
           "points": -20,
-          "weight": 0.973795899706015
+          "weight": 0.9915885980478426
         },
         {
           "points": -19,
-          "weight": 0.9757003262296814
+          "weight": 0.9881528438099434
         },
         {
           "points": -18,
-          "weight": 0.9777128309519648
+          "weight": 0.9831038160646037
         },
         {
           "points": -17,
-          "weight": 0.9785015056365485
+          "weight": 0.9773762001397556
         },
         {
           "points": -16,
-          "weight": 0.9774610359583374
+          "weight": 0.9720153541990373
         },
         {
           "points": -15,
-          "weight": 0.9749858962952557
+          "weight": 1.161398503265202
         },
         {
           "points": -14,
-          "weight": 0.9721421709423007
+          "weight": 0.9651614322231716
         },
         {
           "points": -13,
-          "weight": 1.1639639873026657
+          "weight": 0.9639177988398837
         },
         {
           "points": -12,
-          "weight": 0.96889461527261
+          "weight": 0.9639057227181735
         },
         {
           "points": -11,
-          "weight": 0.9686192604058894
+          "weight": 0.9651047643428337
         },
         {
           "points": -10,
-          "weight": 0.9685226071858236
+          "weight": 1.161177649412136
         },
         {
           "points": -9,
-          "weight": 0.9682131821500873
+          "weight": 0.9714876220952445
         },
         {
           "points": -8,
-          "weight": 0.9677614657765915
+          "weight": 0.9760248047885406
         },
         {
           "points": -7,
-          "weight": 1.160886490069079
+          "weight": 0.9800199714569813
         },
         {
           "points": -6,
-          "weight": 0.9670168657280599
+          "weight": 0.9819051815032437
         },
         {
           "points": -5,
-          "weight": 0.9658767109603842
+          "weight": 0.9803937471393219
         },
         {
           "points": -4,
-          "weight": 0.9630878551861269
+          "weight": 0.9751341548935119
         },
         {
           "points": -3,
-          "weight": 0.9584029875905967
+          "weight": 0.9670973778537031
         },
         {
           "points": -2,
-          "weight": 0.9527870661381207
+          "weight": 0.958438328829541
         },
         {
           "points": -1,
-          "weight": 0.9481492158866414
+          "weight": 0.9517955959063467
         },
         {
           "points": 0,
-          "weight": 1.166921846731314
+          "weight": 1.168794280005088
         },
         {
           "points": 1,
-          "weight": 0.9481492158866414
+          "weight": 0.9517955959063467
         },
         {
           "points": 2,
-          "weight": 0.9527870661381207
+          "weight": 0.958438328829541
         },
         {
           "points": 3,
-          "weight": 0.9584029875905967
+          "weight": 0.9670973778537031
         },
         {
           "points": 4,
-          "weight": 0.9630878551861269
+          "weight": 0.9751341548935119
         },
         {
           "points": 5,
-          "weight": 0.9658767109603842
+          "weight": 0.9803937471393219
         },
         {
           "points": 6,
-          "weight": 0.9670168657280599
+          "weight": 0.9819051815032437
         },
         {
           "points": 7,
-          "weight": 1.160886490069079
+          "weight": 0.9800199714569813
         },
         {
           "points": 8,
-          "weight": 0.9677614657765915
+          "weight": 0.9760248047885406
         },
         {
           "points": 9,
-          "weight": 0.9682131821500873
+          "weight": 0.9714876220952445
         },
         {
           "points": 10,
-          "weight": 0.9685226071858236
+          "weight": 1.161177649412136
         },
         {
           "points": 11,
-          "weight": 0.9686192604058894
+          "weight": 0.9651047643428337
         },
         {
           "points": 12,
-          "weight": 0.96889461527261
+          "weight": 0.9639057227181735
         },
         {
           "points": 13,
-          "weight": 1.1639639873026657
+          "weight": 0.9639177988398837
         },
         {
           "points": 14,
-          "weight": 0.9721421709423007
+          "weight": 0.9651614322231716
         },
         {
           "points": 15,
-          "weight": 0.9749858962952557
+          "weight": 1.161398503265202
         },
         {
           "points": 16,
-          "weight": 0.9774610359583374
+          "weight": 0.9720153541990373
         },
         {
           "points": 17,
-          "weight": 0.9785015056365485
+          "weight": 0.9773762001397556
         },
         {
           "points": 18,
-          "weight": 0.9777128309519648
+          "weight": 0.9831038160646037
         },
         {
           "points": 19,
-          "weight": 0.9757003262296814
+          "weight": 0.9881528438099434
         },
         {
           "points": 20,
-          "weight": 0.973795899706015
+          "weight": 0.9915885980478426
         },
         {
           "points": 21,
-          "weight": 1.168046475778401
+          "weight": 0.9928210957386694
         },
         {
           "points": 22,
-          "weight": 0.9751774076054921
+          "weight": 0.9916809302803845
         },
         {
           "points": 23,
-          "weight": 0.979048968857575
+          "weight": 0.9884392519667377
         },
         {
           "points": 24,
-          "weight": 0.984093697461061
+          "weight": 0.9838381613330444
         },
         {
           "points": 25,
-          "weight": 0.9891755240558741
+          "weight": 0.9790488908269795
         },
         {
           "points": 26,
-          "weight": 0.9934096863362403
+          "weight": 0.9754280718197015
         },
         {
           "points": 27,
-          "weight": 0.9964130185769915
+          "weight": 1.1689012912882428
         },
         {
           "points": 28,
-          "weight": 0.9982548259022588
+          "weight": 0.9754564362574657
         },
         {
           "points": 29,
-          "weight": 0.9992408266716981
+          "weight": 0.979147075211662
         },
         {
           "points": 30,
-          "weight": 0.9997046278784077
+          "weight": 0.9841246127487403
         },
         {
           "points": 31,
-          "weight": 0.999897191565849
+          "weight": 0.9891842371091453
         },
         {
           "points": 32,
-          "weight": 0.9999679829298279
+          "weight": 0.9934118790956605
         },
         {
           "points": 33,
-          "weight": 0.9999910780586102
+          "weight": 0.996413511029238
         },
         {
           "points": 34,
-          "weight": 0.9999977752801807
+          "weight": 0.9982549246201912
         },
         {
           "points": 35,
-          "weight": 0.9999995035971324
+          "weight": 0.9992408443476243
         },
         {
           "points": 36,
-          "weight": 0.9999999008853708
+          "weight": 0.9997046307073907
         },
         {
           "points": 37,
-          "weight": 0.9999999822913206
+          "weight": 0.999897191970769
         },
         {
           "points": 38,
-          "weight": 0.9999999971687409
+          "weight": 0.9999679829816762
         },
         {
           "points": 39,
-          "weight": 0.9999999995949411
+          "weight": 0.9999910780645502
         },
         {
           "points": 40,
-          "weight": 0.9999999999481437
+          "weight": 0.9999977752807897
         }
       ]
     }
   },
   "total": {
     "model": {
-      "intercept": 40.75,
+      "intercept": -1.166666666666666,
       "coefficients": {
-        "home_prior_margin": -0.029396671704489456,
-        "away_prior_margin": 0.02939667170448942,
-        "home_prior_points_for": 0.05088365012730734,
-        "away_prior_points_for": 0.05086447038829941,
-        "home_prior_points_against": 0.050864470388295016,
-        "away_prior_points_against": 0.0508836501273119,
+        "home_prior_margin": 0,
+        "away_prior_margin": 0.11249426064331434,
+        "home_prior_points_for": 0.11249426064331453,
+        "away_prior_points_for": 0.11249426064331414,
+        "home_prior_points_against": 0.1124942606433145,
+        "away_prior_points_against": 0.11249426064331411,
         "home_rest_days": 0,
-        "away_rest_days": 6.522799582659183e-18,
+        "away_rest_days": 0.11249426064331457,
         "home_qb_share": 0,
         "away_qb_share": 0,
         "home_qb_rating": 0,
         "away_qb_rating": 0,
-        "home_indicator": 0
+        "home_indicator": 0,
+        "home_qb_efficiency": 0,
+        "away_qb_efficiency": 0,
+        "home_offense_epa": 0,
+        "away_offense_epa": 0,
+        "home_defense_epa": 0,
+        "away_defense_epa": 0,
+        "pace_seconds": 0,
+        "pass_rate_over_expected": 0,
+        "rest_differential": -0.11249426064331448,
+        "short_week": 0,
+        "off_bye": 0
       },
       "featureMeans": {
-        "home_prior_margin": -0.5833333333333334,
-        "away_prior_margin": 0.5833333333333334,
-        "home_prior_points_for": 9.833333333333334,
-        "away_prior_points_for": 10.416666666666668,
-        "home_prior_points_against": 10.416666666666668,
-        "away_prior_points_against": 9.833333333333334,
+        "home_prior_margin": 0,
+        "away_prior_margin": 0.7777777777777778,
+        "home_prior_points_for": 6.722222222222222,
+        "away_prior_points_for": 7.166666666666667,
+        "home_prior_points_against": 6.722222222222222,
+        "away_prior_points_against": 6.388888888888889,
         "home_rest_days": 7,
-        "away_rest_days": 7,
+        "away_rest_days": 7.041666666666667,
         "home_qb_share": 1,
         "away_qb_share": 1,
         "home_qb_rating": -3,
         "away_qb_rating": -3,
-        "home_indicator": 1
+        "home_indicator": 1,
+        "home_qb_efficiency": -3,
+        "away_qb_efficiency": -3,
+        "home_offense_epa": 0,
+        "away_offense_epa": 0,
+        "home_defense_epa": 0,
+        "away_defense_epa": 0,
+        "pace_seconds": 0,
+        "pass_rate_over_expected": 0,
+        "rest_differential": -0.041666666666666664,
+        "short_week": 0,
+        "off_bye": 0
       },
       "featureScales": {
-        "home_prior_margin": 1.0103629710818451,
-        "away_prior_margin": 1.0103629710818451,
-        "home_prior_points_for": 9.839687212734177,
-        "away_prior_points_for": 10.427327877585258,
-        "home_prior_points_against": 10.427327877585258,
-        "away_prior_points_against": 9.839687212734177,
+        "home_prior_margin": 1,
+        "away_prior_margin": 1.0999438818457408,
+        "home_prior_points_for": 9.506657835952472,
+        "away_prior_points_for": 10.13519719700718,
+        "home_prior_points_against": 9.506657835952472,
+        "away_prior_points_against": 9.035253315161441,
         "home_rest_days": 1,
-        "away_rest_days": 0.08838834764831845,
+        "away_rest_days": 0.05892556509887896,
         "home_qb_share": 1,
         "away_qb_share": 1,
         "home_qb_rating": 1,
         "away_qb_rating": 1,
-        "home_indicator": 1
+        "home_indicator": 1,
+        "home_qb_efficiency": 1,
+        "away_qb_efficiency": 1,
+        "home_offense_epa": 1,
+        "away_offense_epa": 1,
+        "home_defense_epa": 1,
+        "away_defense_epa": 1,
+        "pace_seconds": 1,
+        "pass_rate_over_expected": 1,
+        "rest_differential": 0.05892556509887896,
+        "short_week": 1,
+        "off_bye": 1
       }
     },
     "residuals": {
-      "residuals": [
-        0.4872708677585962, -0.5127291322414038, 0.012729132241389607, 0.012729132241396712
-      ],
+      "residuals": [-1.7765151515151516, 1.7234848484848484, 0.05303030303030279],
       "bandwidth": 1.5,
       "support": {
         "min": -21,
@@ -1091,5 +1207,5 @@
       "keyWeights": []
     }
   },
-  "checksum": "56bd99b398f9912e0eda6f598323843cbfaa626e3c7c2fa01917dfc7ffab7d76"
+  "checksum": "51f78e07657c2a4af3f8fb50d711f4ca6515069c6d22d5b3e05a184d59442c2e"
 }

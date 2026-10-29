@@ -136,10 +136,22 @@ function isModelArtifact(value: unknown): value is ModelArtifact {
   const artifact = record(value, "artifact");
   requireValue(artifact.kind === "pocketcheck-baseline", "artifact.kind", "unsupported model kind");
   requireValue(
-    artifact.version === 4,
+    artifact.version === 5,
     "artifact.version",
-    `version ${String(artifact.version)} is not supported. Refit with npm run model:fit`,
+    `version ${String(artifact.version)} is not supported. Refit required: run npm run model:fit`,
   );
+  const anchor = record(artifact.anchor, "artifact.anchor");
+  requireValue(
+    anchor.history === "recorded close" &&
+      anchor.decisionTime === "one sportsbook's two sides" &&
+      typeof anchor.definition === "string",
+    "artifact.anchor",
+    "unsupported anchor definition",
+  );
+  const excluded = record(anchor.excludedNoClose, "artifact.anchor.excludedNoClose");
+  for (const market of MARKETS) {
+    count(excluded[market], `artifact.anchor.excludedNoClose.${market}`);
+  }
   hash(artifact.checksum, "artifact.checksum");
   hash(artifact.datasetHash, "artifact.datasetHash");
   timestamp(artifact.trainingCutoff, "artifact.trainingCutoff");
@@ -173,14 +185,14 @@ function isModelArtifact(value: unknown): value is ModelArtifact {
   requireValue(
     definitions.length === FEATURE_DEFINITIONS.length,
     "artifact.featureDefinitions",
-    "feature definitions must match version 4",
+    "feature definitions must match the artifact",
   );
   FEATURE_DEFINITIONS.forEach((feature, index) => {
     const definition = record(definitions[index], "artifact.featureDefinitions");
     requireValue(
       definition.name === feature.name && definition.description === feature.description,
       "artifact.featureDefinitions",
-      "feature definitions must match version 4",
+      "feature definitions must match the artifact",
     );
   });
   const features = record(artifact.featureParameters, "artifact.featureParameters");
@@ -229,7 +241,7 @@ function isModelArtifact(value: unknown): value is ModelArtifact {
     requireValue(
       options[key] === expected,
       `artifact.uncertainty.options.${key}`,
-      "unsupported version 4 calibration option",
+      "unsupported calibration option",
     );
   }
   const markets = record(uncertainty.markets, "artifact.uncertainty.markets");
@@ -475,7 +487,84 @@ function isEvaluationReport(value: unknown, artifact: ModelArtifact): value is E
       "no interval without decisive outcomes",
     );
   }
+  if ("comparison" in report) comparisonSection(report.comparison, marketCounts);
+  if ("ablation" in report) ablationSection(report.ablation, marketCounts);
+  if ("evidence" in report) {
+    requireValue(
+      report.evidence === "development",
+      "evaluation.evidence",
+      "historical scores are development evidence",
+    );
+  }
   return true;
+}
+
+function comparisonSection(value: unknown, marketCounts: ReadonlyMap<string, number>): void {
+  const comparison = record(value, "evaluation.comparison");
+  hash(comparison.previousChecksum, "evaluation.comparison.previousChecksum");
+  requireValue(
+    comparison.evidence === "development",
+    "evaluation.comparison.evidence",
+    "a historical comparison is development evidence and cannot release a market",
+  );
+  const seen = new Set<string>();
+  for (const entry of array(comparison.markets, "evaluation.comparison.markets")) {
+    const market = record(entry, "evaluation.comparison.market");
+    const name = text(market.market, "evaluation.comparison.market.market");
+    const expected = marketCounts.get(name);
+    requireValue(expected !== undefined, "evaluation.comparison.market", "unsupported market");
+    requireValue(!seen.has(name), "evaluation.comparison.markets", "duplicate market");
+    seen.add(name);
+    requireValue(
+      count(market.count, "evaluation.comparison.market.count", 1) === expected,
+      "evaluation.comparison.market.count",
+      "a comparison must cover the same games as the report",
+    );
+    scores(market.candidate, "evaluation.comparison.candidate");
+    scores(market.previous, "evaluation.comparison.previous");
+    interval(market.logLossDifferenceInterval, "evaluation.comparison.interval");
+  }
+}
+
+function ablationSection(value: unknown, marketCounts: ReadonlyMap<string, number>): void {
+  const seen = new Set<string>();
+  for (const entry of array(value, "evaluation.ablation")) {
+    const group = record(entry, "evaluation.ablation.group");
+    const name = text(group.group, "evaluation.ablation.group.group");
+    requireValue(
+      name.length > 0 && !seen.has(name),
+      "evaluation.ablation",
+      "duplicate input group",
+    );
+    seen.add(name);
+    const features = array(group.features, "evaluation.ablation.features");
+    requireValue(
+      features.length > 0,
+      "evaluation.ablation.features",
+      "an input group names its features",
+    );
+    for (const feature of features) text(feature, "evaluation.ablation.feature");
+    const markets = new Set<string>();
+    for (const item of array(group.markets, "evaluation.ablation.markets")) {
+      const market = record(item, "evaluation.ablation.market");
+      const marketName = text(market.market, "evaluation.ablation.market.market");
+      const expected = marketCounts.get(marketName);
+      requireValue(
+        expected !== undefined && !markets.has(marketName),
+        "evaluation.ablation.market",
+        "unsupported or duplicate market",
+      );
+      markets.add(marketName);
+      requireValue(
+        count(market.count, "evaluation.ablation.market.count", 1) === expected,
+        "evaluation.ablation.market.count",
+        "an ablation must cover the same games as the report",
+      );
+      scores(market.withGroup, "evaluation.ablation.withGroup");
+      scores(market.withoutGroup, "evaluation.ablation.withoutGroup");
+      interval(market.logLossDifferenceInterval, "evaluation.ablation.interval");
+    }
+  }
 }
 
 /** Parses a versioned report tied to this exact artifact before release. */

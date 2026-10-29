@@ -43,6 +43,8 @@ export type ModelPickPerformance = {
   overall: CohortSummary;
   byMarket: Record<Market, CohortSummary>;
   byGrade: Record<StrengthGrade, CohortSummary>;
+  /** Primary picks grouped by the artifact that produced them. A missing checksum stays unknown. */
+  byArtifact: { checksum: string; summary: CohortSummary }[];
   /** Picks left out of the sample, so a smaller sample is never a silent one. */
   excluded: { refresh: number; ineligible: number; unclassified: number };
 };
@@ -81,7 +83,7 @@ export function modelPickPerformance(
     const role = trackedRole(listed);
     if (!role) return [];
     const result = listed.grade.effective;
-    const row: TrackedModelPick & { market: Market; grade: StrengthGrade } = {
+    const row: TrackedModelPick & { market: Market; grade: StrengthGrade; checksum: string } = {
       id: listed.pick.id,
       gameId: listed.game.id,
       role,
@@ -90,6 +92,7 @@ export function modelPickPerformance(
       closing: closingFor(closings, "model-pick", listed.pick.id),
       market: listed.pick.market,
       grade: listed.pick.calculation.grade,
+      checksum: listed.pick.forecastingModel.checksum || "unknown",
     };
     return [row];
   });
@@ -124,6 +127,10 @@ export function modelPickPerformance(
     byGrade: Object.fromEntries(
       GRADES.map((grade) => [grade, slice((row) => row.grade === grade)]),
     ) as Record<StrengthGrade, CohortSummary>,
+    byArtifact: [...new Set(tracked.map((row) => row.checksum))].sort().map((checksum) => ({
+      checksum,
+      summary: slice((row) => row.checksum === checksum),
+    })),
     excluded: {
       refresh: picks.filter((item) => item.pick.role.role === "refresh").length,
       ineligible: picks.filter((item) => item.pick.role.role === "ineligible").length,

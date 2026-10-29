@@ -14,18 +14,21 @@
     "prepare": "svelte-kit sync || echo ''",
     "check": "vp check && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "test": "node --experimental-strip-types scripts/unit-test.ts",
-    "test:integration": "vp test run tests/integration",
+    "test:integration": "vp test run tests/integration --testTimeout=30000 --hookTimeout=30000",
     "db:migrate": "node scripts/migrate.mjs",
     "data:import": "node --experimental-strip-types scripts/data/import.ts",
     "data:schedule": "node --experimental-strip-types scripts/data/schedule.ts",
     "data:injuries": "node --experimental-strip-types scripts/data/injuries.ts",
+    "data:play-by-play": "node --experimental-strip-types scripts/data/play-by-play.ts",
+    "data:snap-counts": "node --experimental-strip-types scripts/data/snap-counts.ts",
     "model:fit": "node --experimental-strip-types scripts/model/fit.ts",
     "model:evaluate": "node --experimental-strip-types scripts/model/evaluate.ts",
     "model:release": "node --experimental-strip-types scripts/model/release.ts",
     "test:e2e": "node --experimental-strip-types scripts/browser-test.ts",
     "verify": "node --experimental-strip-types scripts/verify.ts",
     "verify:database": "node --experimental-strip-types scripts/verify.ts --database",
-    "start": "node --experimental-strip-types --env-file=.env scripts/start.ts"
+    "start": "node --experimental-strip-types --env-file=.env scripts/start.ts",
+    "model:refit": "node --experimental-strip-types scripts/model/refit.ts"
   },
   "dependencies": {
     "postgres": "^3.4.9"

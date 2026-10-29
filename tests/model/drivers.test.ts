@@ -32,15 +32,18 @@ describe("forecast drivers", () => {
     const byName = Object.fromEntries(
       predicted.drivers.margin.contributions.map((item) => [item.feature, item.points]),
     );
-    // Worked by hand from the artifact's coefficients: one and two standard deviations.
-    expect(byName.away_rest_days).toBeCloseTo(-4.641235887593899, 9);
-    expect(byName.home_prior_margin).toBeCloseTo(-6.697206315864221, 9);
+    // One standard deviation of rest and two of margin, worked from the artifact's coefficients.
+    expect(byName.away_rest_days).toBeCloseTo(margin.coefficients.away_rest_days, 9);
+    expect(byName.home_prior_margin).toBeCloseTo(2 * margin.coefficients.home_prior_margin, 9);
     expect(byName.home_indicator).toBeCloseTo(0, 12);
     expect(predicted.drivers.margin.contributions.map((item) => item.feature)).toEqual(
       FEATURE_DEFINITIONS.map((item) => item.name),
     );
-    expect(predicted.drivers.margin.intercept).toBeCloseTo(-0.25, 12);
-    expect(predicted.marginMean).toBeCloseTo(-0.25 - 4.641235887593899 - 6.697206315864221, 9);
+    const expected =
+      predicted.drivers.margin.intercept +
+      margin.coefficients.away_rest_days +
+      2 * margin.coefficients.home_prior_margin;
+    expect(predicted.marginMean).toBeCloseTo(expected, 9);
   });
 
   it("returns the total's own contributions, which sum with its intercept to the total mean", () => {

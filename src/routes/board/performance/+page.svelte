@@ -73,6 +73,18 @@
     </section>
   {/each}
 
+  <h2>By forecasting model</h2>
+  {#if performance.byArtifact.length === 0}
+    <p class="pc-unknown" data-testid="no-artifact-groups">No model pick has a forecasting model yet.</p>
+  {:else}
+    {#each performance.byArtifact as group (group.checksum)}
+      <section class="pc-section" data-testid="artifact-{group.checksum.slice(0, 12)}">
+        <h3>Artifact {group.checksum.slice(0, 12)}</h3>
+        {@render counts(group.summary, `artifact-${group.checksum.slice(0, 12)}`)}
+      </section>
+    {/each}
+  {/if}
+
   <h2>Primary model picks</h2>
   {#if performance.rows.length === 0}
     <p class="pc-unknown" data-testid="no-primary-picks">

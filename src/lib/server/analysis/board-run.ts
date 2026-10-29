@@ -3,6 +3,7 @@ import {
   BoardError,
   parseGameBoard,
   type BoardMoneylineInput,
+  type BoardQuote,
   type BoardSpreadInput,
   type BoardTotalInput,
 } from "#lib/domain/board.ts";
@@ -42,6 +43,8 @@ export type GameBoardRequest = {
   moneyline?: BoardMoneylineInput;
   spread?: BoardSpreadInput;
   total?: BoardTotalInput;
+  /** Prices from sportsbooks other than the anchor sportsbook. */
+  extraQuotes?: BoardQuote[];
   parentId?: string | null;
   /** Optional evidence entered with the board. Entry time is the board's cutoff. */
   manualEvidence?: ManualEvidenceInput[];
@@ -102,6 +105,7 @@ async function pickMarket(input: {
   materialEvidenceMissing: boolean;
   model: ModelSource;
   forecast?: ForecastSource;
+  evidence: EvidenceItem[];
 }): Promise<FrozenMarketResult> {
   const { market, offers, game, nowIso } = input;
   const priced = await Promise.all(offers.map((offer) => price(input.model, game, nowIso, offer)));
@@ -118,7 +122,7 @@ async function pickMarket(input: {
   if (leaked) return { market, noPickReason: leaked };
   const conservative = (model: Computed) =>
     model.uncertainty.available ? model.uncertainty.probabilities : null;
-  const calculation = calculateModelPick({
+  const graded = calculateModelPick({
     market,
     sides: [
       {
@@ -135,10 +139,18 @@ async function pickMarket(input: {
     released: first.eligible && second.eligible,
     materialEvidenceMissing: input.materialEvidenceMissing,
   });
-  const pickedIndex = offers[0].selection === calculation.pickedSelection ? 0 : 1;
+  const pickedIndex = offers[0].selection === graded.pickedSelection ? 0 : 1;
   const forecast = input.forecast
-    ? await input.forecast(game, nowIso, offers[pickedIndex], priced[pickedIndex]!)
+    ? await input.forecast(game, nowIso, offers[pickedIndex], priced[pickedIndex]!, input.evidence)
     : null;
+  const recorded = forecast?.starters;
+  const starterUnknown =
+    recorded !== undefined &&
+    (recorded.home.state === "unknown" || recorded.away.state === "unknown");
+  const finalGrade =
+    starterUnknown && graded.grade === "strong"
+      ? { ...graded, grade: "lean" as const, materialEvidenceMissing: true }
+      : graded;
   const { checksum, version, trainingCutoff, releaseStatus, releasedMarkets } = first.artifact;
   return {
     market,
@@ -151,7 +163,7 @@ async function pickMarket(input: {
         releaseStatus,
         releasedMarkets,
       },
-      calculation,
+      calculation: finalGrade,
       forecast,
     },
   };
@@ -245,6 +257,7 @@ export async function runGameBoard(
       moneyline: request.moneyline,
       spread: request.spread,
       total: request.total,
+      extraQuotes: request.extraQuotes,
     });
   } catch (error) {
     if (error instanceof BoardError) return { ok: false, error: error.message };
@@ -258,7 +271,10 @@ export async function runGameBoard(
     const parent = await store.getBoard(request.parentId);
     if (!parent) return { ok: false, error: "The board to refresh was not found." };
     if (parent.game.id !== request.game.id) {
-      return { ok: false, error: "A refresh must be for the same game as the board it refreshes." };
+      return {
+        ok: false,
+        error: "A refresh must be for the same game as the board it refreshes.",
+      };
     }
     if (parent.status !== "completed") {
       return { ok: false, error: "Only a frozen board can be refreshed." };
@@ -284,7 +300,10 @@ export async function runGameBoard(
       }),
     );
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : "Invalid manual evidence" };
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Invalid manual evidence",
+    };
   }
   const leanText = request.lean?.trim() ?? "";
   const leanRationale = request.rationale?.trim() ?? "";
@@ -356,12 +375,16 @@ export async function runGameBoard(
         materialEvidenceMissing: gathered.materialEvidenceMissing,
         model,
         forecast,
+        evidence: gathered.items,
       });
       results.push(
         picked.pick
           ? {
               ...picked,
-              pick: { ...picked.pick, parentPickId: parentPicks.get(entry.market) ?? null },
+              pick: {
+                ...picked.pick,
+                parentPickId: parentPicks.get(entry.market) ?? null,
+              },
             }
           : picked,
       );
@@ -374,7 +397,11 @@ export async function runGameBoard(
     });
     const packet = packetOf(frozen);
     if (packet.picks.length === 0) {
-      const board = await store.finishBoard({ boardId, status: "completed", failureReason: null });
+      const board = await store.finishBoard({
+        boardId,
+        status: "completed",
+        failureReason: null,
+      });
       return { ok: true, board };
     }
 
@@ -396,7 +423,11 @@ export async function runGameBoard(
       const reason = ambiguous
         ? AMBIGUOUS
         : redactText(drafted.error?.message ?? "The drafter returned no explanation.");
-      const board = await store.finishBoard({ boardId, status: "failed", failureReason: reason });
+      const board = await store.finishBoard({
+        boardId,
+        status: "failed",
+        failureReason: reason,
+      });
       return { ok: false, error: reason, board };
     }
     return await finishWithExplanation(store, withDraft, drafted.report);

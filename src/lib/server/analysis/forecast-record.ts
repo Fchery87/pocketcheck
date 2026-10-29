@@ -1,6 +1,7 @@
 import type { OutcomeProbabilities } from "#lib/domain/odds.ts";
 import type { UncertaintyAssessment } from "../models/uncertainty.ts";
 import type { StarterAssumption } from "../models/forecast.ts";
+import type { WeatherAdjustment } from "../models/forecast.ts";
 import type { MeanContributions } from "../models/fit.ts";
 
 export const FORECAST_PROVENANCE = {
@@ -32,4 +33,6 @@ export type SavedForecast = {
    * forecasts frozen before drivers were recorded.
    */
   drivers?: { margin: MeanContributions; total: MeanContributions };
+  /** The kickoff weather considered. Absent on forecasts frozen before weather was recorded. */
+  weather?: WeatherAdjustment;
 };

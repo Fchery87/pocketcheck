@@ -17,6 +17,19 @@
   let formElement: HTMLFormElement | undefined = $state();
   const blankRow = () => ({ text: "", url: "", time: "", covers: "", team: "" });
   let manualRows = $derived(form?.manual?.length ? form.manual : [blankRow()]);
+  const blankQuote = () => ({
+    sportsbook: "",
+    market: "moneyline",
+    selection: "away",
+    americanOdds: "",
+    pointLine: "",
+    observedAt: "",
+  });
+  let quoteRows = $state([blankQuote()]);
+  $effect(() => {
+    const kept = form?.quotes;
+    if (kept?.length) quoteRows = kept.map((row) => ({ ...blankQuote(), ...row }));
+  });
 
   const parseOdds = (text: string) => {
     const odds = Number(text.trim().replace("−", "-"));
@@ -252,6 +265,59 @@
           </div>
         {/each}
       </div>
+    </section>
+
+    <section class="pc-section" aria-labelledby="board-quotes-title">
+      <h2 id="board-quotes-title">Other sportsbooks (optional)</h2>
+      <p class="pc-hint">
+        A price from another sportsbook for a side you already entered. The best price on the same line is
+        marked and used for the model pick. A different line is listed as another contract, not a better price.
+      </p>
+      <div data-testid="quote-rows">
+        {#each quoteRows as row, index (index)}
+          <div class="pc-evidence-row" data-testid="quote-row">
+            <label class="pc-field">
+              Sportsbook
+              <input name="quoteSportsbook" data-testid="quote-sportsbook" bind:value={row.sportsbook} />
+            </label>
+            <label class="pc-field">
+              Market
+              <select name="quoteMarket" data-testid="quote-market" bind:value={row.market}>
+                <option value="moneyline">moneyline</option>
+                <option value="spread">spread</option>
+                <option value="total">total</option>
+              </select>
+            </label>
+            <label class="pc-field">
+              Side
+              <select name="quoteSelection" data-testid="quote-selection" bind:value={row.selection}>
+                <option value="home">home</option>
+                <option value="away">away</option>
+                <option value="over">over</option>
+                <option value="under">under</option>
+              </select>
+            </label>
+            <label class="pc-field">
+              American odds
+              <input name="quoteOdds" data-testid="quote-odds" bind:value={row.americanOdds} inputmode="numeric" />
+            </label>
+            <label class="pc-field">
+              Point line, if this is a spread or total
+              <input name="quoteLine" data-testid="quote-line" bind:value={row.pointLine} inputmode="decimal" />
+            </label>
+            <label class="pc-field">
+              When you saw it
+              <input name="quoteObservedAt" type="datetime-local" data-testid="quote-observed-at" bind:value={row.observedAt} />
+            </label>
+            <Button class="justify-self-start" onclick={() => (quoteRows = quoteRows.filter((_, item) => item !== index))}>
+              Remove quote
+            </Button>
+          </div>
+        {/each}
+      </div>
+      <Button class="justify-self-start" data-testid="add-quote" onclick={() => (quoteRows = [...quoteRows, blankQuote()])}>
+        Add a quote
+      </Button>
     </section>
 
     <section class="pc-section" aria-labelledby="board-evidence-title">

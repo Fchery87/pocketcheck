@@ -60,9 +60,98 @@ export const FEATURE_DEFINITIONS = [
     name: "home_indicator",
     description: "1 when the game is not neutral, otherwise 0.",
   },
+  {
+    name: "home_qb_efficiency",
+    description:
+      "Home starter's recency-weighted EPA per dropback plus completion percentage over expected, shrunk toward qbReplacement by qbPriorWeight. Uses only plays from games eligible before the cutoff.",
+  },
+  {
+    name: "away_qb_efficiency",
+    description: "The same quarterback efficiency for the away starter.",
+  },
+  {
+    name: "home_offense_epa",
+    description:
+      "Home offense's opponent-adjusted, recency-weighted EPA per play, carried from last season at seasonCarry.",
+  },
+  {
+    name: "away_offense_epa",
+    description: "The same offensive efficiency for the away team.",
+  },
+  {
+    name: "home_defense_epa",
+    description:
+      "Home defense's opponent-adjusted EPA per play allowed, negated so higher is better.",
+  },
+  {
+    name: "away_defense_epa",
+    description: "The same defensive efficiency for the away team.",
+  },
+  {
+    name: "pace_seconds",
+    description: "Combined seconds per offensive play for both teams. Lower is faster.",
+  },
+  {
+    name: "pass_rate_over_expected",
+    description: "Combined pass rate over expected for both teams.",
+  },
+  {
+    name: "rest_differential",
+    description: "Home rest days minus away rest days.",
+  },
+  {
+    name: "short_week",
+    description: "1 when either team is on fewer than 6 days of rest.",
+  },
+  {
+    name: "off_bye",
+    description: "1 when either team is coming off 13 or more days of rest.",
+  },
 ] as const;
 
 export type FeatureName = (typeof FEATURE_DEFINITIONS)[number]["name"];
+
+/**
+ * Features dropped together for an ablation. A group is kept only when dropping it makes
+ * held-out log loss worse. Later features join a group here.
+ */
+export const INPUT_GROUPS: readonly {
+  group: string;
+  features: readonly FeatureName[];
+}[] = [
+  {
+    group: "score margin",
+    features: ["home_prior_margin", "away_prior_margin"],
+  },
+  {
+    group: "points scored and allowed",
+    features: [
+      "home_prior_points_for",
+      "away_prior_points_for",
+      "home_prior_points_against",
+      "away_prior_points_against",
+    ],
+  },
+  { group: "rest", features: ["home_rest_days", "away_rest_days"] },
+  {
+    group: "quarterback",
+    features: ["home_qb_share", "away_qb_share", "home_qb_rating", "away_qb_rating"],
+  },
+  { group: "home field", features: ["home_indicator"] },
+  {
+    group: "quarterback efficiency",
+    features: ["home_qb_efficiency", "away_qb_efficiency"],
+  },
+  {
+    group: "team efficiency",
+    features: ["home_offense_epa", "away_offense_epa", "home_defense_epa", "away_defense_epa"],
+  },
+  { group: "pace", features: ["pace_seconds", "pass_rate_over_expected"] },
+  {
+    group: "situational",
+    features: ["rest_differential", "short_week", "off_bye"],
+  },
+];
 
 export type FeatureRow = {
   gameId: string;
@@ -105,6 +194,11 @@ type TeamState = {
   lastKickoffMs: number | null;
   /** Starting quarterbacks of the team's most recent games, oldest first, across seasons. */
   recentQbs: string[];
+  offenseEpa: number;
+  defenseEpa: number;
+  secondsPerPlay: number;
+  passOverExpected: number;
+  efficiencyWeight: number;
 };
 
 const MS_PER_DAY = 86_400_000;
@@ -127,6 +221,11 @@ function emptyState(): TeamState {
     pointsAgainst: 0,
     lastKickoffMs: null,
     recentQbs: [],
+    offenseEpa: 0,
+    defenseEpa: 0,
+    secondsPerPlay: 0,
+    passOverExpected: 0,
+    efficiencyWeight: 0,
   };
 }
 
@@ -151,7 +250,12 @@ function qbShare(state: TeamState, qb: string | undefined): number {
   return starts.filter((start) => start === starter).length / starts.length;
 }
 
-type QbState = { weight: number; marginSum: number };
+type QbState = {
+  weight: number;
+  marginSum: number;
+  efficiencyWeight: number;
+  efficiencySum: number;
+};
 
 function recordStarter(state: TeamState, qb: string | undefined): void {
   if (qb === undefined) return;
@@ -164,6 +268,11 @@ function scale(state: TeamState, factor: number): void {
   state.marginSum *= factor;
   state.pointsFor *= factor;
   state.pointsAgainst *= factor;
+  state.efficiencyWeight *= factor;
+  state.offenseEpa *= factor;
+  state.defenseEpa *= factor;
+  state.secondsPerPlay *= factor;
+  state.passOverExpected *= factor;
 }
 
 /** Carries form into a new season at reduced weight, and forgets the previous kickoff for rest. */
@@ -221,12 +330,56 @@ function featureBuilder(params: FeatureParameters) {
     if (weight === 0) return params.qbReplacement;
     return ((state?.marginSum ?? 0) + params.qbPriorWeight * params.qbReplacement) / weight;
   };
+  const shrunkEfficiency = (state: TeamState, sum: number) => {
+    const weight = state.efficiencyWeight + params.priorWeight;
+    return weight === 0 ? 0 : sum / weight;
+  };
+  const pace = (state: TeamState) =>
+    state.efficiencyWeight === 0 ? 0 : state.secondsPerPlay / state.efficiencyWeight;
+  const passRate = (state: TeamState) =>
+    state.efficiencyWeight === 0 ? 0 : state.passOverExpected / state.efficiencyWeight;
+  const efficiencyRating = (qb: string | undefined) => {
+    const state = qb === undefined ? undefined : quarterbacks.get(qb);
+    const weight = (state?.efficiencyWeight ?? 0) + params.qbPriorWeight;
+    if (weight === 0) return params.qbReplacement;
+    return ((state?.efficiencySum ?? 0) + params.qbPriorWeight * params.qbReplacement) / weight;
+  };
   const recordRating = (qb: string | undefined, margin: number) => {
     if (qb === undefined) return;
-    const state = quarterbacks.get(qb) ?? { weight: 0, marginSum: 0 };
+    const state = quarterbacks.get(qb) ?? {
+      weight: 0,
+      marginSum: 0,
+      efficiencyWeight: 0,
+      efficiencySum: 0,
+    };
     state.weight = state.weight * params.qbDecay + 1;
     state.marginSum = state.marginSum * params.qbDecay + margin;
     quarterbacks.set(qb, state);
+  };
+  const recordQbEfficiency = (qb: string | undefined, epa: number | null) => {
+    if (qb === undefined || epa === null) return;
+    const state = quarterbacks.get(qb) ?? {
+      weight: 0,
+      marginSum: 0,
+      efficiencyWeight: 0,
+      efficiencySum: 0,
+    };
+    state.efficiencyWeight = state.efficiencyWeight * params.qbDecay + 1;
+    state.efficiencySum = state.efficiencySum * params.qbDecay + epa;
+    quarterbacks.set(qb, state);
+  };
+  const recordEfficiency = (
+    state: TeamState,
+    offense: number,
+    defense: number,
+    seconds: number | null,
+    passOver: number | null,
+  ) => {
+    state.efficiencyWeight += 1;
+    state.offenseEpa += offense;
+    state.defenseEpa += defense;
+    state.secondsPerPlay += seconds ?? 0;
+    state.passOverExpected += passOver ?? 0;
   };
 
   return {
@@ -260,6 +413,17 @@ function featureBuilder(params: FeatureParameters) {
           home_qb_rating: rating(home, game.homeQb),
           away_qb_rating: rating(away, game.awayQb),
           home_indicator: game.neutral ? 0 : 1,
+          home_qb_efficiency: efficiencyRating(game.homeQb),
+          away_qb_efficiency: efficiencyRating(game.awayQb),
+          home_offense_epa: shrunkEfficiency(home, home.offenseEpa),
+          away_offense_epa: shrunkEfficiency(away, away.offenseEpa),
+          home_defense_epa: shrunkEfficiency(home, home.defenseEpa),
+          away_defense_epa: shrunkEfficiency(away, away.defenseEpa),
+          pace_seconds: pace(home) + pace(away),
+          pass_rate_over_expected: passRate(home) + passRate(away),
+          rest_differential: restDays(home, at) - restDays(away, at),
+          short_week: restDays(home, at) < 6 || restDays(away, at) < 6 ? 1 : 0,
+          off_bye: restDays(home, at) >= 13 || restDays(away, at) >= 13 ? 1 : 0,
         },
       };
     },
@@ -275,6 +439,24 @@ function featureBuilder(params: FeatureParameters) {
       recordStarter(away, game.awayQb);
       recordRating(game.homeQb, game.homeScore - game.awayScore);
       recordRating(game.awayQb, game.awayScore - game.homeScore);
+      if (game.efficiency) {
+        recordEfficiency(
+          home,
+          game.efficiency.homeOffenseEpa,
+          game.efficiency.homeDefenseEpa,
+          game.efficiency.homeSecondsPerPlay,
+          game.efficiency.homePassOverExpected,
+        );
+        recordEfficiency(
+          away,
+          game.efficiency.awayOffenseEpa,
+          game.efficiency.awayDefenseEpa,
+          game.efficiency.awaySecondsPerPlay,
+          game.efficiency.awayPassOverExpected,
+        );
+        recordQbEfficiency(game.homeQb, game.efficiency.homeQbEpa);
+        recordQbEfficiency(game.awayQb, game.efficiency.awayQbEpa);
+      }
       leaguePoints += game.homeScore + game.awayScore;
       leagueTeamGames += 2;
     },

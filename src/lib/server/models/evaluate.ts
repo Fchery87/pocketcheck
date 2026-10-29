@@ -1,11 +1,12 @@
 import { americanToDecimal, expectedValue, proportionalMargin } from "../../domain/odds.ts";
 import { VALUE_THRESHOLD } from "../../domain/threshold.ts";
+import { anchorFromQuote } from "./anchor.ts";
 import type { ModelArtifact } from "./artifact.ts";
 import type { SideProbability } from "./distribution.ts";
 import type { FeatureRow } from "./features.ts";
 import type { Market, PricedGame, PriceSide } from "./games.ts";
 import { marginHome, totalPoints } from "./games.ts";
-import { predictGame } from "./predict.ts";
+import { predictGame, type GameProbabilities } from "./predict.ts";
 import {
   clusteredInterval,
   conservativeProbabilities,
@@ -48,7 +49,12 @@ export type EvaluationSummary = {
   count: number;
   brier: number;
   logLoss: number;
-  calibration: { lower: number; upper: number; count: number; observed: number }[];
+  calibration: {
+    lower: number;
+    upper: number;
+    count: number;
+    observed: number;
+  }[];
   baselines: BaselineComparison[];
   coverage: { priced: number; missingPrices: number };
   byMarket: Record<string, { count: number; brier: number }>;
@@ -83,8 +89,44 @@ export type EvaluationReport = {
   summary: EvaluationSummary;
 };
 
+/** One input group's contribution, scored with the group and again without it. */
+export type AblationGroup = {
+  /** The feature names dropped together. */
+  group: string;
+  features: string[];
+  markets: {
+    market: Market;
+    count: number;
+    withGroup: Scores;
+    withoutGroup: Scores;
+    /** With minus without. Negative means the group improved log loss. */
+    logLossDifferenceInterval: [number, number] | null;
+  }[];
+};
+
+/**
+ * The candidate scored against an earlier artifact on the same games. A comparison is refused
+ * when the two forecasts do not cover the same game, market, and side.
+ */
+export type ArtifactComparison = {
+  previousChecksum: string;
+  /** Close-anchored history is development evidence and cannot release a market. */
+  evidence: "development";
+  markets: {
+    market: Market;
+    count: number;
+    candidate: Scores;
+    previous: Scores;
+    logLossDifferenceInterval: [number, number] | null;
+  }[];
+};
+
 export function multiclassBrier(probability: SideProbability, outcome: Outcome): number {
-  const predicted = { win: probability.win, loss: probability.loss, push: probability.push };
+  const predicted = {
+    win: probability.win,
+    loss: probability.loss,
+    push: probability.push,
+  };
   return (["win", "loss", "push"] as const).reduce((sum, key) => {
     const target = outcome === key ? 1 : 0;
     return sum + (predicted[key] - target) ** 2;
@@ -140,14 +182,50 @@ export function scoreHoldout(
   artifact: ModelArtifact,
   rows: readonly FeatureRow[],
   games: readonly PricedGame[],
+  predict: (
+    artifact: ModelArtifact,
+    row: FeatureRow,
+    anchor?: { marginMean?: number; totalMean?: number },
+  ) => GameProbabilities = predictGame,
 ): ScoredForecast[] {
   const byId = new Map(games.map((game) => [game.id, game]));
   const forecasts: ScoredForecast[] = [];
   for (const row of rows) {
     const game = byId.get(row.gameId);
     if (!game) continue;
-    const predicted = predictGame(artifact, row);
+    const predictedRaw = predict(artifact, row);
     const prices = game.prices ?? null;
+    const marginAnchor = prices?.spread
+      ? prices.spread.line
+      : prices?.moneyline
+        ? anchorFromQuote(
+            "moneyline",
+            {
+              sportsbook: "close",
+              homeAmerican: prices.moneyline.home.american,
+              awayAmerican: prices.moneyline.away.american,
+            },
+            artifact.margin.residuals,
+          ).mean
+        : null;
+    const totalAnchor = prices?.total?.line ?? null;
+    const shift = (contributions: { points: number }[]) =>
+      contributions.reduce((sum, item) => sum + item.points, 0);
+    const predicted =
+      marginAnchor === null && totalAnchor === null
+        ? predictedRaw
+        : predict(artifact, row, {
+            ...(marginAnchor === null
+              ? {}
+              : {
+                  marginMean: marginAnchor + shift(predictedRaw.drivers.margin.contributions),
+                }),
+            ...(totalAnchor === null
+              ? {}
+              : {
+                  totalMean: totalAnchor + shift(predictedRaw.drivers.total.contributions),
+                }),
+          });
     const slate = slateOf(game.kickoff);
     const moneyline = predicted.moneyline.home;
     const moneylineOdds = prices?.moneyline?.home.american ?? null;
@@ -232,9 +310,9 @@ function missing(market: "spread" | "total", gameId: string, slate: string): Sco
   };
 }
 
-function scores(
-  members: readonly ScoredForecast[],
-  probability: (forecast: ScoredForecast) => SideProbability,
+function scores<T extends ScoredForecast>(
+  members: readonly T[],
+  probability: (forecast: T) => SideProbability,
 ): Scores {
   return {
     brier: average(
@@ -246,9 +324,9 @@ function scores(
   };
 }
 
-function differenceInterval(
-  members: readonly ScoredForecast[],
-  baseline: (forecast: ScoredForecast) => SideProbability,
+function differenceInterval<T extends ScoredForecast>(
+  members: readonly T[],
+  baseline: (forecast: T) => SideProbability,
 ): [number, number] | null {
   const bySlate = new Map<string, number[]>();
   for (const forecast of members) {
@@ -399,4 +477,111 @@ export function summarize(forecasts: readonly ScoredForecast[]): EvaluationSumma
 function average(values: number[]): number {
   if (values.length === 0) return Number.NaN;
   return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+const MARKETS = ["moneyline", "spread", "total"] as const;
+
+function forecastKey(forecast: ScoredForecast): string {
+  return `${forecast.gameId}/${forecast.market}/${forecast.side}`;
+}
+
+/**
+ * Scores two artifacts on the forecasts they share. Refuses the comparison when either side
+ * covers a game the other does not, so a gain is never measured on a different sample.
+ */
+export function compareArtifacts(
+  candidate: readonly ScoredForecast[],
+  previous: readonly ScoredForecast[],
+  previousChecksum: string,
+): ArtifactComparison {
+  const ids = (forecasts: readonly ScoredForecast[]) =>
+    [...new Set(forecasts.map((forecast) => forecast.gameId))].sort();
+  const candidateIds = ids(candidate);
+  const previousIds = ids(previous);
+  if (
+    candidateIds.length !== previousIds.length ||
+    candidateIds.some((id, index) => id !== previousIds[index])
+  ) {
+    throw new Error("The two artifacts do not cover the same games, so they cannot be compared.");
+  }
+  const graded = (forecasts: readonly ScoredForecast[]) =>
+    forecasts.filter(
+      (forecast) => forecast.market === "moneyline" || forecast.priceState === "present",
+    );
+  const left = graded(candidate);
+  const rightByKey = new Map(graded(previous).map((forecast) => [forecastKey(forecast), forecast]));
+  if (left.some((forecast) => !rightByKey.has(forecastKey(forecast)))) {
+    throw new Error("The two artifacts do not cover the same games, so they cannot be compared.");
+  }
+  return {
+    previousChecksum,
+    evidence: "development",
+    markets: MARKETS.flatMap((market) => {
+      const members = left.filter((forecast) => forecast.market === market);
+      if (members.length === 0) return [];
+      const paired = members.map((forecast) => ({
+        ...forecast,
+        other: rightByKey.get(forecastKey(forecast))!,
+      }));
+      return [
+        {
+          market,
+          count: paired.length,
+          candidate: scores(paired, (forecast) => forecast.probability),
+          previous: scores(paired, (forecast) => forecast.other.probability),
+          logLossDifferenceInterval: differenceInterval(
+            paired,
+            (forecast) => forecast.other.probability,
+          ),
+        },
+      ];
+    }),
+  };
+}
+
+/**
+ * Scores the same forecasts twice: once as predicted, and once with one input group's features
+ * replaced by their training means, which removes that group's adjustment.
+ */
+export function ablateGroup(input: {
+  group: string;
+  features: readonly string[];
+  withGroup: readonly ScoredForecast[];
+  withoutGroup: readonly ScoredForecast[];
+}): AblationGroup {
+  const graded = (forecasts: readonly ScoredForecast[]) =>
+    forecasts.filter(
+      (forecast) => forecast.market === "moneyline" || forecast.priceState === "present",
+    );
+  const left = graded(input.withGroup);
+  const rightByKey = new Map(
+    graded(input.withoutGroup).map((forecast) => [forecastKey(forecast), forecast]),
+  );
+  if (left.length === 0 || left.some((forecast) => !rightByKey.has(forecastKey(forecast)))) {
+    throw new Error(`The ${input.group} ablation does not cover the same games.`);
+  }
+  return {
+    group: input.group,
+    features: [...input.features],
+    markets: MARKETS.flatMap((market) => {
+      const members = left.filter((forecast) => forecast.market === market);
+      if (members.length === 0) return [];
+      const paired = members.map((forecast) => ({
+        ...forecast,
+        other: rightByKey.get(forecastKey(forecast))!,
+      }));
+      return [
+        {
+          market,
+          count: paired.length,
+          withGroup: scores(paired, (forecast) => forecast.probability),
+          withoutGroup: scores(paired, (forecast) => forecast.other.probability),
+          logLossDifferenceInterval: differenceInterval(
+            paired,
+            (forecast) => forecast.other.probability,
+          ),
+        },
+      ];
+    }),
+  };
 }

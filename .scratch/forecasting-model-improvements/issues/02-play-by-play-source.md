@@ -12,12 +12,18 @@ Malformed or missing files become visible gaps. Large files never enter Neon.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The download command records retrieval time separately from publication time, plus dataset license and attribution
-- [ ] Parsing turns small checked-in samples into per-game team summaries with verified denominators
-- [ ] Malformed, empty, and missing season files produce gaps; other seasons remain readable
-- [ ] Summaries for a game are available only under the existing result-availability chronology
-- [ ] Source tests follow the existing injury and NWS source test style
-- [ ] The free data audit notes play-by-play as used
-- [ ] `npm run verify` passes
+- [x] The download command records retrieval time separately from publication time, plus dataset license and attribution
+- [x] Parsing turns small checked-in samples into per-game team summaries with verified denominators
+- [x] Malformed, empty, and missing season files produce gaps; other seasons remain readable
+- [x] Summaries for a game are available only under the existing result-availability chronology
+- [x] Source tests follow the existing injury and NWS source test style
+- [x] The free data audit notes play-by-play as used
+- [x] `npm run verify` passes
+
+## Answer
+
+`npm run data:play-by-play` downloads a season to the local data directory with a retrieval record; `src/lib/server/sources/play-by-play.ts` parses it into per-game team summaries. Covered by `tests/sources/play-by-play.test.ts`.
+
+Verified 2026-10-28 on `feature/forecasting-model-improvements`: `npm run verify` (540 unit tests, 31 browser tests) and `verify:database` (95 tests) pass.

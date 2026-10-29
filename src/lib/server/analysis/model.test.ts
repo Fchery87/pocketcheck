@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 import { parseOffer, type Offer } from "#lib/domain/offer.ts";
 import { withChecksum, type ModelArtifact } from "#lib/server/models/artifact.ts";
+import { FEATURE_DEFINITIONS } from "#lib/server/models/features.ts";
 import { predictMean } from "#lib/server/models/fit.ts";
 import { releaseArtifact } from "#lib/server/models/release.ts";
 import {
@@ -92,6 +93,12 @@ function spreadOffer(selection: "home" | "away", pointLine: number): Offer {
     observedAt: "2024-12-07T11:00:00.000Z",
     kickoffAt: game.kickoff,
     rules: { period: "full-game", overtime: "included" },
+    opposing: {
+      sportsbook: "Book",
+      pointLine: -pointLine,
+      americanOdds: -110,
+      observedAt: "2024-12-07T11:00:00.000Z",
+    },
   });
 }
 
@@ -105,6 +112,10 @@ const trainingGames = finished.map((row) => ({
   away: row.away,
   homeScore: row.scores![0],
   awayScore: row.scores![1],
+  prices: {
+    spread: { line: -3, home: { american: -110 }, away: { american: -110 } },
+    total: { line: 44, over: { american: -110 }, under: { american: -110 } },
+  },
 }));
 const artifact = fitArtifact(trainingGames, "2024-10-15T00:00:00.000Z");
 
@@ -289,7 +300,7 @@ describe("the model a run uses", () => {
     expect(win + loss + push).toBeCloseTo(1, 10);
     expect(result.artifact).toEqual({
       checksum: artifact.checksum,
-      version: 4,
+      version: 5,
       trainingCutoff: artifact.trainingCutoff,
       releaseStatus: "unreleased",
       releasedMarkets: [],
@@ -313,13 +324,17 @@ describe("the model a run uses", () => {
     expect(forecast?.marketEligibility.eligible).toBe(false);
     expect(forecast?.artifact.checksum).toBe(artifact.checksum);
     // The frozen forecast records what moved the margin and the total, in points.
-    const row = { gameId: "next", kickoff: game.kickoff, features: forecast!.features } as never;
+    const row = {
+      gameId: "next",
+      kickoff: game.kickoff,
+      features: forecast!.features,
+    } as never;
     for (const [name, model] of [
       ["margin", artifact.margin.model],
       ["total", artifact.total.model],
     ] as const) {
       const drivers = forecast!.drivers![name];
-      expect(drivers.contributions).toHaveLength(13);
+      expect(drivers.contributions).toHaveLength(FEATURE_DEFINITIONS.length);
       const sum = drivers.contributions.reduce(
         (value, item) => value + item.points,
         drivers.intercept,
