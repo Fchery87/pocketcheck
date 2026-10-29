@@ -1,6 +1,6 @@
 {
   "kind": "pocketcheck-baseline",
-  "version": 5,
+  "version": 6,
   "releaseStatus": "unreleased",
   "releasedMarkets": [],
   "anchor": {
@@ -117,6 +117,126 @@
     {
       "name": "off_bye",
       "description": "1 when either team is coming off 13 or more days of rest."
+    },
+    {
+      "name": "home_offense_pass_epa",
+      "description": "Home offense's opponent-adjusted passing EPA per play, recency-weighted and shrunk toward the league mean. Carried from last season at seasonCarry."
+    },
+    {
+      "name": "away_offense_pass_epa",
+      "description": "Away offense's opponent-adjusted passing EPA per play, recency-weighted and shrunk toward the league mean. Carried from last season at seasonCarry."
+    },
+    {
+      "name": "home_offense_rush_epa",
+      "description": "Home offense's opponent-adjusted rushing EPA per play, recency-weighted and shrunk toward the league mean. Carried from last season at seasonCarry."
+    },
+    {
+      "name": "away_offense_rush_epa",
+      "description": "Away offense's opponent-adjusted rushing EPA per play, recency-weighted and shrunk toward the league mean. Carried from last season at seasonCarry."
+    },
+    {
+      "name": "home_defense_pass_epa",
+      "description": "Home defense's opponent-adjusted passing EPA prevented per play, recency-weighted and shrunk toward the league mean. Carried from last season at seasonCarry."
+    },
+    {
+      "name": "away_defense_pass_epa",
+      "description": "Away defense's opponent-adjusted passing EPA prevented per play, recency-weighted and shrunk toward the league mean. Carried from last season at seasonCarry."
+    },
+    {
+      "name": "home_defense_rush_epa",
+      "description": "Home defense's opponent-adjusted rushing EPA prevented per play, recency-weighted and shrunk toward the league mean. Carried from last season at seasonCarry."
+    },
+    {
+      "name": "away_defense_rush_epa",
+      "description": "Away defense's opponent-adjusted rushing EPA prevented per play, recency-weighted and shrunk toward the league mean. Carried from last season at seasonCarry."
+    },
+    {
+      "name": "home_offense_success",
+      "description": "Home offense's opponent-adjusted success rate, recency-weighted and shrunk toward the league mean. Carried from last season at seasonCarry."
+    },
+    {
+      "name": "away_offense_success",
+      "description": "Away offense's opponent-adjusted success rate, recency-weighted and shrunk toward the league mean. Carried from last season at seasonCarry."
+    },
+    {
+      "name": "home_defense_success",
+      "description": "Home defense's opponent-adjusted success rate prevented, recency-weighted and shrunk toward the league mean. Carried from last season at seasonCarry."
+    },
+    {
+      "name": "away_defense_success",
+      "description": "Away defense's opponent-adjusted success rate prevented, recency-weighted and shrunk toward the league mean. Carried from last season at seasonCarry."
+    },
+    {
+      "name": "home_offense_early_epa",
+      "description": "Home offense's opponent-adjusted early-down EPA per play, recency-weighted and shrunk toward the league mean. Carried from last season at seasonCarry."
+    },
+    {
+      "name": "away_offense_early_epa",
+      "description": "Away offense's opponent-adjusted early-down EPA per play, recency-weighted and shrunk toward the league mean. Carried from last season at seasonCarry."
+    },
+    {
+      "name": "home_defense_early_epa",
+      "description": "Home defense's opponent-adjusted early-down EPA prevented per play, recency-weighted and shrunk toward the league mean. Carried from last season at seasonCarry."
+    },
+    {
+      "name": "away_defense_early_epa",
+      "description": "Away defense's opponent-adjusted early-down EPA prevented per play, recency-weighted and shrunk toward the league mean. Carried from last season at seasonCarry."
+    },
+    {
+      "name": "home_offense_explosive",
+      "description": "Home offense's opponent-adjusted explosive play rate (20+ yards), recency-weighted and shrunk toward the league mean. Carried from last season at seasonCarry."
+    },
+    {
+      "name": "away_offense_explosive",
+      "description": "Away offense's opponent-adjusted explosive play rate (20+ yards), recency-weighted and shrunk toward the league mean. Carried from last season at seasonCarry."
+    },
+    {
+      "name": "home_defense_explosive",
+      "description": "Home defense's opponent-adjusted explosive play rate prevented, recency-weighted and shrunk toward the league mean. Carried from last season at seasonCarry."
+    },
+    {
+      "name": "away_defense_explosive",
+      "description": "Away defense's opponent-adjusted explosive play rate prevented, recency-weighted and shrunk toward the league mean. Carried from last season at seasonCarry."
+    },
+    {
+      "name": "home_turnover_margin",
+      "description": "Home takeaways minus giveaways per game, recency-weighted and regressed heavily toward 0 by turnoverRegression games."
+    },
+    {
+      "name": "away_turnover_margin",
+      "description": "Away takeaways minus giveaways per game, recency-weighted and regressed heavily toward 0 by turnoverRegression games."
+    },
+    {
+      "name": "home_travel_km",
+      "description": "Thousands of kilometers home team travels from its home stadium to this game's stadium. 0 at home."
+    },
+    {
+      "name": "away_travel_km",
+      "description": "Thousands of kilometers away team travels from its home stadium to this game's stadium. 0 at home."
+    },
+    {
+      "name": "home_zones_crossed",
+      "description": "Time zones home team crosses to reach this game's stadium, by 15-degree meridian."
+    },
+    {
+      "name": "away_zones_crossed",
+      "description": "Time zones away team crosses to reach this game's stadium, by 15-degree meridian."
+    },
+    {
+      "name": "international",
+      "description": "1 when the stadium is outside the United States, whichever club is designated home."
+    },
+    {
+      "name": "venue_elevation_km",
+      "description": "Stadium elevation in kilometers."
+    },
+    {
+      "name": "closed_roof",
+      "description": "1 when the roof is a dome or closed."
+    },
+    {
+      "name": "turf",
+      "description": "1 when the surface is not natural grass."
     }
   ],
   "featureParameters": {
@@ -125,7 +245,13 @@
     "priorWeight": 2,
     "qbDecay": 0.97,
     "qbPriorWeight": 4,
-    "qbReplacement": -3
+    "qbReplacement": -3,
+    "qbEfficiencyReplacement": -0.1,
+    "qbCpoeScale": 20,
+    "qbFullDropbacks": 20,
+    "opponentAdjustment": 1,
+    "turnoverRegression": 12,
+    "excludedGroups": []
   },
   "residualSource": "in-sample",
   "fitParameters": {
@@ -725,7 +851,37 @@
         "pass_rate_over_expected": 0,
         "rest_differential": 4.136275663743985,
         "short_week": 0,
-        "off_bye": 0
+        "off_bye": 0,
+        "home_offense_pass_epa": 0,
+        "away_offense_pass_epa": 0,
+        "home_offense_rush_epa": 0,
+        "away_offense_rush_epa": 0,
+        "home_defense_pass_epa": 0,
+        "away_defense_pass_epa": 0,
+        "home_defense_rush_epa": 0,
+        "away_defense_rush_epa": 0,
+        "home_offense_success": 0,
+        "away_offense_success": 0,
+        "home_defense_success": 0,
+        "away_defense_success": 0,
+        "home_offense_early_epa": 0,
+        "away_offense_early_epa": 0,
+        "home_defense_early_epa": 0,
+        "away_defense_early_epa": 0,
+        "home_offense_explosive": 0,
+        "away_offense_explosive": 0,
+        "home_defense_explosive": 0,
+        "away_defense_explosive": 0,
+        "home_turnover_margin": 0,
+        "away_turnover_margin": 0,
+        "home_travel_km": 0,
+        "away_travel_km": 0,
+        "home_zones_crossed": 0,
+        "away_zones_crossed": 0,
+        "international": 0,
+        "venue_elevation_km": 0,
+        "closed_roof": 0,
+        "turf": 0
       },
       "featureMeans": {
         "home_prior_margin": -0.5833333333333334,
@@ -741,8 +897,8 @@
         "home_qb_rating": -3,
         "away_qb_rating": -3,
         "home_indicator": 1,
-        "home_qb_efficiency": -3,
-        "away_qb_efficiency": -3,
+        "home_qb_efficiency": -0.1,
+        "away_qb_efficiency": -0.1,
         "home_offense_epa": 0,
         "away_offense_epa": 0,
         "home_defense_epa": 0,
@@ -751,7 +907,37 @@
         "pass_rate_over_expected": 0,
         "rest_differential": 0,
         "short_week": 0,
-        "off_bye": 0
+        "off_bye": 0,
+        "home_offense_pass_epa": 0,
+        "away_offense_pass_epa": 0,
+        "home_offense_rush_epa": 0,
+        "away_offense_rush_epa": 0,
+        "home_defense_pass_epa": 0,
+        "away_defense_pass_epa": 0,
+        "home_defense_rush_epa": 0,
+        "away_defense_rush_epa": 0,
+        "home_offense_success": 0,
+        "away_offense_success": 0,
+        "home_defense_success": 0,
+        "away_defense_success": 0,
+        "home_offense_early_epa": 0,
+        "away_offense_early_epa": 0,
+        "home_defense_early_epa": 0,
+        "away_defense_early_epa": 0,
+        "home_offense_explosive": 0,
+        "away_offense_explosive": 0,
+        "home_defense_explosive": 0,
+        "away_defense_explosive": 0,
+        "home_turnover_margin": 0,
+        "away_turnover_margin": 0,
+        "home_travel_km": 0,
+        "away_travel_km": 0,
+        "home_zones_crossed": 0,
+        "away_zones_crossed": 0,
+        "international": 0,
+        "venue_elevation_km": 0,
+        "closed_roof": 0,
+        "turf": 0
       },
       "featureScales": {
         "home_prior_margin": 1.0103629710818451,
@@ -777,7 +963,37 @@
         "pass_rate_over_expected": 1,
         "rest_differential": 0.08838834764831845,
         "short_week": 1,
-        "off_bye": 1
+        "off_bye": 1,
+        "home_offense_pass_epa": 1,
+        "away_offense_pass_epa": 1,
+        "home_offense_rush_epa": 1,
+        "away_offense_rush_epa": 1,
+        "home_defense_pass_epa": 1,
+        "away_defense_pass_epa": 1,
+        "home_defense_rush_epa": 1,
+        "away_defense_rush_epa": 1,
+        "home_offense_success": 1,
+        "away_offense_success": 1,
+        "home_defense_success": 1,
+        "away_defense_success": 1,
+        "home_offense_early_epa": 1,
+        "away_offense_early_epa": 1,
+        "home_defense_early_epa": 1,
+        "away_defense_early_epa": 1,
+        "home_offense_explosive": 1,
+        "away_offense_explosive": 1,
+        "home_defense_explosive": 1,
+        "away_defense_explosive": 1,
+        "home_turnover_margin": 1,
+        "away_turnover_margin": 1,
+        "home_travel_km": 1,
+        "away_travel_km": 1,
+        "home_zones_crossed": 1,
+        "away_zones_crossed": 1,
+        "international": 1,
+        "venue_elevation_km": 1,
+        "closed_roof": 1,
+        "turf": 1
       }
     },
     "residuals": {
@@ -1142,7 +1358,37 @@
         "pass_rate_over_expected": 0,
         "rest_differential": -0.11249426064331448,
         "short_week": 0,
-        "off_bye": 0
+        "off_bye": 0,
+        "home_offense_pass_epa": 0,
+        "away_offense_pass_epa": 0,
+        "home_offense_rush_epa": 0,
+        "away_offense_rush_epa": 0,
+        "home_defense_pass_epa": 0,
+        "away_defense_pass_epa": 0,
+        "home_defense_rush_epa": 0,
+        "away_defense_rush_epa": 0,
+        "home_offense_success": 0,
+        "away_offense_success": 0,
+        "home_defense_success": 0,
+        "away_defense_success": 0,
+        "home_offense_early_epa": 0,
+        "away_offense_early_epa": 0,
+        "home_defense_early_epa": 0,
+        "away_defense_early_epa": 0,
+        "home_offense_explosive": 0,
+        "away_offense_explosive": 0,
+        "home_defense_explosive": 0,
+        "away_defense_explosive": 0,
+        "home_turnover_margin": 0,
+        "away_turnover_margin": 0,
+        "home_travel_km": 0,
+        "away_travel_km": 0,
+        "home_zones_crossed": 0,
+        "away_zones_crossed": 0,
+        "international": 0,
+        "venue_elevation_km": 0,
+        "closed_roof": 0,
+        "turf": 0
       },
       "featureMeans": {
         "home_prior_margin": 0,
@@ -1158,8 +1404,8 @@
         "home_qb_rating": -3,
         "away_qb_rating": -3,
         "home_indicator": 1,
-        "home_qb_efficiency": -3,
-        "away_qb_efficiency": -3,
+        "home_qb_efficiency": -0.10000000000000002,
+        "away_qb_efficiency": -0.10000000000000002,
         "home_offense_epa": 0,
         "away_offense_epa": 0,
         "home_defense_epa": 0,
@@ -1168,7 +1414,37 @@
         "pass_rate_over_expected": 0,
         "rest_differential": -0.041666666666666664,
         "short_week": 0,
-        "off_bye": 0
+        "off_bye": 0,
+        "home_offense_pass_epa": 0,
+        "away_offense_pass_epa": 0,
+        "home_offense_rush_epa": 0,
+        "away_offense_rush_epa": 0,
+        "home_defense_pass_epa": 0,
+        "away_defense_pass_epa": 0,
+        "home_defense_rush_epa": 0,
+        "away_defense_rush_epa": 0,
+        "home_offense_success": 0,
+        "away_offense_success": 0,
+        "home_defense_success": 0,
+        "away_defense_success": 0,
+        "home_offense_early_epa": 0,
+        "away_offense_early_epa": 0,
+        "home_defense_early_epa": 0,
+        "away_defense_early_epa": 0,
+        "home_offense_explosive": 0,
+        "away_offense_explosive": 0,
+        "home_defense_explosive": 0,
+        "away_defense_explosive": 0,
+        "home_turnover_margin": 0,
+        "away_turnover_margin": 0,
+        "home_travel_km": 0,
+        "away_travel_km": 0,
+        "home_zones_crossed": 0,
+        "away_zones_crossed": 0,
+        "international": 0,
+        "venue_elevation_km": 0,
+        "closed_roof": 0,
+        "turf": 0
       },
       "featureScales": {
         "home_prior_margin": 1,
@@ -1184,8 +1460,8 @@
         "home_qb_rating": 1,
         "away_qb_rating": 1,
         "home_indicator": 1,
-        "home_qb_efficiency": 1,
-        "away_qb_efficiency": 1,
+        "home_qb_efficiency": 1.3877787807814457e-17,
+        "away_qb_efficiency": 1.3877787807814457e-17,
         "home_offense_epa": 1,
         "away_offense_epa": 1,
         "home_defense_epa": 1,
@@ -1194,7 +1470,37 @@
         "pass_rate_over_expected": 1,
         "rest_differential": 0.05892556509887896,
         "short_week": 1,
-        "off_bye": 1
+        "off_bye": 1,
+        "home_offense_pass_epa": 1,
+        "away_offense_pass_epa": 1,
+        "home_offense_rush_epa": 1,
+        "away_offense_rush_epa": 1,
+        "home_defense_pass_epa": 1,
+        "away_defense_pass_epa": 1,
+        "home_defense_rush_epa": 1,
+        "away_defense_rush_epa": 1,
+        "home_offense_success": 1,
+        "away_offense_success": 1,
+        "home_defense_success": 1,
+        "away_defense_success": 1,
+        "home_offense_early_epa": 1,
+        "away_offense_early_epa": 1,
+        "home_defense_early_epa": 1,
+        "away_defense_early_epa": 1,
+        "home_offense_explosive": 1,
+        "away_offense_explosive": 1,
+        "home_defense_explosive": 1,
+        "away_defense_explosive": 1,
+        "home_turnover_margin": 1,
+        "away_turnover_margin": 1,
+        "home_travel_km": 1,
+        "away_travel_km": 1,
+        "home_zones_crossed": 1,
+        "away_zones_crossed": 1,
+        "international": 1,
+        "venue_elevation_km": 1,
+        "closed_roof": 1,
+        "turf": 1
       }
     },
     "residuals": {
@@ -1207,5 +1513,5 @@
       "keyWeights": []
     }
   },
-  "checksum": "51f78e07657c2a4af3f8fb50d711f4ca6515069c6d22d5b3e05a184d59442c2e"
+  "checksum": "69aed22c0fdeae492bec96e0a65328341e0f765aac069f7eac1bd36b8003d1ad"
 }

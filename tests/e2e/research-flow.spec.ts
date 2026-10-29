@@ -25,7 +25,7 @@ test.beforeEach(async ({ request }) => {
     weather: "off",
     model: {
       artifact: "tests/fixtures/models/browser-forecasting-model.json",
-      checksum: "51f78e07657c2a4af3f8fb50d711f4ca6515069c6d22d5b3e05a184d59442c2e",
+      checksum: "69aed22c0fdeae492bec96e0a65328341e0f765aac069f7eac1bd36b8003d1ad",
       releaseStatus: "unreleased",
       trainingCutoff: "2024-09-22T17:00:00Z",
     },
@@ -115,7 +115,7 @@ test("offer, report, refresh, and unchanged prior report", async ({ page, reques
   await expect(page.getByTestId("evidence-gaps")).toContainText("Weather collection is off");
   await expect(page.getByTestId("evidence-gaps")).toContainText("no publication time");
   // The fixture forecasting model computes, but an unreleased market's numbers stay hidden.
-  await expect(page.getByTestId("probability-model")).toContainText("Artifact 51f78e07657c");
+  await expect(page.getByTestId("probability-model")).toContainText("Artifact 69aed22c0fde");
   await expect(page.getByTestId("probability-model")).toContainText(
     "Unreleased artifacts are not eligible for a value recommendation.",
   );

@@ -11,6 +11,7 @@ import {
 } from "../../src/lib/server/models/evaluate.ts";
 import { parseEvaluationReport } from "../../src/lib/server/models/inputs.ts";
 import { fitArtifact, readGames } from "../../src/lib/server/models/train.ts";
+import { buildFeatureRows } from "../../src/lib/server/models/features.ts";
 
 const games = readGames(resolve("tests/model/fixtures/synthetic-games.json"));
 const artifact = fitArtifact(games, "2024-09-15T20:00:00Z");
@@ -255,6 +256,11 @@ describe("model:evaluate report", { timeout: 60_000 }, () => {
       "team efficiency",
       "pace",
       "situational",
+      "efficiency split",
+      "efficiency quality",
+      "turnover margin",
+      "travel",
+      "venue",
     ]);
   });
 
@@ -335,5 +341,21 @@ describe("model:refit", () => {
     const written = JSON.parse(readFileSync(next, "utf8")) as { releaseStatus: string };
     expect(written.releaseStatus).toBe("unreleased");
     expect(readFileSync(inUse, "utf8")).toBe(before);
+  });
+});
+
+describe("ablation keeps the market anchor", () => {
+  it("starts from the supplied anchor when a group's features are neutralized", async () => {
+    const { predictWithoutGroup, predictGame } =
+      await import("../../src/lib/server/models/predict.ts");
+    const games = readGames("tests/model/fixtures/synthetic-games.json");
+    const artifact = fitArtifact(games);
+    const row = buildFeatureRows(games, artifact.featureParameters).at(-1)!;
+    const unanchored = predictWithoutGroup(artifact, row, ["home_prior_margin"]);
+    const anchored = predictWithoutGroup(artifact, row, ["home_prior_margin"], {
+      marginMean: unanchored.marginMean + 7,
+    });
+    expect(anchored.marginMean).toBe(unanchored.marginMean + 7);
+    expect(predictGame(artifact, row, { totalMean: 41 }).totalMean).toBe(41);
   });
 });

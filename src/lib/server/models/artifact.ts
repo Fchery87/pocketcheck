@@ -9,7 +9,7 @@ export type ReleaseStatus = "unreleased" | "released-experimental";
 
 export type ModelArtifact = {
   kind: "pocketcheck-baseline";
-  version: 5;
+  version: 6;
   /** How the forecast starts. The fit learns only the deviation from this mean. */
   anchor: {
     definition: string;
