@@ -11,7 +11,12 @@ import {
   type StarterAssumption,
   type WeatherSnapshot,
 } from "../models/forecast.ts";
-import { recentStarter, starterAssumption, starterDecision } from "../models/starter.ts";
+import {
+  recentStarter,
+  starterAssumption,
+  starterDecision,
+  type InjuryDesignation,
+} from "../models/starter.ts";
 import { depthChartFromCsv, readSeasonFiles } from "../sources/roster.ts";
 import type { Market } from "../models/games.ts";
 import { pricedGamesFromNflverseCsv, upcomingGameFromCsv } from "../models/history.ts";
@@ -140,6 +145,26 @@ export function createArtifactModel(input: {
 }
 
 /** The kickoff forecast already collected, read back as the snapshot the forecast records. */
+/**
+ * Quarterback designations from collected injury evidence. nflverse rows carry no publication
+ * time, so the retrieval time stands in: the report existed no later than it was retrieved.
+ */
+export function quarterbackInjuries(evidence: EvidenceItem[] | undefined): InjuryDesignation[] {
+  return (evidence ?? []).flatMap((item) => {
+    const { team, playerId, position, reportStatus } = item.facts;
+    if (position !== "QB" || typeof playerId !== "string" || typeof team !== "string") return [];
+    if (typeof reportStatus !== "string" || reportStatus === "") return [];
+    return [
+      {
+        team,
+        playerId,
+        status: reportStatus,
+        publishedAt: item.publishedAt === "unknown" ? item.retrievedAt : item.publishedAt,
+      },
+    ];
+  });
+}
+
 function weatherSnapshot(
   game: ScheduledGame,
   evidence: EvidenceItem[] | undefined,
@@ -213,7 +238,7 @@ export function createArtifactForecast(input: {
           cutoff: cutoffIso,
           usualStarter: usual?.playerId ?? null,
           depthChart: depthCharts,
-          injuries: [],
+          injuries: quarterbackInjuries(evidence),
         }),
         usual?.at ?? null,
       );

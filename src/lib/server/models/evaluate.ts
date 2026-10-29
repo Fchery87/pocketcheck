@@ -1,6 +1,6 @@
 import { americanToDecimal, expectedValue, proportionalMargin } from "../../domain/odds.ts";
 import { VALUE_THRESHOLD } from "../../domain/threshold.ts";
-import { anchorFromQuote } from "./anchor.ts";
+import { anchorFromQuote, marginFromHomeLine } from "./anchor.ts";
 import type { ModelArtifact } from "./artifact.ts";
 import type { SideProbability } from "./distribution.ts";
 import type { FeatureRow } from "./features.ts";
@@ -196,7 +196,7 @@ export function scoreHoldout(
     const predictedRaw = predict(artifact, row);
     const prices = game.prices ?? null;
     const marginAnchor = prices?.spread
-      ? prices.spread.line
+      ? marginFromHomeLine(prices.spread.line)
       : prices?.moneyline
         ? anchorFromQuote(
             "moneyline",

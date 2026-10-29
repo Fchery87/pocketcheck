@@ -28,7 +28,7 @@ import {
   walkForwardPredictions,
   type WalkForwardPrediction,
 } from "./fit.ts";
-import { anchorFromQuote } from "./anchor.ts";
+import { anchorFromQuote, marginFromHomeLine } from "./anchor.ts";
 import {
   CHRONOLOGY,
   kickoffMs,
@@ -197,7 +197,7 @@ export function fitArtifact(
         distribution,
       ).mean;
     }
-    if (market === "spread" && prices?.spread) return prices.spread.line;
+    if (market === "spread" && prices?.spread) return marginFromHomeLine(prices.spread.line);
     if (market === "total" && prices?.total) return prices.total.line;
     return null;
   };

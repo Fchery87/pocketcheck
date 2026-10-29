@@ -167,6 +167,22 @@ The model is worse than the no-vig close in every market, so the release gate re
 
 The ablation on this holdout agrees with the earlier run. Team efficiency helps all three markets. Quarterback, points scored and allowed, and the efficiency split and quality groups help moneyline, and points scored and allowed also helps spread. Rest adds a little to moneyline and spread. The six excluded groups read exactly zero because their features are held at zero.
 
+## Margin anchor sign fix
+
+Every score above for moneyline and spread came from a reversed margin anchor. Stored spreads are home lines, so a home team favored by 7 has a line of -7, but training, evaluation, and live forecasts used that -7 as the home margin. The forecast started at the wrong end and the features spent their weight undoing it. On 2,867 games since 2016, a mean taken from the reversed line misses the home margin by 17.98 points RMSE, and one taken from the correct sign misses by 12.67. Totals have no side, so they were never affected. `marginFromHomeLine` in `anchor.ts` now does the conversion for all three paths.
+
+Refit on the same data and split (training through 2023-10-22, 861 holdout games), checksum `6cecb85c6685`:
+
+| Market    | Model log loss | No-vig close | Model Brier | No-vig close | Model minus close, log loss (90% interval) |
+| --------- | -------------- | ------------ | ----------- | ------------ | ------------------------------------------ |
+| Moneyline | 0.6650         | 0.6577       | 0.4338      | 0.4279       | +0.0006 to +0.0151                         |
+| Spread    | 0.7736         | 0.7691       | 0.5264      | 0.5220       | -0.0023 to +0.0115                         |
+| Total     | 0.7317         | 0.7200       | 0.5184      | 0.5070       | +0.0045 to +0.0186                         |
+
+The moneyline and spread gaps to the close shrank by about 90%. The spread interval now includes zero, so on this holdout the model cannot be told apart from the close there. It is still not better than the close in any market, so nothing is released. The no-vig close scores move slightly between runs because the baseline borrows the model's push probability.
+
+The group choices in the version 6 ablation were made with the reversed anchor. They should be rechecked on fresh prospective games, not on this holdout again. The reversed artifact is kept as `baseline.v6-flipped-anchor.json`.
+
 ## Release gate
 
 `releaseDecision` (`src/lib/server/models/release.ts`) compares each market with the `market-no-vig` baseline on the artifact's historical holdout. A clean comparison still needs:

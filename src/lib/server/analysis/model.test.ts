@@ -13,9 +13,16 @@ import {
   protocolForArtifact,
   type FrozenForecastRecord,
 } from "#lib/server/models/prospective.ts";
+import { starterDecision } from "#lib/server/models/starter.ts";
 import { fitArtifact } from "#lib/server/models/train.ts";
 import type { ScheduledGame } from "#lib/server/sources/contracts.ts";
-import { createArtifactForecast, createArtifactModel, forDisplay, noModel } from "./model.ts";
+import {
+  createArtifactForecast,
+  createArtifactModel,
+  forDisplay,
+  noModel,
+  quarterbackInjuries,
+} from "./model.ts";
 
 const HEADER =
   "game_id,season,game_type,week,gameday,weekday,gametime,away_team,away_score,home_team,home_score,location,result,total,overtime,old_game_id,gsis,nfl_detail_id,pfr,pff,espn,ftn,away_rest,home_rest,away_moneyline,home_moneyline,spread_line,away_spread_odds,home_spread_odds,total_line,under_odds,over_odds,div_game,roof,surface,temp,wind,away_qb_id,home_qb_id,away_qb_name,home_qb_name,away_coach,home_coach,referee,stadium_id,stadium";
@@ -523,5 +530,50 @@ describe("what the report page receives", () => {
     };
     expect(forDisplay(missing)).toEqual(missing);
     expect(forDisplay(null)).toBeNull();
+  });
+});
+
+describe("quarterback injuries in the starter choice", () => {
+  const item = (facts: Record<string, string | null>, publishedAt = "unknown") => ({
+    id: "i",
+    sourceId: "nflverse-injuries",
+    url: null,
+    retrievedAt: "2025-11-07T15:00:00.000Z",
+    publishedAt,
+    origin: "automatic" as const,
+    facts,
+    excerpt: null,
+    checksum: null,
+    factKey: null,
+  });
+
+  it("starts the depth-chart backup when the usual starter is ruled out", () => {
+    const injuries = quarterbackInjuries([
+      item({ team: "DAL", playerId: "qb1", position: "QB", reportStatus: "Out" }),
+      item({ team: "DAL", playerId: "wr1", position: "WR", reportStatus: "Out" }),
+      item({ team: "DAL", playerId: null, position: "QB", reportStatus: "Out" }),
+    ]);
+    expect(injuries).toEqual([
+      { team: "DAL", playerId: "qb1", status: "Out", publishedAt: "2025-11-07T15:00:00.000Z" },
+    ]);
+    const chart = (playerId: string, depth: number) => ({
+      team: "DAL",
+      season: 2025,
+      week: 0,
+      position: "QB",
+      depth,
+      playerId,
+      player: playerId,
+      updatedAt: "2025-11-06T12:00:00.000Z",
+    });
+    const decision = starterDecision({
+      team: "DAL",
+      season: 2025,
+      cutoff: "2025-11-08T12:00:00.000Z",
+      usualStarter: "qb1",
+      depthChart: [chart("qb1", 1), chart("qb2", 2)],
+      injuries,
+    });
+    expect(decision).toMatchObject({ state: "assumed", playerId: "qb2", source: "injury report" });
   });
 });
