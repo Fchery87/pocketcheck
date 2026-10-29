@@ -56,7 +56,7 @@
     market. Return uses only wins and losses. Push, void, unresolved, and a missing close are not zero.
   </p>
   <p class="pc-hint" data-testid="performance-excluded">
-    Left out of this sample: {performance.excluded.refresh} refresh,
+    Left out of this sample: {performance.excluded.withdrawn} withdrawn, {performance.excluded.refresh} refresh,
     {performance.excluded.ineligible} ineligible,
     {performance.excluded.unclassified} unclassified.
   </p>

@@ -10,6 +10,8 @@ import {
   gameSettlementPayloadKey,
   gradeBoardMarkets,
   isTerminalBoard,
+  WITHDRAW_NEEDS_REASON,
+  WITHDRAW_UNFINISHED,
   type BoardMarket,
   type ForecastingModelIdentity,
   type GameBoard,
@@ -99,6 +101,9 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
       LEFT JOIN model_pick_roles r ON r.pick_id = p.id
       WHERE p.board_id = ${id}
     `;
+    const [withdrawal] = await db<{ reason: string; withdrawn_at: Date }[]>`
+      SELECT reason, withdrawn_at FROM board_withdrawals WHERE board_id = ${id}
+    `;
     const ordered = [...markets].sort(
       (left, right) => MARKET_ORDER.indexOf(left.market) - MARKET_ORDER.indexOf(right.market),
     );
@@ -138,6 +143,9 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
       explanation: board.explanation,
       createdAt: iso(board.created_at),
       completedAt: board.completed_at ? iso(board.completed_at) : null,
+      withdrawal: withdrawal
+        ? { reason: withdrawal.reason, at: iso(withdrawal.withdrawn_at) }
+        : null,
     };
   }
 
@@ -454,6 +462,7 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
           if (!offer || !grade) continue;
           listed.push({
             pick: market.pick,
+            withdrawn: board.withdrawal !== null,
             game: board.game,
             observedAt: board.observedAt,
             offer,
@@ -463,6 +472,25 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
       }
       return listed;
     },
+    async withdrawBoard(input) {
+      const reason = input.reason.trim();
+      await sql.begin(async (tx) => {
+        const [board] = await tx<{ status: GameBoardStatus }[]>`
+          SELECT status FROM game_boards WHERE id = ${input.boardId} FOR UPDATE
+        `;
+        if (!board) throw new Error(`Game board not found: ${input.boardId}`);
+        const [existing] = await tx`
+          SELECT 1 FROM board_withdrawals WHERE board_id = ${input.boardId}
+        `;
+        if (existing) return;
+        if (!isTerminalBoard(board.status)) throw new Error(WITHDRAW_UNFINISHED);
+        if (!reason) throw new Error(WITHDRAW_NEEDS_REASON);
+        await tx`
+          INSERT INTO board_withdrawals (board_id, reason) VALUES (${input.boardId}, ${reason})
+        `;
+      });
+      return require(sql, input.boardId);
+    },
     async listBoards(): Promise<GameBoard[]> {
       const rows = await sql<{ id: string }[]>`SELECT id FROM game_boards ORDER BY created_at, id`;
       const boards: GameBoard[] = [];
@@ -470,7 +498,12 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
       return boards;
     },
     async restoreBoards(tx: TransactionSql, boards: GameBoard[]): Promise<void> {
-      for (const board of parentsFirst(boards, (item) => item.parentId)) {
+      // Backups written before withdrawals have no field; those boards were never withdrawn.
+      const normalized = boards.map(({ withdrawal, ...rest }) => ({
+        ...rest,
+        withdrawal: withdrawal ?? null,
+      }));
+      for (const board of parentsFirst(normalized, (item) => item.parentId)) {
         const existing = await read(tx, board.id);
         if (existing) {
           if (JSON.stringify(existing) !== JSON.stringify(board)) {
@@ -514,6 +547,12 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
             ${board.createdAt}, ${board.completedAt}
           )
         `;
+        if (board.withdrawal) {
+          await tx`
+            INSERT INTO board_withdrawals (board_id, reason, withdrawn_at)
+            VALUES (${board.id}, ${board.withdrawal.reason}, ${board.withdrawal.at})
+          `;
+        }
         for (const market of board.markets) {
           await tx`
             INSERT INTO board_markets (id, board_id, market, offers, no_pick_reason, frozen_at)

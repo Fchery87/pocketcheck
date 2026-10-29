@@ -396,7 +396,12 @@ export function describeModelPickPerformanceContract(
           result: "win",
         });
         expect(performance.overall.counts).toMatchObject({ settled: 1, primary: 1, refresh: 1 });
-        expect(performance.excluded).toEqual({ refresh: 1, ineligible: 0, unclassified: 0 });
+        expect(performance.excluded).toEqual({
+          withdrawn: 0,
+          refresh: 1,
+          ineligible: 0,
+          unclassified: 0,
+        });
         // Research and actual-bet summaries never see a model pick.
         const journal = journalSummaries({
           assessments: await Promise.all(
@@ -438,6 +443,55 @@ export function describeModelPickPerformanceContract(
         expect(performance.overall.denominators.returnOnSettledStakes).toBe(1);
         expect(performance.rows[0]).toMatchObject({ result: "win", americanOdds: 130 });
         expect(performance.rows[0]!.unitProfit).toBeCloseTo(1.3, 10);
+      });
+
+      it("drops a withdrawn board's picks from performance without promoting a later board", async () => {
+        const store = await makeStore();
+        const first = await freeze(store, ask({ requestId: "smoke" }));
+        await freeze(
+          store,
+          ask({
+            requestId: "after",
+            nowIso: LATER,
+            observedAt: "2026-10-25T16:30:00.000Z",
+          }),
+        );
+        const withdrawn = await store.withdrawBoard({ boardId: first.id, reason: "Smoke test" });
+        expect(withdrawn.withdrawal).toMatchObject({ reason: "Smoke test" });
+        // A repeat keeps the first reason and time.
+        const again = await store.withdrawBoard({ boardId: first.id, reason: "Other" });
+        expect(again.withdrawal).toEqual(withdrawn.withdrawal);
+        expect(await store.getBoard(first.id)).toEqual(withdrawn);
+        // The pick itself is untouched; only its counting changes.
+        expect(withdrawn.markets).toEqual(first.markets);
+        await store.recordGameSettlement(final("final", 24, 21));
+        const listed = await store.listModelPicks();
+        const performance = modelPickPerformance(listed, []);
+        expect(performance.rows).toHaveLength(0);
+        expect(performance.excluded).toMatchObject({ withdrawn: 1, refresh: 1 });
+        expect(prospectiveForecastRecords(listed)).toHaveLength(0);
+      });
+
+      it("refuses to withdraw an unfinished board or one without a reason", async () => {
+        const store = await makeStore();
+        const board = await freeze(store, ask({ requestId: "done" }));
+        await expect(store.withdrawBoard({ boardId: board.id, reason: "  " })).rejects.toThrow(
+          "Say why this board is withdrawn.",
+        );
+        const pending = await store.beginBoard({
+          request: { id: `${scopeOf()}:pending`, hash: "pending" },
+          parentId: null,
+          game: board.game,
+          sportsbook: "Board Book",
+          observedAt: "2026-10-25T15:00:00.000Z",
+          cutoffAt: "2026-10-25T15:30:00.000Z",
+          markets: board.markets.map(({ market, offers }) => ({ market, offers })),
+        });
+        if (pending.kind !== "created") throw new Error("expected a new board");
+        await expect(
+          store.withdrawBoard({ boardId: pending.board.id, reason: "Smoke test" }),
+        ).rejects.toThrow("Only a finished game board can be withdrawn.");
+        expect((await store.getBoard(board.id))?.withdrawal).toBeNull();
       });
 
       it("rejects a close for a model pick that does not exist", async () => {

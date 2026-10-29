@@ -71,6 +71,12 @@
     <p data-testid="board-sportsbook-display">Prices from {board.sportsbook}</p>
     <p class="pc-report-status">Status <span class="pc-figure" data-testid="board-status">{board.status}</span></p>
   </div>
+  {#if board.withdrawal}
+    <p class="pc-alert-block" data-testid="board-withdrawn">
+      Withdrawn from performance {easternTime(board.withdrawal.at)}: {board.withdrawal.reason}. Its picks stay
+      saved and are not counted.
+    </p>
+  {/if}
   {#if data.parent}
     <p data-testid="board-parent">
       Refreshes <a href="/board/{data.parent.id}" data-testid="parent-link">the earlier board</a> from
@@ -421,6 +427,22 @@
       <Alert data-testid="settlement-error">{form.error}</Alert>
     {/if}
   </section>
+  {#if board.status !== "pending" && !board.withdrawal}
+    <section class="pc-section" aria-labelledby="withdraw-title">
+      <h2 id="withdraw-title">Withdraw from performance</h2>
+      <p class="pc-hint">
+        For a test or a mistaken entry. The board and its picks stay saved but stop counting in model-pick
+        performance. A withdrawn primary pick is not replaced. This cannot be undone.
+      </p>
+      <form class="pc-form" method="POST" action="?/withdraw" data-testid="withdraw-form">
+        <label>Reason <input name="reason" required data-testid="withdraw-reason" /></label>
+        <Button type="submit" variant="outline" data-testid="withdraw-submit">Withdraw this board</Button>
+      </form>
+      {#if form && "withdrawError" in form && form.withdrawError}
+        <Alert data-testid="withdraw-error">{form.withdrawError}</Alert>
+      {/if}
+    </section>
+  {/if}
   {#if board.lean}
     <section class="pc-section" data-testid="board-lean" aria-labelledby="board-lean-title">
       <h2 id="board-lean-title">Your private lean</h2>

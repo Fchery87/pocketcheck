@@ -77,4 +77,21 @@ export const actions = {
       });
     }
   },
+  withdraw: async ({ request, params }) => {
+    const reason = String((await request.formData()).get("reason") ?? "").trim();
+    if (!reason)
+      return fail(400, { withdrawn: false, withdrawError: "Say why this board is withdrawn." });
+    const journal = store();
+    const board = uuid.test(params.id) ? await journal.getBoard(params.id) : null;
+    if (!board) error(404, "Game board not found");
+    try {
+      await journal.withdrawBoard({ boardId: board.id, reason });
+      return { withdrawn: true };
+    } catch (cause) {
+      return fail(400, {
+        withdrawn: false,
+        withdrawError: cause instanceof Error ? cause.message : "The board was not withdrawn",
+      });
+    }
+  },
 } satisfies Actions;

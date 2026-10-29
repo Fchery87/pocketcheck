@@ -1112,6 +1112,10 @@ function memoryFromBackup(backup: JournalExport): {
     bets: (body.actualBets ?? []).map((bet) => structuredClone(bet)),
     closings: (body.closingObservations ?? []).map((closing) => structuredClone(closing)),
     notices: (body.notices ?? []).map((notice) => structuredClone(notice)),
-    boards: (body.gameBoards ?? []).map((board) => structuredClone(board)),
+    // Backups written before withdrawals have no field; those boards were never withdrawn.
+    boards: (body.gameBoards ?? []).map((board) => ({
+      ...structuredClone(board),
+      withdrawal: board.withdrawal ?? null,
+    })),
   };
 }

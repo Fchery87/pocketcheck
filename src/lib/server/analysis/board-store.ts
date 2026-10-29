@@ -96,9 +96,16 @@ export type GameBoard = {
   usage: RunUsage | null;
   /** The drafter's validated explanation. Null until a draft passes validation. */
   explanation: PickExplanationReport | null;
+  /** Set once when a finished board is withdrawn from performance. Never cleared. */
+  withdrawal: BoardWithdrawal | null;
   createdAt: string;
   completedAt: string | null;
 };
+
+export type BoardWithdrawal = { reason: string; at: string };
+
+export const WITHDRAW_UNFINISHED = "Only a finished game board can be withdrawn.";
+export const WITHDRAW_NEEDS_REASON = "Say why this board is withdrawn.";
 
 export type BoardDrafter = { id: string; modelId: string };
 
@@ -177,6 +184,8 @@ export type RecordGameSettlementResult =
 /** A finished board's model pick, with the offer the pick named and the grade of that contract. */
 export type ListedModelPick = {
   pick: ModelPick;
+  /** The pick's board was withdrawn from performance. */
+  withdrawn: boolean;
   game: RunGame;
   observedAt: string;
   offer: Offer;
@@ -255,6 +264,11 @@ export type GameBoardStore = {
   getBoardForPick: (pickId: string) => Promise<GameBoard | null>;
   /** Model picks on finished boards, oldest completion first. Unfinished boards stay out. */
   listModelPicks: () => Promise<ListedModelPick[]>;
+  /**
+   * Withdraws a finished board from performance with a reason. A board is withdrawn once; a repeat
+   * returns it with the first reason.
+   */
+  withdrawBoard: (input: { boardId: string; reason: string }) => Promise<GameBoard>;
 };
 
 export const BOARD_CONFLICT =
@@ -331,6 +345,7 @@ export function createMemoryBoardStore(notices: StoredNotice[] = []): MemoryBoar
         providerOutcomeAmbiguous: false,
         usage: null,
         explanation: null,
+        withdrawal: null,
         createdAt: new Date().toISOString(),
         completedAt: null,
       });
@@ -532,6 +547,7 @@ export function createMemoryBoardStore(notices: StoredNotice[] = []): MemoryBoar
           return [
             {
               pick: structuredClone(market.pick),
+              withdrawn: board.withdrawal !== null,
               game: structuredClone(board.game),
               observedAt: board.observedAt,
               offer: structuredClone(offer),
@@ -540,6 +556,19 @@ export function createMemoryBoardStore(notices: StoredNotice[] = []): MemoryBoar
           ];
         });
       });
+    },
+    async withdrawBoard(input) {
+      const board = require(input.boardId);
+      if (board.withdrawal) return structuredClone(board);
+      if (!isTerminalBoard(board.status)) throw new Error(WITHDRAW_UNFINISHED);
+      const reason = input.reason.trim();
+      if (!reason) throw new Error(WITHDRAW_NEEDS_REASON);
+      const updated: GameBoard = {
+        ...board,
+        withdrawal: { reason, at: new Date().toISOString() },
+      };
+      boards.set(board.id, updated);
+      return structuredClone(updated);
     },
     pickContract(pickId) {
       for (const board of boards.values()) {

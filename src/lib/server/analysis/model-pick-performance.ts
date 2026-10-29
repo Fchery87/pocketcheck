@@ -46,10 +46,11 @@ export type ModelPickPerformance = {
   /** Primary picks grouped by the artifact that produced them. A missing checksum stays unknown. */
   byArtifact: { checksum: string; summary: CohortSummary }[];
   /** Picks left out of the sample, so a smaller sample is never a silent one. */
-  excluded: { refresh: number; ineligible: number; unclassified: number };
+  excluded: { withdrawn: number; refresh: number; ineligible: number; unclassified: number };
 };
 
 function trackedRole(listed: ListedModelPick): "primary" | "refresh" | null {
+  if (listed.withdrawn) return null;
   const role = listed.pick.role.role;
   return role === "primary" || role === "refresh" ? role : null;
 }
@@ -98,7 +99,8 @@ export function modelPickPerformance(
   });
   const slice = (keep: (row: (typeof tracked)[number]) => boolean) =>
     summarizeModelPicks(tracked.filter(keep));
-  const rows = picks.flatMap((listed): ModelPickRow[] => {
+  const kept = picks.filter((listed) => !listed.withdrawn);
+  const rows = kept.flatMap((listed): ModelPickRow[] => {
     if (listed.pick.role.role !== "primary") return [];
     const result = listed.grade.effective;
     return [
@@ -132,9 +134,10 @@ export function modelPickPerformance(
       summary: slice((row) => row.checksum === checksum),
     })),
     excluded: {
-      refresh: picks.filter((item) => item.pick.role.role === "refresh").length,
-      ineligible: picks.filter((item) => item.pick.role.role === "ineligible").length,
-      unclassified: picks.filter((item) => item.pick.role.role === "unclassified").length,
+      withdrawn: picks.length - kept.length,
+      refresh: kept.filter((item) => item.pick.role.role === "refresh").length,
+      ineligible: kept.filter((item) => item.pick.role.role === "ineligible").length,
+      unclassified: kept.filter((item) => item.pick.role.role === "unclassified").length,
     },
   };
 }
@@ -152,7 +155,7 @@ export function prospectiveForecastRecords(picks: ListedModelPick[]): FrozenFore
   return picks.flatMap((listed) => {
     const role = listed.pick.role;
     const forecast = listed.pick.forecast;
-    if (role.role !== "primary" || !forecast) return [];
+    if (listed.withdrawn || role.role !== "primary" || !forecast) return [];
     return [
       {
         id: listed.pick.id,
