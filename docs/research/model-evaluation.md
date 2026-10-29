@@ -153,6 +153,20 @@ Notes on each decision:
 - **Pace** dropped. Tempo is now measured as the game clock between snaps of one drive; before, it averaged seconds remaining and meant nothing.
 - Quarterback ratings, opponent adjustment, `seasonCarry`, `opponentAdjustment`, `qbCpoeScale`, and `turnoverRegression` are versioned in `featureParameters`. None was tuned on this holdout.
 
+## Refit baseline artifact
+
+`data/artifacts/baseline.json` was refit from the same 2016-2025 schedule and play-by-play (`MODEL_SINCE_SEASON=2016 npm run model:refit`). It is version 6, unreleased, checksum `af1cd83ca059`, with the six excluded groups recorded in its feature parameters. The default split trains on the earliest 70% of games, so training stops at 2023-10-22 and the holdout is 861 priced games after it. That is smaller and later than the 1,245-game run above, so the two sets of scores do not compare directly. The version 5 artifact is kept as `baseline.v5-old.json`.
+
+| Market    | Model log loss | No-vig close | Model Brier | No-vig close | Model minus close, log loss (90% interval) |
+| --------- | -------------- | ------------ | ----------- | ------------ | ------------------------------------------ |
+| Moneyline | 0.7346         | 0.6517       | 0.4976      | 0.4273       | +0.0618 to +0.1056                         |
+| Spread    | 0.8520         | 0.7697       | 0.5907      | 0.5221       | +0.0574 to +0.1069                         |
+| Total     | 0.7317         | 0.7200       | 0.5184      | 0.5070       | +0.0045 to +0.0186                         |
+
+The model is worse than the no-vig close in every market, so the release gate releases nothing. The total is nearest, but its interval stays above zero. These are development numbers: the close is the anchor and already holds late news.
+
+The ablation on this holdout agrees with the earlier run. Team efficiency helps all three markets. Quarterback, points scored and allowed, and the efficiency split and quality groups help moneyline, and points scored and allowed also helps spread. Rest adds a little to moneyline and spread. The six excluded groups read exactly zero because their features are held at zero.
+
 ## Release gate
 
 `releaseDecision` (`src/lib/server/models/release.ts`) compares each market with the `market-no-vig` baseline on the artifact's historical holdout. A clean comparison still needs:
