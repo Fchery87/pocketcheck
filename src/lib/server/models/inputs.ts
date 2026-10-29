@@ -235,6 +235,13 @@ function isModelArtifact(value: unknown): value is ModelArtifact {
     "residual bandwidth must be positive",
   );
   count(fit.residualFolds, "artifact.fitParameters.residualFolds", 2);
+  if (artifact.shrink !== undefined) {
+    const shrink = record(artifact.shrink, "artifact.shrink");
+    for (const market of ["margin", "total"] as const) {
+      const value = number(shrink[market], `artifact.shrink.${market}`, 0);
+      requireValue(value <= 1, "artifact.shrink", "a shrink factor is between 0 and 1");
+    }
+  }
   const base = record(
     record(artifact.baseRates, "artifact.baseRates").moneyline,
     "artifact.baseRates.moneyline",

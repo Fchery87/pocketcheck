@@ -29,6 +29,11 @@ export type ModelArtifact = {
   /** walk-forward when the training window is large enough, otherwise in-sample. */
   residualSource: "walk-forward" | "in-sample";
   fitParameters: FitParameters;
+  /**
+   * How much of each fitted adjustment is kept, fitted on walk-forward predictions inside the
+   * training window. The stored coefficients are already scaled by it. Absent on older artifacts.
+   */
+  shrink?: { margin: number; total: number };
   /** Outcome rates in the training window, for the base-rate baseline. */
   baseRates: { moneyline: SideProbability };
   /** Walk-forward calibration per market, for the conservative probabilities the value policy needs. */

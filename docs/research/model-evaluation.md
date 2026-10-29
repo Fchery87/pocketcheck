@@ -196,6 +196,20 @@ Same cutoff (2023-10-22) and the same 862 holdout games, with the schedule refre
 
 Most of the drop is pushes and ties priced realistically. The no-vig close borrows the model's push probability, so it improves too. The gap to the close is about the same on moneyline and smaller on spread. It is better calibration, not an edge. `data/artifacts/baseline.json` is the default refit on this code, checksum `c6de83756e85`, with training through 2023-10-22.
 
+## Shrinking the adjustment toward the close
+
+Training now fits how much of each adjustment to keep. On the walk-forward predictions inside the training window, it takes the least-squares multiplier of the predicted distance from the close against the actual distance, clamped between 0 and 1, and scales the stored coefficients by it. The factors are recorded in the artifact's `shrink`. The holdout plays no part in them.
+
+The training window kept 6.6% of the margin adjustment and 7.9% of the total adjustment. On the same 862 holdout games and cutoff as the key-number run:
+
+| Market    | Model minus close before (90% interval) | With shrink        |
+| --------- | --------------------------------------- | ------------------ |
+| Moneyline | -0.0007 to +0.0135                      | -0.0038 to +0.0020 |
+| Spread    | -0.0054 to +0.0090                      | -0.0040 to +0.0015 |
+| Total     | +0.0059 to +0.0201                      | +0.0005 to +0.0087 |
+
+Moneyline and spread are now no worse than the close on this holdout, which is development evidence only. Total is still slightly worse. The small factors say the fitted inputs carry little information the close lacks, so a pick's distance from the market is now a fraction of a point and most picks grade no edge. `data/artifacts/baseline.json` is this refit; the unshrunk artifact is kept as `baseline.v6-unshrunk.json`.
+
 ## Live forecasts match training
 
 A live board priced each side differently from how the model was trained and scored:

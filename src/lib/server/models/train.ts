@@ -26,6 +26,7 @@ import {
   fitRidge,
   predictMean,
   walkForwardPredictions,
+  type LinearModel,
   type WalkForwardPrediction,
 } from "./fit.ts";
 import { anchorFromQuote, marginFromHomeLine } from "./anchor.ts";
@@ -263,17 +264,25 @@ export function fitArtifact(
           DEFAULT_FIT.residualFolds,
         )
       : [];
+  // The market close is hard to improve on, so each adjustment is kept only as far as it predicted
+  // the distance from the close on earlier blocks.
+  const shrink = {
+    margin: shrinkFactor(marginPredictions, marginTargets),
+    total: shrinkFactor(totalPredictions, totalTargets),
+  };
+  const shrunkMargins = shrinkPredictions(marginPredictions, shrink.margin);
+  const shrunkTotals = shrinkPredictions(totalPredictions, shrink.total);
   const walkForward = marginPredictions.length > 0;
   const inSample = (rows: FeatureRow[], targets: number[], model: typeof marginModel) =>
     rows.map((row, index) => (targets[index] ?? 0) - predictMean(model, row));
   const marginResiduals = walkForward
-    ? marginPredictions.map((entry) => entry.residual)
+    ? shrunkMargins.map((entry) => entry.residual)
     : inSample(marginRows, marginTargets, marginModel);
   const totalResiduals = walkForward
-    ? totalPredictions.map((entry) => entry.residual)
+    ? shrunkTotals.map((entry) => entry.residual)
     : inSample(totalRows, totalTargets, totalModel);
   const uncertainty = fitUncertainty(
-    calibrationSamples(train, byId, marginPredictions, totalPredictions, margins),
+    calibrationSamples(train, byId, shrunkMargins, shrunkTotals, margins),
   );
   return withChecksum({
     kind: "pocketcheck-baseline",
@@ -301,6 +310,7 @@ export function fitArtifact(
     featureParameters: features,
     residualSource: walkForward ? "walk-forward" : "in-sample",
     fitParameters: DEFAULT_FIT,
+    shrink,
     baseRates: {
       moneyline: {
         win: homeWins / margins.length,
@@ -310,7 +320,7 @@ export function fitArtifact(
     },
     uncertainty,
     margin: {
-      model: marginModel,
+      model: scaleModel(marginModel, shrink.margin),
       // Totals have no comparable key numbers, so only margins are reweighted.
       residuals: fitResidualDistribution(
         marginResiduals,
@@ -320,10 +330,51 @@ export function fitArtifact(
       ),
     },
     total: {
-      model: totalModel,
+      model: scaleModel(totalModel, shrink.total),
       residuals: fitResidualDistribution(totalResiduals, DEFAULT_FIT.residualBandwidth),
     },
   });
+}
+
+/**
+ * The least-squares multiplier on walk-forward predictions of the distance from the close, kept
+ * between 0 (trust the close) and 1 (trust the full adjustment). Without walk-forward predictions
+ * the adjustment is kept whole.
+ */
+export function shrinkFactor(
+  predictions: readonly WalkForwardPrediction[],
+  targets: readonly number[],
+): number {
+  if (predictions.length === 0) return 1;
+  let cross = 0;
+  let square = 0;
+  for (const entry of predictions) {
+    cross += entry.mean * (targets[entry.index] ?? 0);
+    square += entry.mean * entry.mean;
+  }
+  if (square === 0) return 0;
+  return Math.min(1, Math.max(0, cross / square));
+}
+
+function shrinkPredictions(
+  predictions: readonly WalkForwardPrediction[],
+  factor: number,
+): WalkForwardPrediction[] {
+  return predictions.map((entry) => ({
+    ...entry,
+    mean: entry.mean * factor,
+    residual: entry.residual + entry.mean * (1 - factor),
+  }));
+}
+
+function scaleModel(model: LinearModel, factor: number): LinearModel {
+  return {
+    ...model,
+    intercept: model.intercept * factor,
+    coefficients: Object.fromEntries(
+      Object.entries(model.coefficients).map(([name, value]) => [name, value * factor]),
+    ) as LinearModel["coefficients"],
+  };
 }
 
 /** Reads a JSON fixture with a games array, or an nflverse games.csv. */
