@@ -62,7 +62,7 @@ test("a moneyline game board freezes an unvalidated model pick", async ({ page, 
     "Any price keeps lean: the forecasting model gives this side no chance to lose.",
   );
   // The forecasting model chose the side; its identity is shown on the card.
-  await expect(card.getByTestId("forecasting-model")).toContainText("51f78e07657c");
+  await expect(card.getByTestId("forecasting-model")).toContainText("69aed22c0fde");
   await expect(card.getByTestId("calculation-version")).toHaveText("model-pick-2026-10-27.1");
 
   // The drafter wrote the explanation from the frozen pick, and its identity is separate.
@@ -74,7 +74,7 @@ test("a moneyline game board freezes an unvalidated model pick", async ({ page, 
   await expect(page.getByTestId("drafter")).toContainText("fixture-drafter");
   await expect(page.getByTestId("drafter")).toContainText("no AI call");
   await expect(card.getByTestId("forecasting-model")).not.toContainText("fixture-drafter");
-  await expect(page.getByTestId("drafter")).not.toContainText("51f78e07657c");
+  await expect(page.getByTestId("drafter")).not.toContainText("69aed22c0fde");
 
   // Frozen in the journal, and not an analysis.
   await page.reload();
