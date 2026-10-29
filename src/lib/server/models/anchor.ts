@@ -25,6 +25,14 @@ export type AnchorQuote = {
   line?: number;
 };
 
+/**
+ * The home margin a home spread line implies. A home line of -7 says the home team is expected
+ * to win by 7, so the margin is the line's negation.
+ */
+export function marginFromHomeLine(homeLine: number): number {
+  return homeLine === 0 ? 0 : -homeLine;
+}
+
 export function anchorFromQuote(
   market: Market,
   quote: AnchorQuote,
@@ -54,7 +62,7 @@ export function anchorFromQuote(
       market,
       sportsbook: quote.sportsbook,
       noVigHome: null,
-      mean: quote.line,
+      mean: marginFromHomeLine(quote.line),
     };
   }
   const home = fair.probabilities.home ?? 0;

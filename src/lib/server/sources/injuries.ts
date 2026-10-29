@@ -71,6 +71,7 @@ export function injuryEvidenceFromCsv(
         week: Number(row.week),
         team: row.team ?? "",
         player: row.full_name ?? "",
+        playerId: row.gsis_id || null,
         position: row.position ?? "",
         reportStatus: row.report_status ?? "",
         reportPrimaryInjury: row.report_primary_injury || null,
