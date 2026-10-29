@@ -109,7 +109,49 @@ The added input groups are quarterback efficiency, opponent-adjusted team effici
 
 `npm run model:refit` writes a new unreleased artifact beside the one in use. It replaces the artifact in use only with `--replace`. A version 4 artifact is refused with a refit-required reason.
 
-No real-data refit has been run for version 5, so this note records no new score and makes no accuracy claim. The numbers above are the version 4 model.
+The version 4 numbers above predate the market anchor. The version 6 real-data run follows; its figures are development evidence only and make no accuracy claim.
+
+## Version 6 ablation on real data
+
+Run on the nflverse schedule and play-by-play for 2016-2025, trained through 2022-09-01 and scored on 1245 priced games from 2022 on (`MODEL_SINCE_SEASON=2016 npm run model:fit` and `model:evaluate`). This is development evidence: the close is the anchor and already holds late news. The holdout was inspected to choose groups, so it cannot release a market.
+
+Each cell is held-out log loss without the group minus with it, so positive means the group helps. `*` marks a 90% slate-clustered interval that excludes zero in the helpful direction, and `(harms)` one that excludes zero the other way.
+
+| Group                     | Moneyline       | Spread          | Total           | Decision         |
+| ------------------------- | --------------- | --------------- | --------------- | ---------------- |
+| score margin              | +0.0141 *       | -0.0005         | -0.0005         | kept             |
+| points scored and allowed | +0.0246 *       | +0.0082         | -0.0014         | kept             |
+| rest                      | +0.0004         | +0.0000         | +0.0028 *       | kept (total)     |
+| quarterback               | +0.0314 *       | +0.0029         | +0.0008         | kept             |
+| home field                | -0.0001         | +0.0001         | +0.0006         | kept             |
+| quarterback efficiency    | +0.0025         | -0.0028         | -0.0001         | dropped          |
+| team efficiency           | +0.0302 *       | +0.0728 *       | +0.0220 *       | kept             |
+| pace                      | -0.0017 (harms) | -0.0024 (harms) | -0.0002         | dropped          |
+| situational               | +0.0014         | +0.0022         | -0.0026 (harms) | dropped          |
+| efficiency split          | +0.0340 *       | +0.0073         | -0.0024         | kept (moneyline) |
+| efficiency quality        | +0.0220 *       | +0.0054         | -0.0042         | kept (moneyline) |
+| turnover margin           | +0.0004         | -0.0001         | -0.0006         | dropped          |
+| travel                    | -0.0024         | -0.0055 (harms) | +0.0095 *       | dropped          |
+| venue                     | -0.0002         | -0.0005         | +0.0045         | dropped          |
+
+A group stays only with a clear gain in some market and no clear harm in another. Fitting without the six dropped groups (`excludedGroups` in the artifact's feature parameters, so every artifact records it) improved every market on the same holdout:
+
+| Market             | All groups | Kept groups only | No-vig close |
+| ------------------ | ---------- | ---------------- | ------------ |
+| Moneyline log loss | 0.7427     | 0.7415           | 0.6557       |
+| Spread log loss    | 0.8709     | 0.8676           | 0.7832       |
+| Total log loss     | 0.7408     | 0.7310           | 0.7251       |
+
+The forecasting model still loses to the no-vig close in all three markets, so the release gate is unchanged and no market is released.
+
+Notes on each decision:
+
+- **Quarterback efficiency** (EPA per dropback plus completion over expected, shrunk toward replacement) dropped: a small moneyline gain whose interval spans zero and a spread loss.
+- **Team efficiency** is the strongest input. The pass and rush split and the success, early-down, and explosive rates add to moneyline only.
+- **Turnover margin** (regressed toward zero) dropped. Excluding fumble recoveries from the EPA means, the other option in the ticket, was not built, so only the regression variant was tested.
+- **Travel and venue** (distance, time zones, altitude, international, roof, surface) dropped. Travel helps the total but harms the spread; venue shows nothing. Rest differential, short week, and bye (`situational`) also dropped. Rest days remain, helping the total.
+- **Pace** dropped. Tempo is now measured as the game clock between snaps of one drive; before, it averaged seconds remaining and meant nothing.
+- Quarterback ratings, opponent adjustment, `seasonCarry`, `opponentAdjustment`, `qbCpoeScale`, and `turnoverRegression` are versioned in `featureParameters`. None was tuned on this holdout.
 
 ## Release gate
 

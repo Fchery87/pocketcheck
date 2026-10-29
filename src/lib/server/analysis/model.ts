@@ -8,8 +8,11 @@ import { featureRowForGame } from "../models/features.ts";
 import {
   freezeProspectiveForecast,
   INPUT_AVAILABILITY,
+  type StarterAssumption,
   type WeatherSnapshot,
 } from "../models/forecast.ts";
+import { recentStarter, starterAssumption, starterDecision } from "../models/starter.ts";
+import { depthChartFromCsv, readSeasonFiles } from "../sources/roster.ts";
 import type { Market } from "../models/games.ts";
 import { pricedGamesFromNflverseCsv, upcomingGameFromCsv } from "../models/history.ts";
 import { offerProbabilities } from "../models/offer-probability.ts";
@@ -164,6 +167,8 @@ function weatherSnapshot(
 export function createArtifactForecast(input: {
   artifactPath: string;
   schedulePath: string;
+  /** Where npm run data:depth-charts keeps a season's file. Without it every starter is unknown. */
+  depthChartPath?: (season: number) => string;
 }): ForecastSource {
   return async (game, cutoffIso, offer, model, evidence) => {
     if (model.status !== "computed") return null;
@@ -192,10 +197,32 @@ export function createArtifactForecast(input: {
             line: offer.market === "spread" && !homeSide ? -offer.pointLine : offer.pointLine,
           }),
     };
+    const depthCharts = input.depthChartPath
+      ? readSeasonFiles(
+          [{ season: game.season, path: input.depthChartPath(game.season) }],
+          depthChartFromCsv,
+          "Depth chart",
+        ).rows
+      : [];
+    const starterFor = (team: string): StarterAssumption => {
+      const usual = recentStarter(history, team, cutoffIso);
+      return starterAssumption(
+        starterDecision({
+          team,
+          season: game.season,
+          cutoff: cutoffIso,
+          usualStarter: usual?.playerId ?? null,
+          depthChart: depthCharts,
+          injuries: [],
+        }),
+        usual?.at ?? null,
+      );
+    };
     const frozen = freezeProspectiveForecast({
       artifact,
       history,
       game: {
+        starters: { home: starterFor(game.home), away: starterFor(game.away) },
         id: game.id,
         season: game.season,
         kickoff: game.kickoff,

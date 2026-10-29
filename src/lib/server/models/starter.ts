@@ -1,3 +1,5 @@
+import type { StarterAssumption } from "./forecast.ts";
+import type { CompletedGame } from "./games.ts";
 import type { DepthChartEntry } from "../sources/roster.ts";
 import { TIMESTAMPED_DEPTH_CHART_SEASON } from "../sources/roster.ts";
 
@@ -32,7 +34,6 @@ const OUT = new Set(["out", "doubtful"]);
 export function starterDecision(input: {
   team: string;
   season: number;
-  week: number;
   cutoff: string;
   /** The most frequent recent starter, the latest on a tie. */
   usualStarter: string | null;
@@ -40,16 +41,18 @@ export function starterDecision(input: {
   injuries: readonly InjuryDesignation[];
 }): StarterDecision {
   const cutoff = Date.parse(input.cutoff);
-  const chart = input.depthChart
-    .filter(
-      (entry) =>
-        entry.team === input.team &&
-        entry.season === input.season &&
-        entry.week === input.week &&
-        entry.position === "QB" &&
-        entry.updatedAt !== null &&
-        Date.parse(entry.updatedAt) < cutoff,
-    )
+  const before = input.depthChart.filter(
+    (entry) =>
+      entry.team === input.team &&
+      entry.season === input.season &&
+      entry.position === "QB" &&
+      entry.updatedAt !== null &&
+      Date.parse(entry.updatedAt) < cutoff,
+  );
+  // Depth charts are daily snapshots. Only the latest one before the cutoff speaks.
+  const latest = Math.max(...before.map((entry) => Date.parse(entry.updatedAt!)));
+  const chart = before
+    .filter((entry) => Date.parse(entry.updatedAt!) === latest)
     .sort((a, b) => a.depth - b.depth);
   const listed = chart.find((entry) => entry.depth === 1) ?? null;
   const backup = chart.find((entry) => entry.depth === 2) ?? null;
@@ -109,5 +112,63 @@ export function starterDecision(input: {
     source: null,
     sourceAt: null,
     reason: "No starter is known.",
+  };
+}
+
+const RECENT_WINDOW = 8;
+
+/**
+ * The quarterback with the most of the team's last games started before the cutoff, the latest on
+ * a tie, and the kickoff of the latest game that quarterback started. Null with no recorded start.
+ */
+export function recentStarter(
+  history: readonly Pick<CompletedGame, "kickoff" | "home" | "away" | "homeQb" | "awayQb">[],
+  team: string,
+  cutoff: string,
+): { playerId: string; at: string } | null {
+  const starts = history
+    .filter((game) => Date.parse(game.kickoff) < Date.parse(cutoff))
+    .sort((a, b) => Date.parse(a.kickoff) - Date.parse(b.kickoff))
+    .flatMap((game) => {
+      const playerId = game.home === team ? game.homeQb : game.away === team ? game.awayQb : null;
+      return playerId ? [{ playerId, at: game.kickoff }] : [];
+    })
+    .slice(-RECENT_WINDOW);
+  let best: { playerId: string; at: string } | null = null;
+  let bestCount = 0;
+  for (const start of starts) {
+    const count = starts.filter((other) => other.playerId === start.playerId).length;
+    if (count >= bestCount) {
+      best = { playerId: start.playerId, at: start.at };
+      bestCount = count;
+    }
+  }
+  return (
+    best && {
+      playerId: best.playerId,
+      at: [...starts].reverse().find((s) => s.playerId === best!.playerId)!.at,
+    }
+  );
+}
+
+/** The frozen form of a decision. A starter assumed from history is stamped with its latest start. */
+export function starterAssumption(
+  decision: StarterDecision,
+  historyAt: string | null,
+): StarterAssumption {
+  if (decision.state === "unknown" || decision.playerId === null) {
+    return {
+      state: "unknown",
+      identity: null,
+      evidenceAt: null,
+      source: null,
+      reason: decision.reason,
+    };
+  }
+  return {
+    state: decision.state,
+    identity: decision.playerId,
+    evidenceAt: decision.sourceAt ?? historyAt,
+    source: decision.source,
   };
 }

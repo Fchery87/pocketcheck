@@ -1,4 +1,7 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { teamSummariesFromSeasonFiles } from "../sources/play-by-play.ts";
+import { attachEfficiency } from "./efficiency-join.ts";
 import { datasetHash, withChecksum, type ModelArtifact } from "./artifact.ts";
 import {
   fitResidualDistribution,
@@ -271,7 +274,7 @@ export function fitArtifact(
   );
   return withChecksum({
     kind: "pocketcheck-baseline",
-    version: 5,
+    version: 6,
     releaseStatus: "unreleased",
     releasedMarkets: [],
     anchor: {
@@ -321,9 +324,25 @@ export function fitArtifact(
 }
 
 /** Reads a JSON fixture with a games array, or an nflverse games.csv. */
-export function readGames(path: string): PricedGame[] {
+/**
+ * Reads games from a fixture or the nflverse schedule. A schedule read joins the play-by-play
+ * season files that sit beside it (play_by_play_<season>.csv) and keeps seasons from `since` on,
+ * since earlier seasons have no plays to join. Seasons without a file stay without efficiency.
+ */
+export function readGames(path: string, options: { since?: number } = {}): PricedGame[] {
   const text = readFileSync(path, "utf8");
-  if (path.endsWith(".csv")) return pricedGamesFromNflverseCsv(text);
+  if (path.endsWith(".csv")) {
+    const games = pricedGamesFromNflverseCsv(text).filter(
+      (game) => options.since === undefined || (game.season ?? 0) >= options.since,
+    );
+    const seasons = [...new Set(games.map((game) => game.season ?? 0))];
+    const files = seasons
+      .map((season) => ({ season, path: join(dirname(path), `play_by_play_${season}.csv`) }))
+      .filter((file) => existsSync(file.path));
+    return files.length === 0
+      ? games
+      : attachEfficiency(games, teamSummariesFromSeasonFiles(files));
+  }
   const parsed = JSON.parse(text) as { games: PricedGame[] };
   if (!Array.isArray(parsed.games)) throw new Error("Fixture must contain a games array");
   return parsed.games;

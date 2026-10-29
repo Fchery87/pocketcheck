@@ -32,8 +32,20 @@ export type TeamGameSummary = {
   fumbleRecoveries: number;
 };
 
+/** One passer's dropbacks in one game. Backups who only relieve show up with few dropbacks. */
+export type QuarterbackGameSummary = {
+  gameId: string;
+  team: string;
+  playerId: string;
+  dropbacks: number;
+  epaPerDropback: number | null;
+  /** Completion percentage over expected, in percentage points, over passes that have one. */
+  cpoe: number | null;
+};
+
 export type PlayByPlayRead = {
   summaries: TeamGameSummary[];
+  quarterbacks: QuarterbackGameSummary[];
   gaps: string[];
 };
 
@@ -49,19 +61,59 @@ const EXPLOSIVE_YARDS = 20;
 
 /** One season file becomes one summary per team per game. A bad file is a gap, not a guess. */
 export function teamSummariesFromPlayByPlay(csv: string): PlayByPlayRead {
-  if (csv.trim() === "") return { summaries: [], gaps: ["Play-by-play file is empty."] };
+  if (csv.trim() === "")
+    return { summaries: [], quarterbacks: [], gaps: ["Play-by-play file is empty."] };
   const rows = parseCsv(csv);
-  if (rows.length === 0) return { summaries: [], gaps: ["Play-by-play file has no plays."] };
+  if (rows.length === 0)
+    return { summaries: [], quarterbacks: [], gaps: ["Play-by-play file has no plays."] };
   const header = new Set(Object.keys(rows[0] ?? {}));
   const missing = REQUIRED.filter((column) => !header.has(column));
   if (missing.length > 0) {
     return {
       summaries: [],
+      quarterbacks: [],
       gaps: [`Play-by-play file is missing ${missing.join(", ")}.`],
     };
   }
   const games = new Map<string, Map<string, Play[]>>();
+  const passers = new Map<
+    string,
+    QuarterbackGameSummary & {
+      epaSum: number;
+      epaCount: number;
+      cpoeSum: number;
+      cpoeCount: number;
+    }
+  >();
   for (const row of rows) {
+    const passer = passerOf(row);
+    if (passer && row.game_id && row.posteam) {
+      const key = `${row.game_id}|${passer}`;
+      const entry = passers.get(key) ?? {
+        gameId: row.game_id,
+        team: row.posteam,
+        playerId: passer,
+        dropbacks: 0,
+        epaPerDropback: null,
+        cpoe: null,
+        epaSum: 0,
+        epaCount: 0,
+        cpoeSum: 0,
+        cpoeCount: 0,
+      };
+      entry.dropbacks += 1;
+      const epa = finite(row.epa);
+      if (epa !== null) {
+        entry.epaSum += epa;
+        entry.epaCount += 1;
+      }
+      const cpoe = finite(row.cpoe);
+      if (cpoe !== null) {
+        entry.cpoeSum += cpoe;
+        entry.cpoeCount += 1;
+      }
+      passers.set(key, entry);
+    }
     const gameId = row.game_id ?? "";
     const team = row.posteam ?? "";
     if (gameId === "" || team === "") continue;
@@ -79,9 +131,19 @@ export function teamSummariesFromPlayByPlay(csv: string): PlayByPlayRead {
       summaries.push(summarize(gameId, team, opponent, plays, faced));
     }
   }
+  const quarterbacks = [...passers.values()].map(
+    ({ epaSum, epaCount, cpoeSum, cpoeCount, ...entry }): QuarterbackGameSummary => ({
+      ...entry,
+      epaPerDropback: epaCount === 0 ? null : epaSum / epaCount,
+      cpoe: cpoeCount === 0 ? null : cpoeSum / cpoeCount,
+    }),
+  );
   return {
     summaries: summaries.sort(
       (a, b) => a.gameId.localeCompare(b.gameId) || a.team.localeCompare(b.team),
+    ),
+    quarterbacks: quarterbacks.sort(
+      (a, b) => a.gameId.localeCompare(b.gameId) || a.playerId.localeCompare(b.playerId),
     ),
     gaps: summaries.length === 0 ? ["Play-by-play file has no offensive plays."] : [],
   };
@@ -95,6 +157,7 @@ export function teamSummariesFromSeasonFiles(
   files: readonly { season: number; path: string }[],
 ): PlayByPlayRead {
   const summaries: TeamGameSummary[] = [];
+  const quarterbacks: QuarterbackGameSummary[] = [];
   const gaps: string[] = [];
   for (const file of files) {
     if (!existsSync(file.path)) {
@@ -114,8 +177,9 @@ export function teamSummariesFromSeasonFiles(
       continue;
     }
     summaries.push(...read.summaries);
+    quarterbacks.push(...read.quarterbacks);
   }
-  return { summaries, gaps };
+  return { summaries, quarterbacks, gaps };
 }
 
 type Play = {
@@ -126,11 +190,21 @@ type Play = {
   epa: number | null;
   down: number | null;
   yards: number | null;
-  seconds: number | null;
+  /** Game clock seconds remaining at the snap. */
+  clock: number | null;
+  drive: number | null;
+  playId: number | null;
   passOverExpected: number | null;
   turnover: boolean;
   fumbleLost: boolean;
 };
+
+/** The passer on a dropback, or the scrambler. Null for plays that are not dropbacks. */
+function passerOf(row: Record<string, string>): string | null {
+  if (row.qb_dropback !== "1") return null;
+  const id = row.passer_player_id || (row.qb_scramble === "1" ? row.rusher_player_id : "");
+  return id ? id : null;
+}
 
 function playOf(row: Record<string, string>): Play {
   const kind = row.play_type === "pass" ? "pass" : row.play_type === "run" ? "rush" : "other";
@@ -142,7 +216,9 @@ function playOf(row: Record<string, string>): Play {
     epa: finite(row.epa),
     down: finite(row.down),
     yards: finite(row.yards_gained),
-    seconds: finite(row.time_to_throw ?? row.game_seconds_remaining),
+    clock: finite(row.game_seconds_remaining),
+    drive: finite(row.drive),
+    playId: finite(row.play_id),
     passOverExpected: finite(row.pass_oe),
     turnover: row.interception === "1" || row.fumble_lost === "1",
     fumbleLost: row.fumble_lost === "1",
@@ -181,15 +257,36 @@ function summarize(
       offense.length === 0
         ? null
         : offense.filter((play) => (play.yards ?? 0) >= EXPLOSIVE_YARDS).length / offense.length,
-    secondsPerPlay: average(
-      offense.flatMap((play) => (play.seconds === null ? [] : [play.seconds])),
-    ),
+    secondsPerPlay: average(snapGaps(offense)),
     passRateOverExpected: average(
       passes.flatMap((play) => (play.passOverExpected === null ? [] : [play.passOverExpected])),
     ),
     turnovers: offense.filter((play) => play.turnover).length,
     fumbleRecoveries: defense.filter((play) => play.fumbleLost).length,
   };
+}
+
+/** The longest gap between two snaps of one drive that still reads as tempo, not a stoppage. */
+const MAX_SNAP_GAP_SECONDS = 50;
+
+/** Game-clock seconds between consecutive snaps of the same drive. */
+function snapGaps(offense: readonly Play[]): number[] {
+  const drives = new Map<number, Play[]>();
+  for (const play of offense) {
+    if (play.drive === null || play.clock === null || play.playId === null) continue;
+    const plays = drives.get(play.drive) ?? [];
+    plays.push(play);
+    drives.set(play.drive, plays);
+  }
+  const gaps: number[] = [];
+  for (const plays of drives.values()) {
+    plays.sort((a, b) => a.playId! - b.playId!);
+    for (let index = 1; index < plays.length; index += 1) {
+      const gap = plays[index - 1]!.clock! - plays[index]!.clock!;
+      if (gap > 0 && gap <= MAX_SNAP_GAP_SECONDS) gaps.push(gap);
+    }
+  }
+  return gaps;
 }
 
 function perPlay(plays: readonly Play[]): number | null {

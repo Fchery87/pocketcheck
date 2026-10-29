@@ -14,8 +14,9 @@ export type CompletedGame = {
   homeQb?: string;
   awayQb?: string;
   /**
-   * Opponent-adjusted efficiency from play-by-play, present only when that game's plays were
-   * available. Absent numbers stay unknown and contribute nothing.
+   * Raw efficiency from play-by-play, present only when that game's plays were
+   * available. The feature builder adjusts it for the opponent. Absent numbers stay unknown and
+   * contribute nothing.
    */
   efficiency?: {
     homeOffenseEpa: number;
@@ -28,7 +29,45 @@ export type CompletedGame = {
     awayPassOverExpected: number | null;
     homeQbEpa: number | null;
     awayQbEpa: number | null;
+    /** Starting quarterback's completion percentage over expected, in percentage points. */
+    homeQbCpoe?: number | null;
+    awayQbCpoe?: number | null;
+    /** Dropbacks the starter had, so a relief appearance counts for less. */
+    homeQbDropbacks?: number;
+    awayQbDropbacks?: number;
+    /** Splits and rates beyond the EPA per play. Absent in records built before they existed. */
+    home?: SideRates;
+    away?: SideRates;
   };
+  /** Schedule and stadium facts known before kickoff. */
+  venue?: GameVenue;
+};
+
+/** One team's offense and defense in one game, defense as what it prevented (higher is better). */
+export type SideRates = {
+  offense: UnitRates;
+  defense: UnitRates;
+  /** Interceptions thrown and fumbles lost by this team's offense. */
+  giveaways: number;
+  /** Fumbles this team's defense recovered, the part of takeaways that is mostly luck. */
+  fumblesRecovered: number;
+};
+
+export type UnitRates = {
+  passEpa: number | null;
+  rushEpa: number | null;
+  success: number | null;
+  earlyDownEpa: number | null;
+  explosive: number | null;
+};
+
+export type GameVenue = {
+  stadiumId: string;
+  roof: string;
+  surface: string;
+  /** The stadium each club calls home that season, where its trip starts. */
+  homeBaseId?: string;
+  awayBaseId?: string;
 };
 
 export type Market = "moneyline" | "spread" | "total";

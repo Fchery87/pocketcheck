@@ -4,7 +4,7 @@ import { artifactChecksum } from "./models/artifact.ts";
 /** Checked-in deterministic forecasting model. Fitted from tests/model/fixtures/synthetic-games.json. */
 const FIXTURE_MODEL = {
   artifact: "tests/fixtures/models/browser-forecasting-model.json",
-  checksum: "51f78e07657c2a4af3f8fb50d711f4ca6515069c6d22d5b3e05a184d59442c2e",
+  checksum: "69aed22c0fdeae492bec96e0a65328341e0f765aac069f7eac1bd36b8003d1ad",
   releaseStatus: "unreleased",
   trainingCutoff: "2024-09-22T17:00:00Z",
 } as const;

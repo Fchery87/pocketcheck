@@ -60,6 +60,7 @@ export function predictWithoutGroup(
   artifact: ModelArtifact,
   row: FeatureRow,
   features: readonly string[],
+  anchor?: { marginMean?: number; totalMean?: number },
 ): GameProbabilities {
   const neutralized = { ...row, features: { ...row.features } };
   for (const feature of features) {
@@ -68,5 +69,5 @@ export function predictWithoutGroup(
       neutralized.features[name] = artifact.margin.model.featureMeans[name];
     }
   }
-  return predictGame(artifact, neutralized);
+  return predictGame(artifact, neutralized, anchor);
 }

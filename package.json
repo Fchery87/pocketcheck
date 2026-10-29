@@ -21,6 +21,7 @@
     "data:injuries": "node --experimental-strip-types scripts/data/injuries.ts",
     "data:play-by-play": "node --experimental-strip-types scripts/data/play-by-play.ts",
     "data:snap-counts": "node --experimental-strip-types scripts/data/snap-counts.ts",
+    "data:depth-charts": "node --experimental-strip-types scripts/data/depth-charts.ts",
     "model:fit": "node --experimental-strip-types scripts/model/fit.ts",
     "model:evaluate": "node --experimental-strip-types scripts/model/evaluate.ts",
     "model:release": "node --experimental-strip-types scripts/model/release.ts",

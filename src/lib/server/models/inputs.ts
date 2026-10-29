@@ -1,6 +1,6 @@
 import { artifactChecksum, type ModelArtifact } from "./artifact.ts";
 import type { EvaluationReport } from "./evaluate.ts";
-import { FEATURE_DEFINITIONS } from "./features.ts";
+import { FEATURE_DEFINITIONS, INPUT_GROUPS } from "./features.ts";
 import { CHRONOLOGY } from "./games.ts";
 import { UNCERTAINTY_OPTIONS } from "./uncertainty.ts";
 
@@ -136,7 +136,7 @@ function isModelArtifact(value: unknown): value is ModelArtifact {
   const artifact = record(value, "artifact");
   requireValue(artifact.kind === "pocketcheck-baseline", "artifact.kind", "unsupported model kind");
   requireValue(
-    artifact.version === 5,
+    artifact.version === 6,
     "artifact.version",
     `version ${String(artifact.version)} is not supported. Refit required: run npm run model:fit`,
   );
@@ -211,6 +211,22 @@ function isModelArtifact(value: unknown): value is ModelArtifact {
     );
   }
   number(features.qbReplacement, "artifact.featureParameters.qbReplacement");
+  number(features.qbEfficiencyReplacement, "artifact.featureParameters.qbEfficiencyReplacement");
+  for (const key of ["qbCpoeScale", "qbFullDropbacks", "turnoverRegression"]) {
+    requireValue(
+      number(features[key], `artifact.featureParameters.${key}`, 0) > 0,
+      "artifact.featureParameters",
+      "scales and regression weights must be positive",
+    );
+  }
+  probability(features.opponentAdjustment, "artifact.featureParameters.opponentAdjustment");
+  const excludedGroups = features.excludedGroups;
+  requireValue(
+    Array.isArray(excludedGroups) &&
+      excludedGroups.every((name) => INPUT_GROUPS.some((group) => group.group === name)),
+    "artifact.featureParameters.excludedGroups",
+    "excluded groups must name input groups",
+  );
   const fit = record(artifact.fitParameters, "artifact.fitParameters");
   number(fit.ridge, "artifact.fitParameters.ridge", 0);
   requireValue(

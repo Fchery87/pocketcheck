@@ -51,19 +51,35 @@ export type SnapCountEntry = {
 
 export type RosterRead<T> = { rows: T[]; gaps: string[] };
 
+/**
+ * Reads an nflverse depth chart. The 2025 file is a series of timestamped snapshots with `dt`,
+ * `team`, `pos_abb`, `pos_rank`, and `gsis_id` and no season or week, so the season is the one
+ * whose fall contains the snapshot. Older files carry `season`, `week`, and `depth_team`.
+ */
 export function depthChartFromCsv(csv: string): RosterRead<DepthChartEntry> {
   return read(csv, "Depth chart", (row) => {
     const depth = Number(row.depth_team ?? row.pos_rank);
-    if (!row.club_code || !row.gsis_id || !Number.isFinite(depth)) return null;
+    const team = row.club_code ?? row.team;
+    const playerId = row.gsis_id;
+    if (!team || !playerId || !Number.isFinite(depth)) return null;
+    const updatedAt = row.dt ?? row.updated_at ?? null;
+    const stamp = updatedAt === null ? Number.NaN : Date.parse(updatedAt);
+    const season =
+      row.season !== undefined && row.season !== ""
+        ? Number(row.season)
+        : Number.isFinite(stamp)
+          ? new Date(stamp).getUTCFullYear() - (new Date(stamp).getUTCMonth() < 5 ? 1 : 0)
+          : Number.NaN;
+    if (!Number.isFinite(season)) return null;
     return {
-      season: Number(row.season),
-      week: Number(row.week),
-      team: row.club_code,
-      position: row.position ?? "",
+      season,
+      week: row.week === undefined || row.week === "" ? 0 : Number(row.week),
+      team,
+      position: row.position ?? row.pos_abb ?? "",
       depth,
-      playerId: row.gsis_id,
-      player: row.full_name ?? "",
-      updatedAt: row.dt ?? row.updated_at ?? null,
+      playerId,
+      player: row.full_name ?? row.player_name ?? "",
+      updatedAt,
     };
   });
 }
