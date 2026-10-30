@@ -40,6 +40,7 @@ import {
   type PricedGame,
 } from "./games.ts";
 import { pricedGamesFromNflverseCsv } from "./history.ts";
+import { TRAINING_CODE } from "./training-code.ts";
 import { fitUncertainty, slateOf, type CalibrationSample } from "./uncertainty.ts";
 
 /** Below this, walk-forward blocks are too small to fit, so residuals fall back to in-sample. */
@@ -336,6 +337,7 @@ export function fitArtifact(
   return withChecksum({
     kind: "pocketcheck-baseline",
     version: 6,
+    trainingCode: TRAINING_CODE,
     releaseStatus: "unreleased",
     releasedMarkets: [],
     anchor: {
@@ -367,7 +369,7 @@ export function fitArtifact(
         push: ties / margins.length,
       },
     },
-    uncertainty: { ...uncertainty, calibrationVersion: "anchored-v1" },
+    uncertainty,
     margin: {
       model: scaleModel(marginModel, shrink.margin),
       // Totals have no comparable key numbers, so only margins are reweighted.

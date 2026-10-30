@@ -95,9 +95,6 @@ export function releaseFromJournal(input: {
   journal: JournalExport;
   registrationId: string;
 }): ModelArtifact {
-  if (input.artifact.uncertainty.calibrationVersion !== "anchored-v1") {
-    throw new Error("This artifact needs a refit with anchored calibration before release.");
-  }
   const sample = buildProspectiveSample({
     journal: input.journal,
     registrationId: input.registrationId,

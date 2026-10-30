@@ -2,6 +2,7 @@ import { artifactChecksum, type ModelArtifact } from "./artifact.ts";
 import type { EvaluationReport } from "./evaluate.ts";
 import { FEATURE_DEFINITIONS, INPUT_GROUPS } from "./features.ts";
 import { CHRONOLOGY } from "./games.ts";
+import { TRAINING_CODE } from "./training-code.ts";
 import { UNCERTAINTY_OPTIONS } from "./uncertainty.ts";
 
 const MARKETS = ["moneyline", "spread", "total"] as const;
@@ -140,6 +141,11 @@ function isModelArtifact(value: unknown): value is ModelArtifact {
     "artifact.version",
     `version ${String(artifact.version)} is not supported. Refit required: run npm run model:fit`,
   );
+  requireValue(
+    artifact.trainingCode === TRAINING_CODE,
+    "artifact.trainingCode",
+    `built by training code ${String(artifact.trainingCode)}, not ${TRAINING_CODE}. Refit required: run npm run model:refit`,
+  );
   const anchor = record(artifact.anchor, "artifact.anchor");
   requireValue(
     anchor.history === "recorded close" &&
@@ -258,12 +264,6 @@ function isModelArtifact(value: unknown): value is ModelArtifact {
     uncertainty.method === "walk-forward-calibration",
     "artifact.uncertainty.method",
     "unsupported calibration method",
-  );
-  requireValue(
-    uncertainty.calibrationVersion === undefined ||
-      uncertainty.calibrationVersion === "anchored-v1",
-    "artifact.uncertainty.calibrationVersion",
-    "unsupported calibration version",
   );
   const options = record(uncertainty.options, "artifact.uncertainty.options");
   for (const [key, expected] of Object.entries(UNCERTAINTY_OPTIONS)) {

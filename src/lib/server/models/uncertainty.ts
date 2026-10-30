@@ -31,7 +31,6 @@ export const UNCERTAINTY_OPTIONS = {
 };
 
 export type ArtifactUncertainty = {
-  calibrationVersion?: "anchored-v1";
   method: "walk-forward-calibration";
   options: typeof UNCERTAINTY_OPTIONS;
   markets: Record<Market, CalibrationBin[]>;

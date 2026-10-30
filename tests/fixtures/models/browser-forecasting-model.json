@@ -1,6 +1,7 @@
 {
   "kind": "pocketcheck-baseline",
   "version": 6,
+  "trainingCode": "training-2026-10-29",
   "releaseStatus": "unreleased",
   "releasedMarkets": [],
   "anchor": {
@@ -826,8 +827,7 @@
           "conservativeRate": null
         }
       ]
-    },
-    "calibrationVersion": "anchored-v1"
+    }
   },
   "margin": {
     "model": {
@@ -1520,5 +1520,5 @@
       "keyWeights": []
     }
   },
-  "checksum": "9b48472f20f7acfbfb0ca2f29c8ec6da9269c739acc06b68d1774311a64f5c9f"
+  "checksum": "a9f3e3e2effcd0317019712ce997ee63229b29221bd589fa8aecd109ecbd976b"
 }
