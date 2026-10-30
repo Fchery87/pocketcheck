@@ -21,12 +21,15 @@ export type ClosingComparison =
         | "missing-closing-price"
         | "missing-open-price"
         | "incompatible-rules"
-        | "archived-untimestamped";
+        | "archived-untimestamped"
+        | "missing-entry-time"
+        | "not-later"
+        | "after-kickoff";
       lineMovement?: { openPointLine: number | null; closePointLine: number | null };
     };
 
 function rulesCompatible(open: ClosingContract, close: ClosingContract): boolean {
-  if (!open.rules || !close.rules) return true;
+  if (!open.rules || !close.rules) return false;
   return (
     open.rules.period === close.rules.period &&
     open.rules.overtime === close.rules.overtime &&
@@ -52,7 +55,18 @@ function sameIdentity(open: ClosingContract, close: ClosingContract): boolean {
 export function compareClosing(
   open: ClosingContract & { decimalOdds: number | null },
   close: ClosingContract & { decimalOdds: number | null },
+  chronology: { entryAt: string | null; observedAt: string | null; kickoffAt: string | null },
 ): ClosingComparison {
+  {
+    const entry = chronology.entryAt === null ? NaN : Date.parse(chronology.entryAt);
+    const observed = chronology.observedAt === null ? NaN : Date.parse(chronology.observedAt);
+    const kickoff = chronology.kickoffAt === null ? NaN : Date.parse(chronology.kickoffAt);
+    if (!Number.isFinite(entry)) return { available: false, reason: "missing-entry-time" };
+    if (!Number.isFinite(observed) || observed <= entry)
+      return { available: false, reason: "not-later" };
+    if (!Number.isFinite(kickoff) || observed >= kickoff)
+      return { available: false, reason: "after-kickoff" };
+  }
   if (!sameIdentity(open, close)) {
     const lineOnly =
       open.market === close.market &&

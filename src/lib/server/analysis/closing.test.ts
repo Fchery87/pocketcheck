@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vite-plus/test";
-import { compareClosing } from "./closing.ts";
+import { compareClosing as compareWithChronology } from "./closing.ts";
+
+function compareClosing(
+  open: Parameters<typeof compareWithChronology>[0],
+  close: Parameters<typeof compareWithChronology>[1],
+  chronology: Parameters<typeof compareWithChronology>[2] = {
+    entryAt: "2026-10-25T15:30:00Z",
+    observedAt: "2026-10-25T16:00:00Z",
+    kickoffAt: "2026-10-25T17:00:00Z",
+  },
+) {
+  return compareWithChronology(open, close, chronology);
+}
 
 const open = {
   market: "spread",
@@ -7,9 +19,36 @@ const open = {
   pointLine: -3.5,
   sportsbook: "book",
   decimalOdds: 1.91,
+  rules: { period: "full-game", overtime: "included", tie: null },
 };
 
 describe("closing comparison", () => {
+  it("requires a closing observation later than the entry and before kickoff", () => {
+    const chronology = {
+      entryAt: "2026-10-25T15:30:00Z",
+      observedAt: "2026-10-25T14:00:00Z",
+      kickoffAt: "2026-10-25T17:00:00Z",
+    };
+    expect(compareClosing(open, open, chronology)).toEqual({
+      available: false,
+      reason: "not-later",
+    });
+    expect(compareClosing(open, open, { ...chronology, observedAt: chronology.entryAt })).toEqual({
+      available: false,
+      reason: "not-later",
+    });
+    expect(compareClosing(open, open, { ...chronology, observedAt: chronology.kickoffAt })).toEqual(
+      { available: false, reason: "after-kickoff" },
+    );
+    expect(compareClosing(open, open, { ...chronology, entryAt: null })).toEqual({
+      available: false,
+      reason: "missing-entry-time",
+    });
+    expect(
+      compareClosing(open, open, { ...chronology, observedAt: "2026-10-25T16:00:00Z" }).available,
+    ).toBe(true);
+  });
+
   it("compares the same contract", () => {
     const result = compareClosing(open, { ...open, decimalOdds: 1.87 });
     expect(result).toEqual({
@@ -53,6 +92,13 @@ describe("closing comparison", () => {
       },
     );
     expect(result).toMatchObject({ available: true, difference: expect.closeTo(-0.04, 8) });
+  });
+
+  it("does not compare when settlement rules are missing", () => {
+    expect(compareClosing({ ...open, rules: undefined }, open)).toEqual({
+      available: false,
+      reason: "incompatible-rules",
+    });
   });
 
   it("refuses a direct comparison when the tie rule differs", () => {

@@ -1,6 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
+import {
+  validateClosingMarketSnapshot,
+  validateProtocolRegistration,
+  type ClosingMarketSnapshot,
+  type ProtocolRegistration,
+} from "../models/protocol.ts";
 import { americanToDecimal } from "#lib/domain/odds.ts";
-import { settleOffer, type Settlement } from "#lib/domain/settlement.ts";
+import { requireFinalScores, settleOffer, type Settlement } from "#lib/domain/settlement.ts";
 import {
   parseOffer,
   type Offer,
@@ -382,6 +388,14 @@ export type StoredNotice = {
 };
 
 export type ResearchStore = {
+  recordProtocolRegistration: (
+    input: Omit<ProtocolRegistration, "registeredAt">,
+  ) => Promise<ProtocolRegistration>;
+  listProtocolRegistrations: () => Promise<ProtocolRegistration[]>;
+  recordClosingMarketSnapshot: (
+    input: Omit<ClosingMarketSnapshot, "recordedAt">,
+  ) => Promise<ClosingMarketSnapshot>;
+  listClosingMarketSnapshots: () => Promise<ClosingMarketSnapshot[]>;
   beginAttempt: (run: NewRun) => Promise<BeginAttemptResult>;
   updateAttempt: (run: NewRun) => Promise<ResearchRun>;
   saveRun: (run: NewRun) => Promise<ResearchRun>;
@@ -416,13 +430,16 @@ export type ResearchStore = {
 /** The whole journal: research analyses, actual bets, and game boards. */
 export type JournalStore = ResearchStore & GameBoardStore;
 
-export function createMemoryStore(): JournalStore {
+export function createMemoryStore(options: { now?: () => string } = {}): JournalStore {
+  const now = options.now ?? (() => new Date().toISOString());
   const runs = new Map<string, ResearchRun>();
   const requests = new Map<string, string>();
   const bets: ActualBet[] = [];
   const closings: ClosingObservation[] = [];
   const notices: StoredNotice[] = [];
-  const boardStore = createMemoryBoardStore(notices);
+  const registrations: ProtocolRegistration[] = [];
+  const marketSnapshots: ClosingMarketSnapshot[] = [];
+  const boardStore = createMemoryBoardStore(notices, registrations);
   const submissions = new Map<string, string>();
   const fingerprints = new Map<string, string>();
   let betWrites: Promise<unknown> = Promise.resolve();
@@ -451,6 +468,44 @@ export function createMemoryStore(): JournalStore {
   }
 
   const research: ResearchStore = {
+    async recordProtocolRegistration(input) {
+      const prior = registrations.find((row) => row.id === input.id);
+      if (prior) {
+        const comparable = { ...prior, registeredAt: undefined };
+        if (JSON.stringify(comparable) !== JSON.stringify({ ...input, registeredAt: undefined }))
+          throw new Error(`Conflicting protocol registration identifier ${input.id}.`);
+        return structuredClone(prior);
+      }
+      const registeredAt = now();
+      const saved = { ...input, registeredAt };
+      validateProtocolRegistration(saved);
+      registrations.push(structuredClone(saved));
+      return structuredClone(saved);
+    },
+    async listProtocolRegistrations() {
+      return structuredClone(registrations);
+    },
+    async recordClosingMarketSnapshot(input) {
+      if (
+        ![...runs.values()].some((run) => run.game.id === input.gameId) &&
+        ![...boardStore.boards.values()].some((board) => board.game.id === input.gameId)
+      )
+        throw new Error(`Game not found: ${input.gameId}`);
+      const prior = marketSnapshots.find((row) => row.id === input.id);
+      if (prior) {
+        const { recordedAt: _recordedAt, ...original } = prior;
+        if (JSON.stringify(original) !== JSON.stringify(input))
+          throw new Error(`Conflicting closing market snapshot identifier ${input.id}.`);
+        return structuredClone(prior);
+      }
+      const saved = { ...input, recordedAt: now() };
+      validateClosingMarketSnapshot(saved);
+      marketSnapshots.push(structuredClone(saved));
+      return structuredClone(saved);
+    },
+    async listClosingMarketSnapshots() {
+      return structuredClone(marketSnapshots);
+    },
     async beginAttempt(input) {
       const requestId = input.request?.id;
       const requestHash = input.request?.hash;
@@ -582,9 +637,30 @@ export function createMemoryStore(): JournalStore {
       return { kind: "created", closing: structuredClone(saved) };
     },
     async listClosings() {
-      return closings.map((item) => structuredClone(item));
+      return closings.map((item) => {
+        const saved = structuredClone(item);
+        if (saved.provenance === "archived-untimestamped") {
+          saved.comparison = { available: false, reason: "archived-untimestamped" };
+          return saved;
+        }
+        try {
+          const open = openSide(
+            { runs, bets, pickOpen: (id) => boardStore.pickContract(id) },
+            saved.subject,
+          );
+          saved.comparison = compareClosing(
+            { ...open, decimalOdds: americanToDecimal(open.americanOdds) },
+            { ...saved, decimalOdds: americanToDecimal(saved.americanOdds) },
+            { entryAt: open.observedAt, observedAt: saved.observedAt, kickoffAt: open.kickoffAt },
+          );
+        } catch {
+          saved.comparison = { available: false, reason: "missing-entry-time" };
+        }
+        return saved;
+      });
     },
     async recordSettlement(input) {
+      requireFinalScores(input);
       const write = betWrites.then(() => recordMemorySettlement({ runs, bets, notices }, input));
       betWrites = write.then(
         () => undefined,
@@ -620,10 +696,24 @@ export function createMemoryStore(): JournalStore {
       return structuredClone(saved);
     },
     async exportJournal() {
-      return memoryBackup(runs, bets, closings, notices, boardStore.boards);
+      return {
+        ...memoryBackup(runs, bets, closings, notices, boardStore.boards),
+        protocolRegistrations: structuredClone(registrations),
+        closingMarketSnapshots: structuredClone(marketSnapshots),
+      };
     },
     async restoreJournal(backup) {
       assertRestorable(backup);
+      for (const incoming of backup.protocolRegistrations ?? []) {
+        const prior = registrations.find((row) => row.id === incoming.id);
+        if (prior && JSON.stringify(prior) !== JSON.stringify(incoming))
+          throw new Error(`Conflicting protocol registration identifier ${incoming.id}.`);
+      }
+      for (const incoming of backup.closingMarketSnapshots ?? []) {
+        const prior = marketSnapshots.find((row) => row.id === incoming.id);
+        if (prior && JSON.stringify(prior) !== JSON.stringify(incoming))
+          throw new Error(`Conflicting closing market snapshot identifier ${incoming.id}.`);
+      }
       const incoming = memoryFromBackup(backup);
       for (const [id, run] of incoming.runs) {
         const existing = runs.get(id);
@@ -643,6 +733,20 @@ export function createMemoryStore(): JournalStore {
           throw new Error(
             `Conflicting game board identifier ${board.id} does not match the saved record.`,
           );
+        }
+      }
+      for (const notice of incoming.notices) {
+        const prior = notices.find(
+          (item) => item.id === notice.id || item.eventId === notice.eventId,
+        );
+        if (prior && JSON.stringify(prior) !== JSON.stringify(notice)) {
+          throw new Error(`Conflicting settlement notice identifier ${notice.id}.`);
+        }
+      }
+      for (const closing of incoming.closings) {
+        const prior = closings.find((item) => item.id === closing.id);
+        if (prior && JSON.stringify(prior) !== JSON.stringify(closing)) {
+          throw new Error(`Conflicting closing observation identifier ${closing.id}.`);
         }
       }
       // Boards and picks land before bets, which may reference a model pick.
@@ -668,7 +772,17 @@ export function createMemoryStore(): JournalStore {
       for (const notice of incoming.notices) {
         if (!notices.some((item) => item.id === notice.id)) notices.push(notice);
       }
-      return memoryBackup(runs, bets, closings, notices, boardStore.boards);
+      for (const row of backup.protocolRegistrations ?? [])
+        if (!registrations.some((prior) => prior.id === row.id))
+          registrations.push(structuredClone(row));
+      for (const row of backup.closingMarketSnapshots ?? [])
+        if (!marketSnapshots.some((prior) => prior.id === row.id))
+          marketSnapshots.push(structuredClone(row));
+      return {
+        ...memoryBackup(runs, bets, closings, notices, boardStore.boards),
+        protocolRegistrations: structuredClone(registrations),
+        closingMarketSnapshots: structuredClone(marketSnapshots),
+      };
     },
   };
   return { ...research, ...boardStore };
@@ -766,6 +880,7 @@ function gameOfRun(run: ResearchRun | undefined): { id: string; kickoff: string 
 }
 
 type OpenSide = {
+  observedAt: string | null;
   gameId: string;
   kickoffAt: string;
   market: Market;
@@ -789,6 +904,7 @@ function openSide(
     if (!run) throw new Error(`Analysis not found: ${subject.id}`);
     return {
       gameId: run.game.id,
+      observedAt: run.offer.observedAt ?? null,
       kickoffAt: run.game.kickoff,
       market: run.offer.market,
       selection: run.offer.selection,
@@ -818,6 +934,7 @@ function openSide(
   }
   return {
     gameId: game.id,
+    observedAt: bet.placedAt ?? null,
     kickoffAt: game.kickoff,
     market: bet.market,
     selection: bet.selection,
@@ -873,6 +990,13 @@ function recordMemoryClosing(
     kickoffAt: open.kickoffAt,
     rules: input.rules,
   });
+  if (
+    !open.observedAt ||
+    !Number.isFinite(Date.parse(open.observedAt)) ||
+    Date.parse(input.observedAt) <= Date.parse(open.observedAt)
+  ) {
+    throw new Error("A closing observation must be later than the entry time.");
+  }
   const comparison = compareClosing(
     {
       market: open.market,
@@ -890,6 +1014,7 @@ function recordMemoryClosing(
       rules: contract.rules,
       decimalOdds: contract.decimalOdds,
     },
+    { entryAt: open.observedAt, observedAt: input.observedAt, kickoffAt: open.kickoffAt },
   );
   const saved: ClosingObservation = {
     id: randomUUID(),
@@ -1089,6 +1214,9 @@ function memoryBackup(
     settlements: [],
     closings: [],
     gameBoards: [...boards.values()].map((board) => structuredClone(board)),
+    gameSettlementNotices: notices
+      .filter((notice) => notice.gameId !== null)
+      .map((notice) => structuredClone(notice)),
     runs: [...runs.values()].map((run) => structuredClone(run)),
     actualBets: bets.map((bet) => structuredClone(bet)),
     closingObservations: closings.map((closing) => structuredClone(closing)),
@@ -1106,6 +1234,17 @@ function memoryFromBackup(backup: JournalExport): {
   const body = backup as MemoryJournal;
   if (!Array.isArray(body.runs)) {
     throw new Error("Journal backup is missing its analysis records.");
+  }
+  for (const closing of body.closingObservations ?? []) {
+    if (
+      (closing.provenance === "observed" && closing.observedAt === null) ||
+      (closing.provenance === "archived-untimestamped" && closing.observedAt !== null)
+    ) {
+      throw new Error(`Closing observation ${closing.id} has invalid timestamp provenance.`);
+    }
+    if (closing.observedAt !== null && !Number.isFinite(Date.parse(closing.observedAt))) {
+      throw new Error(`Closing observation ${closing.id} has an invalid timestamp.`);
+    }
   }
   return {
     runs: new Map(body.runs.map((run) => [run.id, structuredClone(run)])),

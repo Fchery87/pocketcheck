@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Sql } from "postgres";
 import { americanToDecimal } from "#lib/domain/odds.ts";
 import { parseOffer } from "#lib/domain/offer.ts";
+import { requireFinalScores } from "#lib/domain/settlement.ts";
 import type { ThesisReport } from "../providers/contracts.ts";
 import type { EvidenceFacts, EvidenceItem } from "../sources/contracts.ts";
 import {
@@ -149,6 +150,18 @@ export function createNeonStore(sql: Sql): JournalStore {
   }
 
   const research: ResearchStore = {
+    async recordProtocolRegistration(input) {
+      return journal.recordProtocolRegistration(input);
+    },
+    async listProtocolRegistrations() {
+      return journal.listProtocolRegistrations();
+    },
+    async recordClosingMarketSnapshot(input) {
+      return journal.recordClosingMarketSnapshot(input);
+    },
+    async listClosingMarketSnapshots() {
+      return journal.listClosingMarketSnapshots();
+    },
     async beginAttempt(run) {
       const saved = await journal.saveCompletedAnalysis(journalInput(run, true));
       if (saved.analysis.snapshot.request?.hash !== run.request?.hash) {
@@ -248,6 +261,7 @@ export function createNeonStore(sql: Sql): JournalStore {
         .map(toBet);
     },
     async recordSettlement(input) {
+      requireFinalScores(input);
       return recordNeonSettlement(journal, boardStore, input);
     },
     async readSettlement(input) {
@@ -503,6 +517,13 @@ async function persistClosing(
     kickoffAt: open.kickoffAt,
     rules: input.rules,
   });
+  if (
+    !open.observedAt ||
+    !Number.isFinite(Date.parse(open.observedAt)) ||
+    Date.parse(input.observedAt) <= Date.parse(open.observedAt)
+  ) {
+    throw new Error("A closing observation must be later than the entry time.");
+  }
   const record = await journal.recordClosing({
     analysisId: input.subject.kind === "analysis" ? input.subject.id : null,
     betId: input.subject.kind === "bet" ? input.subject.id : null,
@@ -532,6 +553,7 @@ async function persistClosing(
     comparison: compareClosing(
       { ...open, decimalOdds: americanToDecimal(open.americanOdds) },
       { ...contract, decimalOdds: contract.decimalOdds },
+      { entryAt: open.observedAt, observedAt: input.observedAt, kickoffAt: open.kickoffAt },
     ),
   };
 }
@@ -551,6 +573,7 @@ async function openSide(
     if (!saved) throw new Error(`Analysis not found: ${input.subject.id}`);
     return {
       gameId: saved.game.sourceGameId,
+      observedAt: saved.offer.observedAt,
       kickoffAt: saved.game.kickoffAt,
       market: saved.offer.market,
       selection: saved.offer.selection,
@@ -574,6 +597,7 @@ async function openSide(
     : { id: board!.game.id, kickoff: board!.game.kickoff };
   return {
     gameId: game.id,
+    observedAt: bet.placedAt,
     kickoffAt: game.kickoff,
     market: bet.contract.market,
     selection: bet.contract.selection,
@@ -611,6 +635,10 @@ async function toClosing(
       comparison: { available: false, reason: "archived-untimestamped" },
     };
   }
+  const betForClosing = subject.kind === "bet" ? bets.get(subject.id) : undefined;
+  const betPick = betForClosing?.modelPickId
+    ? await journal.findPickContract(betForClosing.modelPickId)
+    : null;
   const openContract =
     subject.kind === "model-pick"
       ? await journal.findPickContract(subject.id)
@@ -625,6 +653,11 @@ async function toClosing(
                   sportsbook: bet.sportsbook,
                   rules: bet.contract.rules,
                   americanOdds: bet.americanOdds,
+                  observedAt: bet.placedAt,
+                  kickoffAt:
+                    (bet.analysisId
+                      ? analyses.get(bet.analysisId)?.game.kickoff
+                      : betPick?.kickoffAt) ?? null,
                 }
               : null;
           })()
@@ -638,6 +671,8 @@ async function toClosing(
                   sportsbook: analysis.offer.sportsbook,
                   rules: analysis.offer.rules,
                   americanOdds: analysis.offer.americanOdds,
+                  observedAt: analysis.offer.observedAt,
+                  kickoffAt: analysis.game.kickoff,
                 }
               : null;
           })();
@@ -654,6 +689,11 @@ async function toClosing(
           sportsbook: record.sportsbook,
           rules: record.rules,
           decimalOdds: record.decimalOdds,
+        },
+        {
+          entryAt: openContract.observedAt,
+          observedAt: record.observedAt,
+          kickoffAt: openContract.kickoffAt,
         },
       )
     : { available: false as const, reason: "different-contract" as const };

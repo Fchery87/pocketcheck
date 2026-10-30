@@ -10,6 +10,9 @@ import type {
   PickExplanationPacket,
 } from "#lib/server/providers/contracts.ts";
 import { quiet, scriptedModel } from "./board-fixtures.ts";
+import { PROSPECTIVE_PROTOCOL } from "#lib/server/models/release.ts";
+import type { SavedForecast } from "#lib/server/analysis/forecast-record.ts";
+import { modelPickPerformance } from "#lib/server/analysis/model-pick-performance.ts";
 
 const NOW = "2026-10-25T16:00:00.000Z";
 const game = loadFixtureGames("tests/fixtures/sources/games-minimized.csv", NOW).find(
@@ -42,6 +45,156 @@ export function describeGameBoardContract(
   describe(`${name} game board store`, () => {
     if (isolate?.beforeEach) beforeEach(isolate.beforeEach);
     if (isolate?.afterEach) afterEach(isolate.afterEach);
+
+    it("enforces prospective enrollment at the store boundary and round-trips the frozen forecast", async () => {
+      const store = await makeStore();
+      const registration = await store.recordProtocolRegistration({
+        id: `${scopeOf()}:registration`,
+        cohort: "primary-model-picks",
+        protocol: { ...PROSPECTIVE_PROTOCOL, artifactChecksum: "f".repeat(64) },
+      });
+      const template = (await runGameBoard(ask(), { store, collect: quiet, model: model() }))
+        .board!;
+      const cutoffAt = new Date(Date.parse(registration.registeredAt) + 1000).toISOString();
+      const input = {
+        request: {
+          id: `${scopeOf()}:enrolled`,
+          hash: "enrolled",
+          protocolRegistrationId: registration.id,
+        },
+        parentId: null,
+        game: {
+          ...template.game,
+          kickoff: new Date(Date.parse(cutoffAt) + 86400000).toISOString(),
+        },
+        sportsbook: template.sportsbook,
+        observedAt: cutoffAt,
+        cutoffAt,
+        markets: template.markets.map(({ market, offers }) => ({ market, offers })),
+      };
+      const before = await store.exportJournal();
+      await expect(
+        store.beginBoard({ ...input, cutoffAt: registration.registeredAt }),
+      ).rejects.toThrow(/registration/i);
+      await expect(
+        store.beginBoard({ ...input, cutoffAt: "2026-10-25T16:00:00.000Z" }),
+      ).rejects.toThrow(/registration/i);
+      expect(await store.exportJournal()).toEqual(before);
+      const begun = await store.beginBoard(input);
+      if (begun.kind !== "created") throw new Error("Expected enrolled board");
+      const pick = template.markets[0]!.pick!;
+      const forecast: SavedForecast = {
+        version: 1,
+        provenance: "captured",
+        decisionCutoff: cutoffAt,
+        inputAvailability: {
+          version: PROSPECTIVE_PROTOCOL.inputAvailability,
+          results: "before cutoff",
+          starters: "known before cutoff",
+        },
+        artifact: { checksum: "f".repeat(64), version: 5 },
+        protocolRegistrationId: registration.id,
+        features: {},
+        starters: {
+          home: { state: "unknown", identity: null, evidenceAt: null },
+          away: { state: "unknown", identity: null, evidenceAt: null },
+        },
+        marketEligibility: { market: "moneyline", eligible: false },
+        probabilities: { win: 0.64, loss: 0.36, push: 0 },
+        uncertainty: { available: false, reason: "fixture" },
+        policyVersion: "fixture",
+      };
+      const frozen = {
+        boardId: begun.board.id,
+        evidence: [],
+        gaps: [],
+        markets: [
+          {
+            market: "moneyline" as const,
+            pick: {
+              parentPickId: null,
+              forecastingModel: pick.forecastingModel,
+              calculation: pick.calculation,
+              forecast,
+            },
+          },
+        ],
+      };
+      const pending = await store.exportJournal();
+      await expect(
+        store.freezeModelPicks({
+          ...frozen,
+          markets: [
+            {
+              ...frozen.markets[0]!,
+              pick: {
+                ...frozen.markets[0]!.pick,
+                forecastingModel: { ...pick.forecastingModel, checksum: "a".repeat(64) },
+              },
+            },
+          ],
+        }),
+      ).rejects.toThrow(/artifact/i);
+      expect(await store.exportJournal()).toEqual(pending);
+      await store.freezeModelPicks(frozen);
+      await store.finishBoard({
+        boardId: begun.board.id,
+        status: "completed",
+        failureReason: null,
+      });
+      expect((await store.getBoard(begun.board.id))?.markets[0]?.pick?.forecast).toEqual(forecast);
+      const backup = await store.exportJournal();
+      const restored = await makeStore();
+      await restored.restoreJournal(backup);
+      expect(await restored.listProtocolRegistrations()).toEqual([registration]);
+      expect((await restored.getBoard(begun.board.id))?.markets[0]?.pick?.forecast).toEqual(
+        forecast,
+      );
+    });
+
+    it("rejects model-pick closes outside the strict entry-to-kickoff window without a write", async () => {
+      const store = await makeStore();
+      const board = (await runGameBoard(ask(), { store, collect: quiet, model: model() })).board!;
+      const pick = board.markets[0]!.pick!;
+      const offer = board.markets[0]!.offers.find(
+        (offer) => offer.selection === pick.calculation.pickedSelection,
+      )!;
+      const close = {
+        subject: { kind: "model-pick" as const, id: pick.id },
+        sportsbook: offer.sportsbook,
+        market: offer.market,
+        selection: offer.selection,
+        americanOdds: -120,
+        observedAt: "2026-10-26T23:50:00.000Z",
+        source: "book",
+        rules: offer.rules,
+      };
+      const before = await store.exportJournal();
+      for (const observedAt of [
+        "2026-10-25T15:00:00.000Z",
+        board.observedAt,
+        board.game.kickoff,
+        new Date(Date.parse(board.game.kickoff) + 1000).toISOString(),
+        "invalid",
+      ]) {
+        await expect(store.recordClosing({ ...close, observedAt })).rejects.toThrow();
+        expect(await store.exportJournal()).toEqual(before);
+      }
+      await store.recordClosing(close);
+      const backup = await store.exportJournal();
+      const raw =
+        "closingObservations" in backup
+          ? (backup.closingObservations as Array<{ observedAt: string | null }>)
+          : backup.closings;
+      raw[0]!.observedAt = board.observedAt;
+      const restored = await makeStore();
+      await restored.restoreJournal(backup);
+      expect(await restored.exportJournal()).toEqual(backup);
+      const closings = await restored.listClosings();
+      expect(closings[0]?.comparison).toEqual({ available: false, reason: "not-later" });
+      const summary = modelPickPerformance(await restored.listModelPicks(), closings);
+      expect(summary.overall.denominators.closingComparisons).toBe(0);
+    });
 
     it("returns a frozen board and its model pick exactly as they were saved", async () => {
       const store = await makeStore();
@@ -387,6 +540,26 @@ export function describeGameBoardContract(
         expect(outcome.ok, outcome.ok ? "" : outcome.error).toBe(true);
         return outcome.board!;
       };
+
+      it("rejects invalid final scores without recording a settlement", async () => {
+        const store = await makeStore();
+        const board = await frozen(store);
+        for (const score of [-1, 1.5]) {
+          await expect(
+            store.recordGameSettlement(final(`bad-${score}`, score, 14)),
+          ).rejects.toThrow(/nonnegative whole-number/);
+        }
+        const read = await store.readBoardSettlement(board.id);
+        expect(read.markets.every((item) => item.grade?.effective === "unresolved")).toBe(true);
+        await store.recordGameSettlement(final("valid", 24, 14));
+        const before = await store.exportJournal();
+        for (const score of [-1, 1.5]) {
+          const backup = structuredClone(before);
+          backup.gameSettlementNotices![0]!.homeScore = score;
+          await expect(store.restoreJournal(backup)).rejects.toThrow(/invalid/i);
+          expect(await store.exportJournal()).toEqual(before);
+        }
+      });
 
       it("grades every model pick from its own contract and keeps the board unchanged", async () => {
         const store = await makeStore();

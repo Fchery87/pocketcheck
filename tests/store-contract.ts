@@ -6,6 +6,9 @@ import { runAnalysis, type AnalysisRequest, type ThesisDrafter } from "#lib/serv
 import type { ModelSource } from "#lib/server/analysis/model.ts";
 import type { JournalStore, ResearchStore } from "#lib/server/analysis/store.ts";
 import { quiet, scriptedModel } from "./board-fixtures.ts";
+import { randomUUID } from "node:crypto";
+import { parseOffer } from "#lib/domain/offer.ts";
+import { PROSPECTIVE_PROTOCOL } from "#lib/server/models/release.ts";
 
 const NOW = "2026-10-25T16:00:00.000Z";
 const game = loadFixtureGames("tests/fixtures/sources/games-minimized.csv", NOW).find(
@@ -91,6 +94,110 @@ export function describeStoreContract(
   describe(`${name} research store`, () => {
     if (isolate?.beforeEach) beforeEach(isolate.beforeEach);
     if (isolate?.afterEach) afterEach(isolate.afterEach);
+    it("rejects impossible final scores for a research assessment", async () => {
+      const store = await makeStore();
+      const result = await runAnalysis(ask(), { store });
+      expect(result.ok).toBe(true);
+      const before = await store.exportJournal();
+      for (const score of [-1, 1.5]) {
+        await expect(
+          store.recordSettlement({
+            eventId: submission(`bad-score-${score}`),
+            analysisId: result.run!.id,
+            kind: "final",
+            homeScore: score,
+            awayScore: 14,
+            recordedAt: "2026-10-27T04:00:00Z",
+            source: "official",
+          }),
+        ).rejects.toThrow(/nonnegative whole-number/);
+        expect(await store.exportJournal()).toEqual(before);
+      }
+    });
+    it("deduplicates concurrent registrations and closing snapshots and rejects conflicts", async () => {
+      const store = await makeStore();
+      await runAnalysis(ask(), { store });
+      const registration = {
+        id: `prospective-${randomUUID()}`,
+        cohort: "primary-model-picks" as const,
+        protocol: { ...PROSPECTIVE_PROTOCOL, artifactChecksum: "a".repeat(64) },
+      };
+      const registrations = await Promise.all(
+        Array.from({ length: 4 }, () => store.recordProtocolRegistration(registration)),
+      );
+      expect(registrations).toEqual(Array(4).fill(registrations[0]));
+      expect(await store.listProtocolRegistrations()).toHaveLength(1);
+      await expect(
+        store.recordProtocolRegistration({
+          ...registration,
+          protocol: { ...registration.protocol, artifactChecksum: "b".repeat(64) },
+        }),
+      ).rejects.toThrow(/conflict/i);
+
+      const offer = (selection: "home" | "away") =>
+        parseOffer({
+          gameId: game.id,
+          sportsbook: "Example Book",
+          market: "moneyline",
+          selection,
+          americanOdds: -110,
+          observedAt: "2026-10-25T15:30:00.000Z",
+          kickoffAt: game.kickoff,
+          rules: { period: "full-game", overtime: "included", tie: "push" },
+        });
+      const snapshot = {
+        id: randomUUID(),
+        gameId: game.id,
+        market: "moneyline" as const,
+        offers: [offer("home"), offer("away")] as [
+          ReturnType<typeof offer>,
+          ReturnType<typeof offer>,
+        ],
+        observedAt: "2026-10-25T15:30:00.000Z",
+        source: "book",
+      };
+      await expect(
+        store.recordClosingMarketSnapshot({
+          ...snapshot,
+          gameId: "unknown-game",
+          offers: snapshot.offers.map((quote) => ({
+            ...quote,
+            gameId: "unknown-game",
+          })) as typeof snapshot.offers,
+        }),
+      ).rejects.toThrow(/game/i);
+      const original = await store.exportJournal();
+      await expect(
+        store.restoreJournal({
+          ...original,
+          closingMarketSnapshots: [
+            {
+              ...snapshot,
+              gameId: "unknown-game",
+              offers: snapshot.offers.map((quote) => ({
+                ...quote,
+                gameId: "unknown-game",
+              })) as typeof snapshot.offers,
+              recordedAt: "2026-10-25T15:40:00.000Z",
+            },
+          ],
+        }),
+      ).rejects.toThrow(/game/i);
+      expect(await store.exportJournal()).toEqual(original);
+      const snapshots = await Promise.all(
+        Array.from({ length: 4 }, () => store.recordClosingMarketSnapshot(snapshot)),
+      );
+      expect(snapshots).toEqual(Array(4).fill(snapshots[0]));
+      expect(await store.listClosingMarketSnapshots()).toHaveLength(1);
+      await expect(
+        store.recordClosingMarketSnapshot({ ...snapshot, source: "other" }),
+      ).rejects.toThrow(/conflict/i);
+      const backup = await store.exportJournal();
+      const restored = await makeStore();
+      await restored.restoreJournal(backup);
+      expect(await restored.listProtocolRegistrations()).toEqual(registrations.slice(0, 1));
+      expect(await restored.listClosingMarketSnapshots()).toEqual(snapshots.slice(0, 1));
+    });
     it("returns a saved run exactly as it was saved", async () => {
       const store = await makeStore();
       const outcome = await runAnalysis(ask(), { store });
@@ -361,20 +468,14 @@ export function describeStoreContract(
         ...createFixtureDrafter(),
         id: "fixture",
         modelId: "fixture-drafter",
-        async draftThesis() {
+        async draftThesis({ packet }) {
           return {
             draftingFailed: true,
             repairAttempted: true,
             refusal: null,
             error: { kind: "transport", status: null, message: "repair connection reset" },
             report: null,
-            packet: {
-              items: [],
-              gaps: [],
-              decimalOdds: 1.9,
-              decisiveBreakEven: 1 / 1.9,
-              policy: { version: "policy-test", conclusion: "pass", blockingReason: null },
-            },
+            packet,
             usage: null,
             usageCost: null,
             modelId: "fixture-drafter",
@@ -498,7 +599,7 @@ export function describeStoreContract(
         ...createFixtureDrafter(),
         id: "fixture",
         modelId: "fixture-drafter",
-        async draftThesis() {
+        async draftThesis({ packet }) {
           drafts += 1;
           if (drafts > 1) throw new Error("a second provider request was sent");
           return {
@@ -511,13 +612,7 @@ export function describeStoreContract(
               message: "draft timed out after the request was sent",
             },
             report: null,
-            packet: {
-              items: [],
-              gaps: [],
-              decimalOdds: 1.9,
-              decisiveBreakEven: 1 / 1.9,
-              policy: { version: "policy-test", conclusion: "pass", blockingReason: null },
-            },
+            packet,
             usage: null,
             usageCost: null,
             modelId: "fixture-drafter",
@@ -956,6 +1051,88 @@ export function describeStoreContract(
       expect((await store.listBets())[0]).toMatchObject({ pointLine: -3.5, americanOdds: -105 });
     });
 
+    it("rejects closing observations at or before the research offer time", async () => {
+      const store = await makeStore();
+      const run = (
+        await runAnalysis(
+          ask({ market: "spread", selection: "home", pointLine: -3.5, americanOdds: -110 }),
+          { store },
+        )
+      ).run!;
+      const before = await store.exportJournal();
+      for (const observedAt of [
+        "2026-10-25T14:00:00.000Z",
+        "2026-10-25T15:30:00.000Z",
+        game.kickoff,
+        new Date(Date.parse(game.kickoff) + 1000).toISOString(),
+        "not-a-time",
+      ]) {
+        await expect(
+          store.recordClosing({
+            subject: { kind: "analysis", id: run.id },
+            sportsbook: "Example Book",
+            market: "spread",
+            selection: "home",
+            pointLine: -3.5,
+            americanOdds: -120,
+            observedAt,
+            source: "manual-close",
+            rules: { period: "full-game", overtime: "included" },
+          }),
+        ).rejects.toThrow();
+        expect(await store.exportJournal()).toEqual(before);
+      }
+      expect(await store.listClosings()).toHaveLength(0);
+    });
+
+    it("preserves raw legacy closes while excluding invalid chronology from read comparisons", async () => {
+      const source = await makeStore();
+      const run = (await runAnalysis(ask(), { store: source })).run!;
+      await source.recordClosing({
+        subject: { kind: "analysis", id: run.id },
+        sportsbook: "Example Book",
+        market: "moneyline",
+        selection: "home",
+        americanOdds: -120,
+        observedAt: "2026-10-26T23:50:00.000Z",
+        source: "book",
+        rules: { period: "full-game", overtime: "included", tie: "push" },
+      });
+      const backup = await source.exportJournal();
+      const raw =
+        "closingObservations" in backup
+          ? (backup.closingObservations as Array<{ observedAt: string | null }>)
+          : backup.closings;
+      raw[0]!.observedAt = "2026-10-25T15:30:00.000Z";
+      const destination = await makeStore();
+      await destination.restoreJournal(backup);
+      expect(await destination.exportJournal()).toEqual(backup);
+      expect((await destination.listClosings())[0]?.comparison).toEqual({
+        available: false,
+        reason: "not-later",
+      });
+      const before = await destination.exportJournal();
+      const malformed = structuredClone(backup);
+      const malformedRaw =
+        "closingObservations" in malformed
+          ? (malformed.closingObservations as Array<{ observedAt: string | null }>)
+          : malformed.closings;
+      malformedRaw[0]!.observedAt = "not-a-time";
+      await expect(destination.restoreJournal(malformed)).rejects.toThrow();
+      expect(await destination.exportJournal()).toEqual(before);
+      const untimestamped = structuredClone(backup);
+      const missingRaw =
+        "closingObservations" in untimestamped
+          ? (untimestamped.closingObservations as Array<{ observedAt: string | null }>)
+          : untimestamped.closings;
+      missingRaw[0]!.observedAt = null;
+      Object.assign(missingRaw[0]!, { provenance: "archived-untimestamped" });
+      const legacy = await makeStore();
+      await legacy.restoreJournal(untimestamped);
+      expect(await legacy.exportJournal()).toEqual(untimestamped);
+      expect((await legacy.listClosings())[0]?.comparison.available).toBe(false);
+    });
+
     it("records a closing observation and reads the price comparison back", async () => {
       const store = await makeStore();
       const run = (
@@ -1097,6 +1274,29 @@ export function describeStoreContract(
         rules: { period: "full-game", overtime: "included" },
       });
       if (recorded.kind === "conflict") throw new Error(recorded.error);
+      const before = await store.exportJournal();
+      for (const observedAt of [
+        "2026-10-25T15:45:00.000Z",
+        NOW,
+        game.kickoff,
+        new Date(Date.parse(game.kickoff) + 1000).toISOString(),
+        "invalid",
+      ]) {
+        await expect(
+          store.recordClosing({
+            subject: { kind: "bet", id: recorded.bet.id },
+            sportsbook: "Execution Book",
+            market: "spread",
+            selection: "home",
+            pointLine: -3.5,
+            americanOdds: -115,
+            observedAt,
+            source: "book",
+            rules: { period: "full-game", overtime: "included" },
+          }),
+        ).rejects.toThrow();
+        expect(await store.exportJournal()).toEqual(before);
+      }
       await store.recordClosing({
         subject: { kind: "bet", id: recorded.bet.id },
         sportsbook: "Execution Book",
@@ -1484,6 +1684,7 @@ export function describeStoreContract(
       expect(backup.version).toBe(1);
       expect(backup.gameBoards?.map((board) => board.id)).toContain(outcome.board.id);
       const exportedBoard = backup.gameBoards?.find((board) => board.id === outcome.board.id);
+      expect(exportedBoard?.request.explanationFormatVersion).toBe(2);
       expect(exportedBoard?.drafter).toEqual(outcome.board.drafter);
       expect(exportedBoard?.providerRequests).toEqual(outcome.board.providerRequests);
       expect(exportedBoard?.providerOutcomeAmbiguous).toBe(outcome.board.providerOutcomeAmbiguous);

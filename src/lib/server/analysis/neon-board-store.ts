@@ -3,6 +3,7 @@ import type { Sql, TransactionSql } from "postgres";
 import { parentsFirst } from "../db/order.ts";
 import type { BoardQuoteResult } from "#lib/domain/board.ts";
 import type { Market, Offer } from "#lib/domain/offer.ts";
+import { requireFinalScores } from "#lib/domain/settlement.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
 import {
   BOARD_CONFLICT,
@@ -10,6 +11,8 @@ import {
   gameSettlementPayloadKey,
   gradeBoardMarkets,
   isTerminalBoard,
+  requireBoardRegistration,
+  requirePickRegistration,
   WITHDRAW_NEEDS_REASON,
   WITHDRAW_UNFINISHED,
   type BoardMarket,
@@ -23,6 +26,7 @@ import {
 } from "./board-store.ts";
 import { chooseModelPickRole, unclassifiedPickRole } from "./model-pick-primary.ts";
 import type { SavedForecast } from "./forecast-record.ts";
+import type { ProtocolRegistration } from "../models/protocol.ts";
 import type { ModelPickCalculation } from "./model-pick.ts";
 import type { RunGame, RunUsage, StoredNotice } from "./store.ts";
 import type { PickExplanationReport, ProviderRequestRecord } from "../providers/contracts.ts";
@@ -31,6 +35,8 @@ type BoardRow = {
   id: string;
   submission_id: string;
   request_hash: string;
+  protocol_registration_id: string | null;
+  explanation_format_version: 2 | null;
   parent_id: string | null;
   game: RunGame;
   sportsbook: string;
@@ -109,7 +115,14 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
     );
     return {
       id: board.id,
-      request: { id: board.submission_id, hash: board.request_hash },
+      request: {
+        id: board.submission_id,
+        hash: board.request_hash,
+        ...(board.explanation_format_version === 2 ? { explanationFormatVersion: 2 as const } : {}),
+        ...(board.protocol_registration_id
+          ? { protocolRegistrationId: board.protocol_registration_id }
+          : {}),
+      },
       parentId: board.parent_id,
       status: board.status,
       game: board.game,
@@ -166,6 +179,12 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
 
   async function insert(input: NewGameBoard): Promise<string | null> {
     return sql.begin(async (tx) => {
+      const [registration] = input.request.protocolRegistrationId
+        ? await tx<
+            { payload: ProtocolRegistration }[]
+          >`SELECT payload FROM protocol_registrations WHERE id = ${input.request.protocolRegistrationId}`
+        : [];
+      requireBoardRegistration(input, registration?.payload);
       const game = input.game;
       await tx`
         INSERT INTO games (
@@ -184,13 +203,14 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
         INSERT INTO game_boards (
           id, submission_id, request_hash, parent_id, game_id, game, sportsbook,
           observed_at, kickoff_at, cutoff_at, status, lean_text, lean_rationale,
-          drafter_id, drafter_model_id
+          drafter_id, drafter_model_id, protocol_registration_id, explanation_format_version
         ) VALUES (
           ${id}, ${input.request.id}, ${input.request.hash}, ${input.parentId},
           ${gameRow!.id}, ${tx.json(game as never)}, ${input.sportsbook},
           ${input.observedAt}, ${game.kickoff}, ${input.cutoffAt}, 'pending',
           ${input.lean?.text ?? null}, ${input.lean ? input.lean.rationale : null},
-          ${input.drafter?.id ?? null}, ${input.drafter?.modelId ?? null}
+          ${input.drafter?.id ?? null}, ${input.drafter?.modelId ?? null},
+          ${input.request.protocolRegistrationId ?? null}, ${input.request.explanationFormatVersion ?? null}
         )
         ON CONFLICT (submission_id) DO NOTHING
         RETURNING id
@@ -224,6 +244,13 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
           SELECT status FROM game_boards WHERE id = ${input.boardId} FOR UPDATE
         `;
         if (!board) throw new Error(`Game board not found: ${input.boardId}`);
+        const saved = await require(tx, input.boardId);
+        const [registration] = saved.request.protocolRegistrationId
+          ? await tx<
+              { payload: ProtocolRegistration }[]
+            >`SELECT payload FROM protocol_registrations WHERE id = ${saved.request.protocolRegistrationId}`
+          : [];
+        requirePickRegistration(saved, input, registration?.payload);
         if (isTerminalBoard(board.status)) {
           throw new Error("A finished game board cannot freeze new model picks.");
         }
@@ -341,6 +368,7 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
       return read(sql, id);
     },
     async recordGameSettlement(input) {
+      requireFinalScores(input);
       const [game] = await sql<{ id: string }[]>`
         SELECT id FROM games WHERE source_game_id = ${input.gameId}
       `;
@@ -531,7 +559,8 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
             id, submission_id, request_hash, parent_id, game_id, game, sportsbook,
             observed_at, kickoff_at, cutoff_at, status, evidence, gaps, failure_reason,
             lean_text, lean_rationale, drafter_id, drafter_model_id, provider_requests,
-            provider_outcome_ambiguous, usage, explanation, created_at, completed_at
+            provider_outcome_ambiguous, usage, explanation, created_at, completed_at,
+            protocol_registration_id, explanation_format_version
           ) VALUES (
             ${board.id}, ${board.request.id}, ${board.request.hash}, ${board.parentId},
             ${gameRow!.id}, ${tx.json(board.game as never)}, ${board.sportsbook},
@@ -544,7 +573,8 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
             ${board.providerOutcomeAmbiguous},
             ${board.usage ? tx.json(stripBoardSecrets(board.usage) as never) : null},
             ${board.explanation ? tx.json(board.explanation as never) : null},
-            ${board.createdAt}, ${board.completedAt}
+            ${board.createdAt}, ${board.completedAt}, ${board.request.protocolRegistrationId ?? null},
+            ${board.request.explanationFormatVersion ?? null}
           )
         `;
         if (board.withdrawal) {

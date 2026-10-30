@@ -22,6 +22,7 @@ export type SavedForecast = {
     starters: string;
   };
   artifact: { checksum: string; version: number };
+  protocolRegistrationId?: string;
   features: Record<string, number>;
   starters: { home: StarterAssumption; away: StarterAssumption };
   marketEligibility: { market: "moneyline" | "spread" | "total"; eligible: boolean };

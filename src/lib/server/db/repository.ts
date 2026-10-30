@@ -1,4 +1,10 @@
 import { randomUUID } from "node:crypto";
+import {
+  validateClosingMarketSnapshot,
+  validateProtocolRegistration,
+  type ClosingMarketSnapshot,
+  type ProtocolRegistration,
+} from "../models/protocol.ts";
 import type { Sql, TransactionSql } from "postgres";
 import type { AttemptRequest } from "../analysis/attempt.ts";
 import type { SavedForecast } from "../analysis/forecast-record.ts";
@@ -6,7 +12,7 @@ import type { ProviderRequestRecord } from "../providers/contracts.ts";
 import { americanToDecimal } from "#lib/domain/odds.ts";
 import type { Offer } from "#lib/domain/offer.ts";
 import type { GameBoard } from "../analysis/board-store.ts";
-import type { Settlement as SettlementResult } from "#lib/domain/settlement.ts";
+import { validFinalScores, type Settlement as SettlementResult } from "#lib/domain/settlement.ts";
 import { parentsFirst } from "./order.ts";
 
 export type GameRecord = {
@@ -195,6 +201,9 @@ export type JournalExport = {
    * A missing list restores as empty. Version 1 remains the only restorable backup.
    */
   gameBoards?: GameBoard[];
+  protocolRegistrations?: ProtocolRegistration[];
+  closingMarketSnapshots?: ClosingMarketSnapshot[];
+  gameSettlementNotices?: import("../analysis/store.ts").StoredNotice[];
 };
 
 export type SaveAnalysisInput = {
@@ -262,6 +271,59 @@ export class JournalRepository {
 
   constructor(sql: Sql) {
     this.sql = sql;
+  }
+
+  async listProtocolRegistrations(): Promise<ProtocolRegistration[]> {
+    const rows = await this.sql<
+      { payload: ProtocolRegistration }[]
+    >`SELECT payload FROM protocol_registrations ORDER BY payload->>'registeredAt', id`;
+    return rows.map((row) => row.payload);
+  }
+
+  async recordProtocolRegistration(
+    input: Omit<ProtocolRegistration, "registeredAt">,
+  ): Promise<ProtocolRegistration> {
+    const registeredAt = new Date().toISOString();
+    const saved = { ...input, registeredAt };
+    validateProtocolRegistration(saved);
+    const inserted = await this.sql<{ payload: ProtocolRegistration }[]>`
+      INSERT INTO protocol_registrations (id, payload) VALUES (${saved.id}, ${this.sql.json(saved as never)})
+      ON CONFLICT (id) DO NOTHING RETURNING payload`;
+    if (inserted[0]) return inserted[0].payload;
+    const rows = await this.sql<{ payload: ProtocolRegistration; matches: boolean }[]>`
+      SELECT payload, (payload - 'registeredAt') = ${this.sql.json(input as never)} AS matches
+      FROM protocol_registrations WHERE id = ${input.id}`;
+    if (!rows[0]?.matches)
+      throw new Error(`Conflicting protocol registration identifier ${input.id}.`);
+    return rows[0].payload;
+  }
+
+  async listClosingMarketSnapshots(): Promise<ClosingMarketSnapshot[]> {
+    const rows = await this.sql<
+      { payload: ClosingMarketSnapshot }[]
+    >`SELECT payload FROM closing_market_snapshots ORDER BY payload->>'recordedAt', id`;
+    return rows.map((row) => row.payload);
+  }
+
+  async recordClosingMarketSnapshot(
+    input: Omit<ClosingMarketSnapshot, "recordedAt">,
+  ): Promise<ClosingMarketSnapshot> {
+    const games = await this.sql<
+      { id: string }[]
+    >`SELECT id FROM games WHERE source_game_id = ${input.gameId}`;
+    if (!games[0]) throw new Error(`Game not found: ${input.gameId}`);
+    const saved = { ...input, recordedAt: new Date().toISOString() };
+    validateClosingMarketSnapshot(saved);
+    const inserted = await this.sql<{ payload: ClosingMarketSnapshot }[]>`
+      INSERT INTO closing_market_snapshots (id, payload) VALUES (${saved.id}, ${this.sql.json(saved as never)})
+      ON CONFLICT (id) DO NOTHING RETURNING payload`;
+    if (inserted[0]) return inserted[0].payload;
+    const rows = await this.sql<{ payload: ClosingMarketSnapshot; matches: boolean }[]>`
+      SELECT payload, (payload - 'recordedAt') = ${this.sql.json(input as never)} AS matches
+      FROM closing_market_snapshots WHERE id = ${input.id}`;
+    if (!rows[0]?.matches)
+      throw new Error(`Conflicting closing market snapshot identifier ${input.id}.`);
+    return rows[0].payload;
   }
 
   async saveCompletedAnalysis(input: SaveAnalysisInput) {
@@ -784,6 +846,7 @@ export class JournalRepository {
       Array<{
         source_game_id: string;
         kickoff_at: Date;
+        observed_at: Date;
         sportsbook: string;
         market: BetContract["market"];
         offers: Array<{
@@ -795,7 +858,7 @@ export class JournalRepository {
         picked: string;
       }>
     >`
-      SELECT g.source_game_id, b.kickoff_at, b.sportsbook, m.market, m.offers,
+      SELECT g.source_game_id, b.kickoff_at, b.observed_at, b.sportsbook, m.market, m.offers,
         p.calculation->>'pickedSelection' AS picked
       FROM model_picks p
       JOIN game_boards b ON b.id = p.board_id
@@ -808,6 +871,7 @@ export class JournalRepository {
     if (!row || !offer) return null;
     return {
       gameId: row.source_game_id,
+      observedAt: iso(row.observed_at)!,
       kickoffAt: iso(row.kickoff_at)!,
       market: row.market,
       selection: offer.selection as BetContract["selection"],
@@ -1178,11 +1242,12 @@ export class JournalRepository {
           `
         : [];
     const closings =
-      ids.length || betIds.length
+      !analysisIds?.length || ids.length || betIds.length
         ? await this.sql<ClosingRow[]>`
           SELECT * FROM closing_observations
           WHERE analysis_id = ANY(${ids.length ? ids : [randomUUID()]}::uuid[])
              OR bet_id = ANY(${betIds.length ? betIds : [randomUUID()]}::uuid[])
+             OR model_pick_id IS NOT NULL
           ORDER BY created_at ASC
         `
         : [];
@@ -1193,6 +1258,10 @@ export class JournalRepository {
           ORDER BY recorded_at ASC
         `
       : [];
+    const gameNotices = await this.sql<(SettlementNoticeRow & { source_game_id: string })[]>`
+      SELECT n.*, g.source_game_id FROM settlement_notices n
+      JOIN games g ON g.id = n.game_id ORDER BY n.recorded_at, n.id
+    `;
     return {
       version: 1,
       games: games.map(mapGame),
@@ -1205,6 +1274,12 @@ export class JournalRepository {
       settlements: settlements.map(mapSettlement),
       closings: closings.map(mapClosing),
       settlementNotices: notices.map(mapSettlementNotice),
+      protocolRegistrations: await this.listProtocolRegistrations(),
+      closingMarketSnapshots: await this.listClosingMarketSnapshots(),
+      gameSettlementNotices: gameNotices.map((row) => ({
+        ...mapSettlementNotice(row),
+        gameId: row.source_game_id,
+      })),
     };
   }
 
@@ -1236,6 +1311,8 @@ export class JournalRepository {
       await restoreSettlements(tx, snapshot.settlements);
       await restoreClosings(tx, snapshot.closings);
       await restoreSettlementNotices(tx, snapshot.settlementNotices ?? []);
+      await restoreGameSettlementNotices(tx, snapshot.gameSettlementNotices ?? []);
+      await restoreProspectiveEvidence(tx, snapshot);
     });
 
     return this.exportJournal(snapshot.analyses.map((row) => row.id));
@@ -1332,6 +1409,30 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 /** Supported journal backup format. Version 1 is the only importable backup. */
 export const SUPPORTED_JOURNAL_BACKUP_VERSION = 1;
 
+async function restoreProspectiveEvidence(
+  tx: TransactionSql,
+  snapshot: JournalExport,
+): Promise<void> {
+  for (const row of snapshot.protocolRegistrations ?? []) {
+    const prior = await tx<
+      { identical: boolean }[]
+    >`SELECT payload = ${tx.json(row as never)} AS identical FROM protocol_registrations WHERE id = ${row.id}`;
+    if (prior.length && !prior[0]!.identical)
+      throw new Error(`Conflicting protocol registration identifier ${row.id}.`);
+    if (!prior.length)
+      await tx`INSERT INTO protocol_registrations (id, payload) VALUES (${row.id}, ${tx.json(row as never)})`;
+  }
+  for (const row of snapshot.closingMarketSnapshots ?? []) {
+    const prior = await tx<
+      { identical: boolean }[]
+    >`SELECT payload = ${tx.json(row as never)} AS identical FROM closing_market_snapshots WHERE id = ${row.id}`;
+    if (prior.length && !prior[0]!.identical)
+      throw new Error(`Conflicting closing market snapshot identifier ${row.id}.`);
+    if (!prior.length)
+      await tx`INSERT INTO closing_market_snapshots (id, payload) VALUES (${row.id}, ${tx.json(row as never)})`;
+  }
+}
+
 /**
  * Reject a backup before any write. Callers can restore version 1 only when every
  * identifier, snapshot, and relationship is present and internally consistent.
@@ -1356,6 +1457,101 @@ export function assertRestorable(snapshot: JournalExport): void {
   if (tables.some((rows) => !Array.isArray(rows))) {
     throw new Error("Journal backup is missing a required record list.");
   }
+  if (
+    !Array.isArray(snapshot.protocolRegistrations ?? []) ||
+    !Array.isArray(snapshot.closingMarketSnapshots ?? [])
+  ) {
+    throw new Error("Journal prospective evidence must be lists.");
+  }
+  const registrationIds = new Set<string>();
+  for (const registration of snapshot.protocolRegistrations ?? []) {
+    if (
+      typeof registration?.id !== "string" ||
+      !registration.id ||
+      registrationIds.has(registration.id)
+    ) {
+      throw new Error(
+        "Journal backup has a malformed or repeated protocol registration identifier.",
+      );
+    }
+    registrationIds.add(registration.id);
+  }
+  idsOf(snapshot.closingMarketSnapshots ?? [], "closing market snapshot");
+  for (const row of snapshot.protocolRegistrations ?? []) validateProtocolRegistration(row);
+  for (const row of snapshot.closingMarketSnapshots ?? []) validateClosingMarketSnapshot(row);
+  const sourceGames = new Set([
+    ...snapshot.games.map((game) => game.sourceGameId),
+    ...(snapshot.gameBoards ?? []).map((board) => board.game.id),
+    ...("runs" in snapshot && Array.isArray(snapshot.runs)
+      ? snapshot.runs.map((run: { game: { id: string } }) => run.game.id)
+      : []),
+  ]);
+  for (const row of snapshot.closingMarketSnapshots ?? []) {
+    if (!sourceGames.has(row.gameId))
+      throw new Error(`Closing market snapshot ${row.id} is missing its game.`);
+  }
+  for (const board of snapshot.gameBoards ?? []) {
+    if (
+      board.request.explanationFormatVersion !== undefined &&
+      board.request.explanationFormatVersion !== 2
+    ) {
+      throw new Error(`Game board ${board.id} has an unsupported explanation format.`);
+    }
+    const registrationId = board.request.protocolRegistrationId;
+    if (registrationId && !registrationIds.has(registrationId)) {
+      throw new Error(`Game board ${board.id} references a missing protocol registration.`);
+    }
+    for (const market of board.markets) {
+      const forecastId = market.pick?.forecast?.protocolRegistrationId;
+      if (forecastId && (forecastId !== registrationId || !registrationIds.has(forecastId))) {
+        throw new Error(
+          `Model pick ${market.pick?.id} references an incompatible protocol registration.`,
+        );
+      }
+    }
+  }
+  if (!Array.isArray(snapshot.gameSettlementNotices ?? []))
+    throw new Error("Game settlement notices must be a list.");
+  const gameNotices = idsOf(snapshot.gameSettlementNotices ?? [], "game settlement notice");
+  const boardGames = new Set((snapshot.gameBoards ?? []).map((board) => board.game.id));
+  const noticeEvents = new Set((snapshot.settlementNotices ?? []).map((notice) => notice.eventId));
+  for (const notice of snapshot.gameSettlementNotices ?? []) {
+    if (
+      !notice.gameId ||
+      !boardGames.has(notice.gameId) ||
+      notice.analysisId !== null ||
+      notice.betId !== null ||
+      !notice.eventId ||
+      !notice.source ||
+      !notice.payloadKey ||
+      !Number.isFinite(Date.parse(notice.recordedAt)) ||
+      !["final", "postponed", "void", "unresolved"].includes(notice.kind) ||
+      (notice.kind === "final" && !validFinalScores(notice.homeScore, notice.awayScore))
+    ) {
+      throw new Error(`Game settlement notice ${notice.id} is invalid.`);
+    }
+    if (noticeEvents.has(notice.eventId))
+      throw new Error(`Repeated settlement event identifier ${notice.eventId}.`);
+    noticeEvents.add(notice.eventId);
+    if (notice.correctsId) {
+      requireReference(
+        gameNotices,
+        notice.correctsId,
+        `Game settlement notice ${notice.id} is missing its correction.`,
+      );
+      const prior = snapshot.gameSettlementNotices!.find((item) => item.id === notice.correctsId)!;
+      if (
+        prior.gameId !== notice.gameId ||
+        Date.parse(prior.recordedAt) >= Date.parse(notice.recordedAt)
+      ) {
+        throw new Error(
+          `Game settlement notice ${notice.id} must correct an earlier notice for the same game.`,
+        );
+      }
+    }
+  }
+  if (hasSettlementCycle(snapshot.gameSettlementNotices ?? []))
+    throw new Error("Game settlement notice correction relationships contain a cycle.");
   const games = idsOf(snapshot.games, "game");
   const offers = idsOf(snapshot.offers, "offer");
   const evidence = idsOf(snapshot.evidence, "evidence");
@@ -1467,6 +1663,8 @@ export function assertRestorable(snapshot: JournalExport): void {
     throw new Error("Settlement correction relationships contain a cycle.");
   }
   for (const notice of snapshot.settlementNotices ?? []) {
+    if (notice.kind === "final" && !validFinalScores(notice.homeScore, notice.awayScore))
+      throw new Error(`Settlement notice ${notice.id} has invalid scores.`);
     requireReference(
       analyses,
       notice.analysisId,
@@ -1497,6 +1695,15 @@ export function assertRestorable(snapshot: JournalExport): void {
     throw new Error("Settlement notice correction relationships contain a cycle.");
   }
   for (const closing of snapshot.closings) {
+    if (
+      (closing.provenance === "observed" && closing.observedAt === null) ||
+      (closing.provenance === "archived-untimestamped" && closing.observedAt !== null)
+    ) {
+      throw new Error(`Closing observation ${closing.id} has invalid timestamp provenance.`);
+    }
+    if (closing.observedAt !== null && !Number.isFinite(Date.parse(closing.observedAt))) {
+      throw new Error(`Closing observation ${closing.id} has an invalid timestamp.`);
+    }
     if (!closing.analysisId && !closing.betId && !closing.modelPickId) {
       throw new Error(`Closing observation ${closing.id} is missing the record it observes.`);
     }
@@ -1802,6 +2009,29 @@ async function restoreSettlementNotices(
         ${notice.correctsId}, ${notice.recordedAt}, ${notice.payloadKey}
       )
     `;
+  }
+}
+
+async function restoreGameSettlementNotices(
+  tx: RestoreTx,
+  notices: import("../analysis/store.ts").StoredNotice[],
+): Promise<void> {
+  for (const notice of parentsFirst(notices, (row) => row.correctsId)) {
+    const rows = await tx<(SettlementNoticeRow & { source_game_id: string })[]>`
+      SELECT n.*, g.source_game_id FROM settlement_notices n
+      JOIN games g ON g.id = n.game_id WHERE n.id = ${notice.id} OR n.event_id = ${notice.eventId}
+    `;
+    if (rows[0]) {
+      const existing = { ...mapSettlementNotice(rows[0]), gameId: rows[0].source_game_id };
+      if (!sameRecord(existing, notice)) conflict("game settlement notice", notice.id);
+      continue;
+    }
+    const games = await tx<
+      { id: string }[]
+    >`SELECT id FROM games WHERE source_game_id = ${notice.gameId}`;
+    if (!games[0]) throw new Error(`Game settlement notice ${notice.id} is missing its game.`);
+    await tx`INSERT INTO settlement_notices (id, event_id, game_id, kind, home_score, away_score, source, reason, corrects_id, recorded_at, payload_key)
+      VALUES (${notice.id}, ${notice.eventId}, ${games[0].id}, ${notice.kind}, ${notice.homeScore}, ${notice.awayScore}, ${notice.source}, ${notice.reason}, ${notice.correctsId}, ${notice.recordedAt}, ${notice.payloadKey})`;
   }
 }
 

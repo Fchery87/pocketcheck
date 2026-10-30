@@ -8,6 +8,22 @@ export type FinalScore = {
 
 export type Settlement = "win" | "loss" | "push" | "void" | "unresolved";
 
+export function validFinalScores(home: unknown, away: unknown): boolean {
+  return [home, away].every(
+    (score) => typeof score === "number" && Number.isSafeInteger(score) && score >= 0,
+  );
+}
+
+export function requireFinalScores(input: {
+  kind: string;
+  homeScore?: number | null;
+  awayScore?: number | null;
+}): void {
+  if (input.kind === "final" && !validFinalScores(input.homeScore, input.awayScore)) {
+    throw new Error("A final result needs nonnegative whole-number scores.");
+  }
+}
+
 export function settleOffer(offer: Offer, score: FinalScore): Settlement {
   if (score.voided) {
     return "void";

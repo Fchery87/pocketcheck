@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { BoardQuoteResult } from "#lib/domain/board.ts";
 import type { Market, Offer } from "#lib/domain/offer.ts";
+import { requireFinalScores } from "#lib/domain/settlement.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
 import type { SavedForecast } from "./forecast-record.ts";
+import type { ProtocolRegistration } from "../models/protocol.ts";
 import type { PickExplanationReport, ProviderRequestRecord } from "../providers/contracts.ts";
 import type { ModelPickCalculation } from "./model-pick.ts";
 import {
@@ -72,7 +74,12 @@ export type BoardMarket = {
 export type GameBoard = {
   id: string;
   /** Submission identifier and the hash of every input that identifies this board. */
-  request: { id: string; hash: string };
+  request: {
+    id: string;
+    hash: string;
+    protocolRegistrationId?: string;
+    explanationFormatVersion?: 2;
+  };
   parentId: string | null;
   status: GameBoardStatus;
   game: RunGame;
@@ -290,6 +297,7 @@ export type MemoryBoardStore = GameBoardStore & {
 };
 
 export type OpenPick = {
+  observedAt: string;
   gameId: string;
   kickoffAt: string;
   market: Market;
@@ -300,7 +308,59 @@ export type OpenPick = {
   rules: Offer["rules"];
 };
 
-export function createMemoryBoardStore(notices: StoredNotice[] = []): MemoryBoardStore {
+export function requireBoardRegistration(
+  board: NewGameBoard,
+  registration: ProtocolRegistration | undefined,
+): void {
+  if (!board.request.protocolRegistrationId) return;
+  if (
+    !registration ||
+    registration.id !== board.request.protocolRegistrationId ||
+    !Number.isFinite(Date.parse(board.cutoffAt)) ||
+    Date.parse(board.cutoffAt) <= Date.parse(registration.registeredAt) ||
+    Date.parse(board.cutoffAt) < Date.parse(registration.protocol.period.start) ||
+    (registration.protocol.period.end !== null &&
+      Date.parse(board.cutoffAt) >= Date.parse(registration.protocol.period.end)) ||
+    board.markets.some((market) => !registration.protocol.markets.includes(market.market))
+  ) {
+    throw new Error("A board cannot enroll before its protocol registration.");
+  }
+}
+
+export function requirePickRegistration(
+  board: NewGameBoard,
+  input: FreezeModelPicksInput,
+  registration: ProtocolRegistration | undefined,
+): void {
+  requireBoardRegistration(board, registration);
+  for (const result of input.markets) {
+    const pick = result.pick;
+    if (!pick) continue;
+    if (
+      pick.forecast?.protocolRegistrationId &&
+      pick.forecast.protocolRegistrationId !== board.request.protocolRegistrationId
+    ) {
+      throw new Error("The forecast protocol registration does not match its board.");
+    }
+    if (
+      registration &&
+      (pick.forecastingModel.checksum !== registration.protocol.artifactChecksum ||
+        (pick.forecast &&
+          (pick.forecast.artifact.checksum !== registration.protocol.artifactChecksum ||
+            pick.forecast.protocolRegistrationId !== registration.id ||
+            pick.forecast.decisionCutoff !== board.cutoffAt ||
+            pick.forecast.inputAvailability.version !== registration.protocol.inputAvailability ||
+            pick.forecast.marketEligibility.market !== result.market)))
+    ) {
+      throw new Error("The forecast artifact or cutoff does not match its protocol registration.");
+    }
+  }
+}
+
+export function createMemoryBoardStore(
+  notices: StoredNotice[] = [],
+  registrations: ProtocolRegistration[] = [],
+): MemoryBoardStore {
   const boards = new Map<string, GameBoard>();
   const submissions = new Map<string, string>();
   const finishChains = new Map<string, Promise<unknown>>();
@@ -326,6 +386,10 @@ export function createMemoryBoardStore(notices: StoredNotice[] = []): MemoryBoar
       if (input.parentId && !boards.has(input.parentId)) {
         throw new Error(`Parent game board not found: ${input.parentId}`);
       }
+      requireBoardRegistration(
+        input,
+        registrations.find((row) => row.id === input.request.protocolRegistrationId),
+      );
       const board: GameBoard = structuredClone({
         ...input,
         id: randomUUID(),
@@ -355,6 +419,11 @@ export function createMemoryBoardStore(notices: StoredNotice[] = []): MemoryBoar
     },
     async freezeModelPicks(input) {
       const board = require(input.boardId);
+      requirePickRegistration(
+        board,
+        input,
+        registrations.find((row) => row.id === board.request.protocolRegistrationId),
+      );
       if (isTerminalBoard(board.status)) {
         throw new Error("A finished game board cannot freeze new model picks.");
       }
@@ -472,6 +541,7 @@ export function createMemoryBoardStore(notices: StoredNotice[] = []): MemoryBoar
       return board ? structuredClone(board) : null;
     },
     async recordGameSettlement(input) {
+      requireFinalScores(input);
       if (![...boards.values()].some((board) => board.game.id === input.gameId)) {
         throw new Error(`Game not found: ${input.gameId}`);
       }
@@ -579,6 +649,7 @@ export function createMemoryBoardStore(notices: StoredNotice[] = []): MemoryBoar
           );
           if (!offer) return null;
           return {
+            observedAt: offer.observedAt,
             gameId: board.game.id,
             kickoffAt: board.game.kickoff,
             market: market.market,
