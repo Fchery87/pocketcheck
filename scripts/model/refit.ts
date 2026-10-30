@@ -1,6 +1,5 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { parseArtifact } from "../../src/lib/server/models/inputs.ts";
 import { assertUnreleased, fitArtifact, readGames } from "../../src/lib/server/models/train.ts";
 
 // Fits the latest eligible data into a new unreleased artifact and writes it beside the artifact
@@ -19,7 +18,7 @@ try {
   const artifact = fitArtifact(games);
   assertUnreleased(artifact);
   if (existsSync(inUse)) {
-    const current = parseArtifact(JSON.parse(readFileSync(inUse, "utf8")) as unknown);
+    const current = JSON.parse(readFileSync(inUse, "utf8")) as { checksum?: unknown };
     if (artifact.checksum === current.checksum && !replace) {
       console.log(JSON.stringify({ unchanged: true, checksum: artifact.checksum }));
       process.exit(0);

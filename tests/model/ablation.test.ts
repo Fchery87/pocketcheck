@@ -12,6 +12,7 @@ import {
 import { parseEvaluationReport } from "../../src/lib/server/models/inputs.ts";
 import { fitArtifact, readGames } from "../../src/lib/server/models/train.ts";
 import { buildFeatureRows } from "../../src/lib/server/models/features.ts";
+import { TRAINING_CODE } from "../../src/lib/server/models/training-code.ts";
 
 const games = readGames(resolve("tests/model/fixtures/synthetic-games.json"));
 const artifact = fitArtifact(games, "2024-09-15T20:00:00Z");
@@ -345,6 +346,18 @@ describe("model:refit", () => {
     const written = JSON.parse(readFileSync(next, "utf8")) as { releaseStatus: string };
     expect(written.releaseStatus).toBe("unreleased");
     expect(readFileSync(inUse, "utf8")).toBe(before);
+  });
+
+  it("replaces an artifact that other training code built", () => {
+    const stale = join(directory, "stale.json");
+    const { trainingCode: _trainingCode, ...body } = JSON.parse(
+      readFileSync("tests/fixtures/models/browser-forecasting-model.json", "utf8"),
+    );
+    writeFileSync(stale, JSON.stringify(body));
+    const result = refit([games, stale, "--replace"]);
+    expect(result.status, result.stderr).toBe(0);
+    const written = JSON.parse(readFileSync(stale, "utf8")) as { trainingCode: string };
+    expect(written.trainingCode).toBe(TRAINING_CODE);
   });
 });
 
