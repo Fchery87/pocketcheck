@@ -154,6 +154,14 @@ export function smoothMass(distribution: ResidualDistribution, mean: number): Ma
   }));
 }
 
+export function anchoredMass(
+  distribution: ResidualDistribution,
+  anchor: number,
+  adjustment: number,
+): MassBin[] {
+  return integerMass(distribution, anchor + adjustment);
+}
+
 export function integerMass(distribution: ResidualDistribution, mean: number): MassBin[] {
   const keyWeight = new Map(distribution.keyWeights.map((entry) => [entry.points, entry.weight]));
   const weighted = smoothMass(distribution, mean).map((bin) => ({
@@ -199,7 +207,8 @@ export function marginMeanForHomeWin(distribution: ResidualDistribution, homeWin
   let best = 0;
   let bestGap = Infinity;
   for (let mean = -30; mean <= 30; mean += 0.25) {
-    const win = moneylineFromMargin(integerMass(distribution, mean)).home.win;
+    const side = moneylineFromMargin(integerMass(distribution, mean)).home;
+    const win = side.win / (side.win + side.loss);
     const gap = Math.abs(win - homeWin);
     if (gap < bestGap) {
       best = mean;

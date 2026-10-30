@@ -149,6 +149,21 @@ describe("artifact uncertainty", { timeout: 60_000 }, () => {
     }
   });
 
+  it("calibrates totals around the market line and handles missing prices independently", () => {
+    const partial = games.map((game, index) => ({
+      ...game,
+      prices: index % 7 === 0 && game.prices ? { ...game.prices, total: undefined } : game.prices,
+    }));
+    const artifact = fitArtifact(partial, cutoff);
+    const bins = artifact.uncertainty.markets.total;
+    expect(
+      bins
+        .filter((bin) => bin.lower >= 0.2 && bin.upper <= 0.8)
+        .reduce((count, bin) => count + bin.sides, 0),
+    ).toBeGreaterThan(0);
+    expect(artifact.uncertainty.markets.moneyline.some((bin) => bin.sides > 0)).toBe(true);
+  });
+
   it("never looks at results after the training cutoff", () => {
     const flipped = games.map((game, index) =>
       index > 1199 ? { ...game, homeScore: game.awayScore, awayScore: game.homeScore } : game,

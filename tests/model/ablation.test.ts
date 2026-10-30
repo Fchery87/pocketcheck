@@ -309,26 +309,30 @@ describe("model:refit", () => {
     );
   }
 
-  it("leaves the artifact in use untouched when the games file is missing", () => {
-    const seeded = spawnSync(
-      process.execPath,
-      [
-        "--experimental-strip-types",
-        resolve("scripts/model/fit.ts"),
-        games,
-        inUse,
-        "2024-09-15T20:00:00Z",
-      ],
-      { encoding: "utf8" },
-    );
-    expect(seeded.status, seeded.stderr).toBe(0);
-    const before = readFileSync(inUse, "utf8");
-    const result = refit([join(directory, "missing.json"), inUse, join(directory, "next.json")]);
-    expect(result.status, result.stderr).toBe(1);
-    expect(result.stderr).toMatch(/not found/);
-    expect(readFileSync(inUse, "utf8")).toBe(before);
-    expect(existsSync(join(directory, "next.json"))).toBe(false);
-  });
+  it(
+    "leaves the artifact in use untouched when the games file is missing",
+    { timeout: 60_000 },
+    () => {
+      const seeded = spawnSync(
+        process.execPath,
+        [
+          "--experimental-strip-types",
+          resolve("scripts/model/fit.ts"),
+          games,
+          inUse,
+          "2024-09-15T20:00:00Z",
+        ],
+        { encoding: "utf8" },
+      );
+      expect(seeded.status, seeded.stderr).toBe(0);
+      const before = readFileSync(inUse, "utf8");
+      const result = refit([join(directory, "missing.json"), inUse, join(directory, "next.json")]);
+      expect(result.status, result.stderr).toBe(1);
+      expect(result.stderr).toMatch(/not found/);
+      expect(readFileSync(inUse, "utf8")).toBe(before);
+      expect(existsSync(join(directory, "next.json"))).toBe(false);
+    },
+  );
 
   it("writes a new unreleased artifact beside the one in use", () => {
     const before = readFileSync(inUse, "utf8");

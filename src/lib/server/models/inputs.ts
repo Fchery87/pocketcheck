@@ -259,6 +259,12 @@ function isModelArtifact(value: unknown): value is ModelArtifact {
     "artifact.uncertainty.method",
     "unsupported calibration method",
   );
+  requireValue(
+    uncertainty.calibrationVersion === undefined ||
+      uncertainty.calibrationVersion === "anchored-v1",
+    "artifact.uncertainty.calibrationVersion",
+    "unsupported calibration version",
+  );
   const options = record(uncertainty.options, "artifact.uncertainty.options");
   for (const [key, expected] of Object.entries(UNCERTAINTY_OPTIONS)) {
     requireValue(

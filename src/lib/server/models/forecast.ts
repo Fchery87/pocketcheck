@@ -189,16 +189,13 @@ export function freezeProspectiveForecast(input: ForecastInputs): ProspectiveFor
     input.artifact.margin.residuals,
   );
   const unanchored = predictGame(input.artifact, row);
-  const adjustment =
-    input.offer.market === "total"
-      ? unanchored.drivers.total.contributions.reduce((sum, item) => sum + item.points, 0)
-      : unanchored.drivers.margin.contributions.reduce((sum, item) => sum + item.points, 0);
+  const adjustment = input.offer.market === "total" ? unanchored.totalMean : unanchored.marginMean;
   const predicted = predictGame(
     input.artifact,
     row,
     input.offer.market === "total"
-      ? { totalMean: anchor.mean + adjustment }
-      : { marginMean: anchor.mean + adjustment },
+      ? { totalAnchor: { mean: anchor.mean, adjustment } }
+      : { marginAnchor: { mean: anchor.mean, adjustment } },
   );
   const probabilities = offerProbabilities(predicted, input.offer);
   const eligibility = valueEligibility(input.artifact, input.offer.market);

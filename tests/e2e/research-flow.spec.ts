@@ -25,7 +25,7 @@ test.beforeEach(async ({ request }) => {
     weather: "off",
     model: {
       artifact: "tests/fixtures/models/browser-forecasting-model.json",
-      checksum: "69aed22c0fdeae492bec96e0a65328341e0f765aac069f7eac1bd36b8003d1ad",
+      checksum: "9b48472f20f7acfbfb0ca2f29c8ec6da9269c739acc06b68d1774311a64f5c9f",
       releaseStatus: "unreleased",
       trainingCutoff: "2024-09-22T17:00:00Z",
     },
@@ -83,12 +83,21 @@ test("offer, report, refresh, and unchanged prior report", async ({ page, reques
   await expect(page.locator('input[name="requestId"]')).toHaveValue(firstRequestId);
   await expect(page.getByTestId("lean")).toHaveValue("PHI");
   await page.getByTestId("american-odds").fill("-110");
+  await page.getByTestId("analyze").evaluate((button) => {
+    const field = document.createElement("input");
+    field.type = "hidden";
+    field.name = "cutoffAt";
+    field.value = "2026-10-25T14:00:00.000Z";
+    button.closest("form")!.append(field);
+  });
   const beforeSubmission = await request.get("/__verification");
   expect((await beforeSubmission.json()).analyses).toBe(0);
   await page.getByTestId("analyze").click();
 
   // One conclusion, owned by the policy.
   await expect(page.getByTestId("conclusion")).toHaveText("insufficient evidence");
+  const backup = await (await request.get("/journal/export")).json();
+  expect(backup.analyses[0].cutoffAt).toBe("2026-10-25T16:00:00.000Z");
   await expect(page.getByTestId("manual-coverage")).toContainText("kickoff forecast");
   await expect(page.getByTestId("snapshot-provenance")).toHaveText(
     "Game and research offer captured with this report.",

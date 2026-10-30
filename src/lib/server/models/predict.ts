@@ -1,5 +1,5 @@
 import {
-  integerMass,
+  anchoredMass,
   moneylineFromMargin,
   spreadFromMargin,
   totalFromDistribution,
@@ -29,12 +29,29 @@ export type GameProbabilities = {
 export function predictGame(
   artifact: ModelArtifact,
   row: FeatureRow,
-  anchor?: { marginMean?: number; totalMean?: number },
+  anchor?: {
+    marginMean?: number;
+    totalMean?: number;
+    marginAnchor?: { mean: number; adjustment: number };
+    totalAnchor?: { mean: number; adjustment: number };
+  },
 ): GameProbabilities {
-  const marginMean = anchor?.marginMean ?? predictMean(artifact.margin.model, row);
-  const totalMean = anchor?.totalMean ?? predictMean(artifact.total.model, row);
-  const marginBins = integerMass(artifact.margin.residuals, marginMean);
-  const totalBins = integerMass(artifact.total.residuals, totalMean);
+  const marginMean = anchor?.marginAnchor
+    ? anchor.marginAnchor.mean + anchor.marginAnchor.adjustment
+    : (anchor?.marginMean ?? predictMean(artifact.margin.model, row));
+  const totalMean = anchor?.totalAnchor
+    ? anchor.totalAnchor.mean + anchor.totalAnchor.adjustment
+    : (anchor?.totalMean ?? predictMean(artifact.total.model, row));
+  const marginBins = anchor?.marginAnchor
+    ? anchoredMass(
+        artifact.margin.residuals,
+        anchor.marginAnchor.mean,
+        anchor.marginAnchor.adjustment,
+      )
+    : anchoredMass(artifact.margin.residuals, marginMean, 0);
+  const totalBins = anchor?.totalAnchor
+    ? anchoredMass(artifact.total.residuals, anchor.totalAnchor.mean, anchor.totalAnchor.adjustment)
+    : anchoredMass(artifact.total.residuals, totalMean, 0);
   const moneyline = moneylineFromMargin(marginBins);
   return {
     gameId: row.gameId,

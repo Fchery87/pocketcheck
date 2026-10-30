@@ -5,7 +5,7 @@ import { attachEfficiency } from "./efficiency-join.ts";
 import { datasetHash, withChecksum, type ModelArtifact } from "./artifact.ts";
 import {
   fitResidualDistribution,
-  integerMass,
+  anchoredMass,
   keyNumberWeights,
   moneylineFromMargin,
   spreadFromMargin,
@@ -55,73 +55,82 @@ function decisive(side: SideProbability): number {
  * calibration starts at block 2. Every input to a block's forecast predates that block.
  */
 function calibrationSamples(
-  train: readonly FeatureRow[],
+  marginRows: readonly FeatureRow[],
+  totalRows: readonly FeatureRow[],
   byId: ReadonlyMap<string, PricedGame>,
   margins: readonly WalkForwardPrediction[],
   totals: readonly WalkForwardPrediction[],
-  finalMargins: readonly number[],
 ): CalibrationSample[] {
   const samples: CalibrationSample[] = [];
-  const distributions = new Map<
-    number,
-    { margin: ResidualDistribution; total: ResidualDistribution }
-  >();
-  margins.forEach((marginPrediction, position) => {
-    const totalPrediction = totals[position]!;
-    if (marginPrediction.block < 2) return;
-    let pair = distributions.get(marginPrediction.block);
-    if (!pair) {
-      const blockStart = margins.find((entry) => entry.block === marginPrediction.block)!.index;
-      const cutoff = kickoffMs(train[blockStart]!);
-      const earlier = (list: readonly WalkForwardPrediction[]) =>
-        list
-          .filter(
-            (entry) =>
-              entry.block < marginPrediction.block &&
-              resultAvailableMs(train[entry.index]!) < cutoff,
-          )
-          .map((entry) => entry.residual);
-      const marginResiduals = earlier(margins);
-      const totalResiduals = earlier(totals);
-      if (marginResiduals.length === 0 || totalResiduals.length === 0) return;
-      pair = {
-        margin: fitResidualDistribution(
-          marginResiduals,
-          DEFAULT_FIT.residualBandwidth,
-          undefined,
-          keyNumberWeights(
-            finalMargins
-              .slice(0, blockStart)
-              .filter((_, index) => resultAvailableMs(train[index]!) < cutoff),
-          ),
-        ),
-        total: fitResidualDistribution(totalResiduals, DEFAULT_FIT.residualBandwidth),
-      };
-      distributions.set(marginPrediction.block, pair);
-    }
-    const row = train[marginPrediction.index]!;
-    const game = byId.get(row.gameId)!;
-    const slate = slateOf(game.kickoff);
-    const marginBins = integerMass(pair.margin, marginPrediction.mean);
-    const margin = game.homeScore - game.awayScore;
-    const moneyline = moneylineFromMargin(marginBins);
-    samples.push(
-      {
-        market: "moneyline",
-        slate,
-        decisiveWin: decisive(moneyline.home),
-        outcome: settleMargin(margin),
-      },
-      {
-        market: "moneyline",
-        slate,
-        decisiveWin: decisive(moneyline.away),
-        outcome: settleMargin(-margin),
-      },
+  const cache = new Map<string, ResidualDistribution>();
+  const distributionFor = (
+    predictions: readonly WalkForwardPrediction[],
+    rows: readonly FeatureRow[],
+    current: WalkForwardPrediction,
+    useKeyNumbers: boolean,
+  ): ResidualDistribution | null => {
+    if (current.block < 2) return null;
+    const key = `${useKeyNumbers ? "margin" : "total"}:${current.block}`;
+    const cached = cache.get(key);
+    if (cached) return cached;
+    const blockStart = predictions.find((entry) => entry.block === current.block);
+    if (!blockStart) return null;
+    const cutoff = kickoffMs(rows[blockStart.index]!);
+    const earlier = predictions.filter(
+      (entry) => entry.block < current.block && resultAvailableMs(rows[entry.index]!) < cutoff,
     );
+    if (earlier.length === 0) return null;
+    const earlierMargins = earlier.map((entry) => marginHome(byId.get(rows[entry.index]!.gameId)!));
+    const distribution = fitResidualDistribution(
+      earlier.map((entry) => entry.residual),
+      DEFAULT_FIT.residualBandwidth,
+      undefined,
+      useKeyNumbers ? keyNumberWeights(earlierMargins) : undefined,
+    );
+    cache.set(key, distribution);
+    return distribution;
+  };
+  for (const prediction of margins) {
+    const distribution = distributionFor(margins, marginRows, prediction, true);
+    if (!distribution) continue;
+    const game = byId.get(marginRows[prediction.index]!.gameId)!;
+    const slate = slateOf(game.kickoff);
+    const margin = game.homeScore - game.awayScore;
+    const moneylinePrice = game.prices?.moneyline;
+    if (moneylinePrice) {
+      const anchor = anchorFromQuote(
+        "moneyline",
+        {
+          sportsbook: "close",
+          homeAmerican: moneylinePrice.home.american,
+          awayAmerican: moneylinePrice.away.american,
+        },
+        distribution,
+      );
+      const moneyline = moneylineFromMargin(
+        anchoredMass(distribution, anchor.mean, prediction.mean),
+      );
+      samples.push(
+        {
+          market: "moneyline",
+          slate,
+          decisiveWin: decisive(moneyline.home),
+          outcome: settleMargin(margin),
+        },
+        {
+          market: "moneyline",
+          slate,
+          decisiveWin: decisive(moneyline.away),
+          outcome: settleMargin(-margin),
+        },
+      );
+    }
     const spreadPrice = game.prices?.spread;
     if (spreadPrice) {
-      const spread = spreadFromMargin(marginBins, spreadPrice.line);
+      const spread = spreadFromMargin(
+        anchoredMass(distribution, marginFromHomeLine(spreadPrice.line), prediction.mean),
+        spreadPrice.line,
+      );
       samples.push(
         {
           market: "spread",
@@ -137,30 +146,29 @@ function calibrationSamples(
         },
       );
     }
+  }
+  for (const prediction of totals) {
+    const distribution = distributionFor(totals, totalRows, prediction, false);
+    if (!distribution) continue;
+    const game = byId.get(totalRows[prediction.index]!.gameId)!;
     const totalPrice = game.prices?.total;
-    if (totalPrice) {
-      const total = totalFromDistribution(
-        integerMass(pair.total, totalPrediction.mean),
-        totalPrice.line,
-      );
-      const points = game.homeScore + game.awayScore;
-      const over = settleTotal(points, totalPrice.line);
-      samples.push(
-        {
-          market: "total",
-          slate,
-          decisiveWin: decisive(total.over),
-          outcome: over,
-        },
-        {
-          market: "total",
-          slate,
-          decisiveWin: decisive(total.under),
-          outcome: over === "win" ? "loss" : over === "loss" ? "win" : "push",
-        },
-      );
-    }
-  });
+    if (!totalPrice) continue;
+    const slate = slateOf(game.kickoff);
+    const total = totalFromDistribution(
+      anchoredMass(distribution, totalPrice.line, prediction.mean),
+      totalPrice.line,
+    );
+    const over = settleTotal(game.homeScore + game.awayScore, totalPrice.line);
+    samples.push(
+      { market: "total", slate, decisiveWin: decisive(total.over), outcome: over },
+      {
+        market: "total",
+        slate,
+        decisiveWin: decisive(total.under),
+        outcome: over === "win" ? "loss" : over === "loss" ? "win" : "push",
+      },
+    );
+  }
   return samples;
 }
 
@@ -202,13 +210,11 @@ export function fitArtifact(
     if (market === "total" && prices?.total) return prices.total.line;
     return null;
   };
-  // Residuals need a distribution before the moneyline anchor exists, so the first pass uses a
-  // flat one and the second pass uses the fitted margin distribution.
   const flat: ResidualDistribution = fitResidualDistribution(
     train.map(() => 0),
     DEFAULT_FIT.residualBandwidth,
   );
-  const anchored = (distribution: ResidualDistribution) => {
+  const anchored = (distribution: (row: FeatureRow) => ResidualDistribution) => {
     const marginRows: FeatureRow[] = [];
     const marginTargets: number[] = [];
     const totalRows: FeatureRow[] = [];
@@ -217,14 +223,14 @@ export function fitArtifact(
     for (const row of train) {
       const game = byId.get(row.gameId)!;
       const marginAnchor =
-        closeMean(game, "spread", distribution) ?? closeMean(game, "moneyline", distribution);
+        closeMean(game, "spread", flat) ?? closeMean(game, "moneyline", distribution(row));
       if (marginAnchor === null) excluded.moneyline += 1;
       else {
         marginRows.push(row);
         marginTargets.push(marginHome(game) - marginAnchor);
       }
       if (!game.prices?.spread) excluded.spread += 1;
-      const totalAnchor = closeMean(game, "total", distribution);
+      const totalAnchor = closeMean(game, "total", flat);
       if (totalAnchor === null) excluded.total += 1;
       else {
         totalRows.push(row);
@@ -233,12 +239,26 @@ export function fitArtifact(
     }
     return { marginRows, marginTargets, totalRows, totalTargets, excluded };
   };
-  const first = anchored(flat);
+  const first = anchored(() => flat);
   if (first.marginRows.length < 2 || first.totalRows.length < 2) {
     throw new Error("Training window needs priced games for the anchor");
   }
-  const preliminary = fitResidualDistribution(first.marginTargets, DEFAULT_FIT.residualBandwidth);
-  const { marginRows, marginTargets, totalRows, totalTargets, excluded } = anchored(preliminary);
+  const distributions = new Map<number, ResidualDistribution>();
+  const priorDistribution = (row: FeatureRow): ResidualDistribution => {
+    const cutoff = kickoffMs(row);
+    const cached = distributions.get(cutoff);
+    if (cached) return cached;
+    const prior = first.marginRows.flatMap((previous, index) =>
+      resultAvailableMs(previous) < cutoff ? [first.marginTargets[index]!] : [],
+    );
+    const distribution = prior.length
+      ? fitResidualDistribution(prior, DEFAULT_FIT.residualBandwidth)
+      : flat;
+    distributions.set(cutoff, distribution);
+    return distribution;
+  };
+  const { marginRows, marginTargets, totalRows, totalTargets, excluded } =
+    anchored(priorDistribution);
   // Targets are distances from the close. Ties, home wins, and key numbers are about the final
   // margin itself, so they are counted from it.
   const margins = marginRows.map((row) => marginHome(byId.get(row.gameId)!));
@@ -278,11 +298,40 @@ export function fitArtifact(
   const marginResiduals = walkForward
     ? shrunkMargins.map((entry) => entry.residual)
     : inSample(marginRows, marginTargets, marginModel);
-  const totalResiduals = walkForward
-    ? shrunkTotals.map((entry) => entry.residual)
-    : inSample(totalRows, totalTargets, totalModel);
+  const totalResiduals =
+    totalPredictions.length > 0
+      ? shrunkTotals.map((entry) => entry.residual)
+      : inSample(totalRows, totalTargets, totalModel);
+  const calibrationPredictions = (
+    rows: readonly FeatureRow[],
+    targets: readonly number[],
+    predictions: readonly WalkForwardPrediction[],
+  ): WalkForwardPrediction[] => {
+    const factors = new Map<number, number>();
+    return predictions.map((prediction) => {
+      let factor = factors.get(prediction.block);
+      if (factor === undefined) {
+        const first = predictions.find((entry) => entry.block === prediction.block)!;
+        const cutoff = kickoffMs(rows[first.index]!);
+        const earlier = predictions.filter(
+          (entry) =>
+            entry.block < prediction.block && resultAvailableMs(rows[entry.index]!) < cutoff,
+        );
+        factor = earlier.length > 0 ? shrinkFactor(earlier, targets) : 0;
+        factors.set(prediction.block, factor);
+      }
+      const mean = prediction.mean * factor;
+      return { ...prediction, mean, residual: targets[prediction.index]! - mean };
+    });
+  };
   const uncertainty = fitUncertainty(
-    calibrationSamples(train, byId, shrunkMargins, shrunkTotals, margins),
+    calibrationSamples(
+      marginRows,
+      totalRows,
+      byId,
+      calibrationPredictions(marginRows, marginTargets, marginPredictions),
+      calibrationPredictions(totalRows, totalTargets, totalPredictions),
+    ),
   );
   return withChecksum({
     kind: "pocketcheck-baseline",
@@ -318,7 +367,7 @@ export function fitArtifact(
         push: ties / margins.length,
       },
     },
-    uncertainty,
+    uncertainty: { ...uncertainty, calibrationVersion: "anchored-v1" },
     margin: {
       model: scaleModel(marginModel, shrink.margin),
       // Totals have no comparable key numbers, so only margins are reweighted.

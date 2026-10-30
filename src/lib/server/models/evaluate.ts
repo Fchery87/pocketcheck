@@ -195,22 +195,18 @@ export function scoreHoldout(
     if (!game) continue;
     const predictedRaw = predict(artifact, row);
     const prices = game.prices ?? null;
-    const marginAnchor = prices?.spread
-      ? marginFromHomeLine(prices.spread.line)
-      : prices?.moneyline
-        ? anchorFromQuote(
-            "moneyline",
-            {
-              sportsbook: "close",
-              homeAmerican: prices.moneyline.home.american,
-              awayAmerican: prices.moneyline.away.american,
-            },
-            artifact.margin.residuals,
-          ).mean
-        : null;
+    const marginAnchor = prices?.moneyline
+      ? anchorFromQuote(
+          "moneyline",
+          {
+            sportsbook: "close",
+            homeAmerican: prices.moneyline.home.american,
+            awayAmerican: prices.moneyline.away.american,
+          },
+          artifact.margin.residuals,
+        ).mean
+      : null;
     const totalAnchor = prices?.total?.line ?? null;
-    const shift = (contributions: { points: number }[]) =>
-      contributions.reduce((sum, item) => sum + item.points, 0);
     const predicted =
       marginAnchor === null && totalAnchor === null
         ? predictedRaw
@@ -218,12 +214,12 @@ export function scoreHoldout(
             ...(marginAnchor === null
               ? {}
               : {
-                  marginMean: marginAnchor + shift(predictedRaw.drivers.margin.contributions),
+                  marginMean: marginAnchor + predictedRaw.marginMean,
                 }),
             ...(totalAnchor === null
               ? {}
               : {
-                  totalMean: totalAnchor + shift(predictedRaw.drivers.total.contributions),
+                  totalMean: totalAnchor + predictedRaw.totalMean,
                 }),
           });
     const slate = slateOf(game.kickoff);
@@ -245,7 +241,9 @@ export function scoreHoldout(
       conservativeExpectedValue: conservativeValue(artifact, "moneyline", moneyline, moneylineOdds),
     });
     if (prices?.spread) {
-      const spread = predicted.spread(prices.spread.line).home;
+      const spread = predict(artifact, row, {
+        marginMean: marginFromHomeLine(prices.spread.line) + predictedRaw.marginMean,
+      }).spread(prices.spread.line).home;
       forecasts.push({
         gameId: game.id,
         market: "spread",

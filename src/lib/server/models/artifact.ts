@@ -61,13 +61,19 @@ export function withChecksum(artifact: Omit<ModelArtifact, "checksum">): ModelAr
 }
 
 export function valueEligibility(
-  artifact: Pick<ModelArtifact, "releaseStatus" | "releasedMarkets">,
+  artifact: Pick<ModelArtifact, "releaseStatus" | "releasedMarkets" | "uncertainty">,
   market: Market,
 ): ValueEligibility {
   if (artifact.releaseStatus !== "released-experimental") {
     return {
       eligible: false,
       reason: "Unreleased artifacts are not eligible for a value recommendation.",
+    };
+  }
+  if (artifact.uncertainty.calibrationVersion !== "anchored-v1") {
+    return {
+      eligible: false,
+      reason: "This artifact predates anchored calibration. Refit is required.",
     };
   }
   if (!artifact.releasedMarkets.includes(market)) {

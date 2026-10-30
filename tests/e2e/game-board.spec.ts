@@ -31,12 +31,24 @@ test("a moneyline game board freezes an unvalidated model pick", async ({ page, 
   await page.getByTestId("moneyline-home").fill("-150");
   await page.getByTestId("moneyline-away").fill("+130");
   await page.getByTestId("board-tie-rule").selectOption("push");
+  await page.getByTestId("freeze-board").evaluate((button) => {
+    const field = document.createElement("input");
+    field.type = "hidden";
+    field.name = "cutoffAt";
+    field.value = "2026-10-25T14:00:00.000Z";
+    button.closest("form")!.append(field);
+  });
   const analysesBefore = (await (await request.get("/__verification")).json()).analyses;
   await page.getByTestId("freeze-board").click();
 
   await expect(page).toHaveURL(/\/board\/[0-9a-f-]{36}$/);
   await expect(page.getByRole("heading", { name: "Game board: DAL at PHI" })).toBeVisible();
   await expect(page.getByTestId("board-status")).toHaveText("completed");
+  const backup = await (await request.get("/journal/export")).json();
+  const boardId = page.url().split("/").at(-1);
+  expect(backup.gameBoards.find((board: { id: string }) => board.id === boardId).cutoffAt).toBe(
+    "2026-10-25T16:00:00.000Z",
+  );
   const card = page.getByTestId("model-pick-moneyline");
   await expect(card.getByTestId("release-label")).toHaveText("Unvalidated model pick");
   await expect(card.getByTestId("release-note")).toContainText("has not beaten the closing market");
@@ -62,19 +74,21 @@ test("a moneyline game board freezes an unvalidated model pick", async ({ page, 
     "Any price keeps lean: the forecasting model gives this side no chance to lose.",
   );
   // The forecasting model chose the side; its identity is shown on the card.
-  await expect(card.getByTestId("forecasting-model")).toContainText("69aed22c0fde");
+  await expect(card.getByTestId("forecasting-model")).toContainText("9b48472f20f7");
   await expect(card.getByTestId("calculation-version")).toHaveText("model-pick-2026-10-27.1");
 
   // The drafter wrote the explanation from the frozen pick, and its identity is separate.
   await expect(card.getByTestId("explanation-summary")).toContainText(
-    "The forecasting model chose DAL in the moneyline market at +130",
+    "The forecasting model chose DAL in the moneyline market",
   );
-  await expect(card.getByTestId("explanation-other-side")).toContainText("PHI at -150");
+  await expect(card.getByTestId("explanation-other-side")).toContainText(
+    "PHI is the opposing side",
+  );
   await expect(card.getByTestId("explanation-claims")).toContainText("opposing");
   await expect(page.getByTestId("drafter")).toContainText("fixture-drafter");
   await expect(page.getByTestId("drafter")).toContainText("no AI call");
   await expect(card.getByTestId("forecasting-model")).not.toContainText("fixture-drafter");
-  await expect(page.getByTestId("drafter")).not.toContainText("69aed22c0fde");
+  await expect(page.getByTestId("drafter")).not.toContainText("9b48472f20f7");
 
   // Frozen in the journal, and not an analysis.
   await page.reload();
