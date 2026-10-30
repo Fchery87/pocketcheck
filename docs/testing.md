@@ -8,7 +8,7 @@ Run the application checks with one command.
 npm run verify
 ```
 
-This command runs formatting, lint, TypeScript and Svelte checks, unit tests, the production build, and Playwright acceptance in that order. A failed step stops verification. Unit checks run the density-grid throughput case in a separate process after the other unit tests finish, retaining its existing time limit. CI's `application` job invokes this same command. Model-fitting reproducibility tests retain exact comparisons and have an explicit 60-second budget per test.
+This command runs formatting, lint, TypeScript and Svelte checks, unit tests, the production build, and Playwright acceptance in that order. A failed step stops verification. Unit checks run the density-grid throughput case in a separate process after the other unit tests finish, retaining its existing time limit. CI's `application` job invokes this same command. Model-fitting reproducibility tests retain exact comparisons and have an explicit 60-second budget per test. The 500-game journal release test has a 30-second budget for full source validation and clustered scoring. Ordinary unit tests retain their five-second budget.
 
 Browser acceptance uses a pair of loopback ports. `POCKETCHECK_BROWSER_PORT` sets the browser server port, and the `npm start` launcher uses that port plus one. Every origin the tests send, including explicit `origin` headers, derives from it. When `npm run verify` or `npm run test:e2e` runs without the variable, it probes for a free pair starting at a random even offset above 42627, takes the first pair where both ports bind, and passes it to Playwright and its web server, so separate worktrees can verify at the same time. Running Playwright directly without the variable keeps 42627 and 42628. Set the variable to pin a pair, for example `POCKETCHECK_BROWSER_PORT=43100 npm run verify`. It is the only caller variable the runner passes through.
 
@@ -59,3 +59,21 @@ Reachable recovery is the journal page form, which posts a version 1 file to `?/
 ## Keep live experiments separate
 
 Automated acceptance uses the deterministic fixture drafter. To experiment with a live provider, use the normal application and its Settings page with your own credentials and journal. Such requests can incur provider charges. A live result does not replace isolated verification or establish model eligibility.
+
+## Evaluate prospective forecasts
+
+Register an artifact before collecting its qualifying forecasts. The journal records the registration time and the frozen protocol. Record a later two-sided closing market snapshot for each comparison. Export the journal and copy its registration record into `protocol.json`. This file is checked against the exported registration and cannot establish registration independently.
+
+```sh
+npm run model:prospective -- journal-v1.json protocol.json prospective-report.json
+```
+
+The report lists excluded records and scores qualified saved forecasts. The close baseline removes the margin from the two closing prices and uses the forecast's frozen push probability. The closing prices alone do not estimate push probability.
+
+To test a release decision, supply the original artifact and the same export. The command recomputes the decision and writes a new artifact only when the frozen protocol passes. It refuses to replace an existing file.
+
+```sh
+npm run model:release -- artifact.json journal-v1.json protocol.json released-artifact.json
+```
+
+Historical holdout reports and edited prospective report verdicts cannot release a market. A synthetic test result does not establish eligibility for a real market. Existing forecasts without proven registration remain readable and do not qualify.
