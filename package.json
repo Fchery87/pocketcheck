@@ -24,6 +24,7 @@
     "data:depth-charts": "node --experimental-strip-types scripts/data/depth-charts.ts",
     "model:fit": "node --experimental-strip-types scripts/model/fit.ts",
     "model:evaluate": "node --experimental-strip-types scripts/model/evaluate.ts",
+    "model:prospective": "node --experimental-strip-types scripts/model/prospective.ts",
     "model:release": "node --experimental-strip-types scripts/model/release.ts",
     "test:e2e": "node --experimental-strip-types scripts/browser-test.ts",
     "verify": "node --experimental-strip-types scripts/verify.ts",

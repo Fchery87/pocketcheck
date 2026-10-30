@@ -134,12 +134,36 @@ export function evaluateProspectiveForecasts(
   protocol: EvaluationProtocol,
   records: readonly FrozenForecastRecord[],
 ): ProspectiveEvaluation {
+  const unique = new Map<string, FrozenForecastRecord>();
+  for (const record of records) {
+    for (const probabilities of [record.probabilities, record.closingBaseline]) {
+      if (probabilities === null) continue;
+      const values = [probabilities.win, probabilities.loss, probabilities.push];
+      if (
+        values.some((value) => !Number.isFinite(value) || value < 0 || value > 1) ||
+        Math.abs(values.reduce((sum, value) => sum + value, 0) - 1) > 1e-9
+      ) {
+        throw new Error(`Invalid prospective probabilities for ${record.id}.`);
+      }
+    }
+    const prior = unique.get(record.id);
+    if (prior && JSON.stringify(prior) !== JSON.stringify(record)) {
+      throw new Error(`Conflicting prospective forecast identifier: ${record.id}`);
+    }
+    unique.set(record.id, record);
+  }
+  const qualified = [...unique.values()].filter((record) => {
+    const cutoff = Date.parse(record.decisionCutoff);
+    const start = Date.parse(protocol.period.start);
+    const end = protocol.period.end === null ? Infinity : Date.parse(protocol.period.end);
+    return Number.isFinite(cutoff) && Number.isFinite(start) && cutoff >= start && cutoff < end;
+  });
   const markets = {} as Record<Market, ProspectiveMarketResult>;
   for (const market of MARKETS) {
-    const members = records.filter(
+    const members = qualified.filter(
       (record) => record.market === market && record.artifactChecksum === protocol.artifactChecksum,
     );
-    const mismatched = records.filter(
+    const mismatched = qualified.filter(
       (record) => record.market === market && record.artifactChecksum !== protocol.artifactChecksum,
     );
     const settled = members.filter(
@@ -172,7 +196,7 @@ export function evaluateProspectiveForecasts(
   return {
     protocolId: protocol.id,
     role: "prospective",
-    sample: records.length,
+    sample: qualified.length,
     missingObservations: MARKETS.reduce(
       (sum, market) => sum + markets[market].missingObservations,
       0,

@@ -242,13 +242,13 @@ describe("frozen prospective forecasts", () => {
     });
     const adjustment = original.drivers!.margin.contributions.reduce(
       (sum, item) => sum + item.points,
-      0,
+      original.drivers!.margin.intercept,
     );
     const live = offerProbabilities(
       predictGame(
         artifact,
         { gameId: game.id, kickoff: game.kickoff, features: original.features },
-        { marginMean: (original.anchor?.mean ?? 0) + adjustment },
+        { marginAnchor: { mean: original.anchor!.mean, adjustment } },
       ),
       offer,
     );

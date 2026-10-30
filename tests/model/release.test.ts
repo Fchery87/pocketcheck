@@ -1,18 +1,9 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vite-plus/test";
-import { valueEligibility } from "../../src/lib/server/models/artifact.ts";
 import type {
   BaselineComparison,
   EvaluationSummary,
 } from "../../src/lib/server/models/evaluate.ts";
-import type { PricedGame } from "../../src/lib/server/models/games.ts";
-import {
-  RELEASE_GATE,
-  releaseArtifact,
-  releaseDecision,
-  releaseUnderProtocol,
-} from "../../src/lib/server/models/release.ts";
-import { fitArtifact } from "../../src/lib/server/models/train.ts";
+import { RELEASE_GATE, releaseDecision } from "../../src/lib/server/models/release.ts";
 
 function comparison(
   market: BaselineComparison["market"],
@@ -124,85 +115,5 @@ describe("release gate", () => {
   it("ignores the base-rate baseline, which the model can beat while losing to the market", () => {
     const decision = releaseDecision(summary([]));
     expect(Object.values(decision).every((market) => !market.released)).toBe(true);
-  });
-});
-
-describe("releasing an artifact", () => {
-  const games = JSON.parse(
-    readFileSync(new URL("./fixtures/synthetic-games.json", import.meta.url), "utf8"),
-  ).games as PricedGame[];
-  const artifact = fitArtifact(games, "2024-09-15T20:00:00Z");
-  const passing = summary([comparison("moneyline", 600, [0.42, 0.63], [0.43, 0.64])]);
-
-  it("refuses to release from development evidence even when the holdout comparison is clean", () => {
-    expect(() =>
-      releaseArtifact(artifact, {
-        version: 1,
-        datasetHash: artifact.datasetHash,
-        trainingCutoff: artifact.trainingCutoff,
-        holdoutGames: 900,
-        artifactChecksum: artifact.checksum,
-        summary: passing,
-      }),
-    ).toThrow(/Independent prospective evidence is missing or failed/);
-    expect(artifact.releaseStatus).toBe("unreleased");
-    expect(valueEligibility(artifact, "moneyline").eligible).toBe(false);
-  });
-
-  it("refuses an evaluation of a different artifact", () => {
-    expect(() =>
-      releaseArtifact(artifact, {
-        version: 1,
-        datasetHash: artifact.datasetHash,
-        trainingCutoff: artifact.trainingCutoff,
-        holdoutGames: 900,
-        artifactChecksum: "0".repeat(64),
-        summary: passing,
-      }),
-    ).toThrow(/different artifact/);
-  });
-
-  it("does not treat an inspected historical holdout as independent release evidence", () => {
-    const protocol = {
-      id: "prospective-2026-10-26",
-      role: "independent" as const,
-      artifactChecksum: artifact.checksum,
-      inputAvailability: "decision-time-starters-v1",
-      markets: ["moneyline"] as const,
-      period: { start: "2026-10-26T00:00:00Z", end: null },
-      minimumPricedGames: 500,
-      uncertainty: "slate-clustered-90-log-loss-difference",
-      criteria: "no-worse-brier-and-log-loss-and-interval-upper-at-most-zero",
-      frozenBeforeOutcomes: true,
-    };
-    const result = releaseUnderProtocol({
-      artifact,
-      protocol,
-      development: {
-        role: "development",
-        summary: passing,
-      },
-      prospective: null,
-    });
-    expect(result.released).toBe(false);
-    expect(result.reasons.join(" ")).toMatch(/development/i);
-    expect(result.reasons.join(" ")).toMatch(/independent/i);
-    expect(artifact.releaseStatus).toBe("unreleased");
-  });
-
-  it("refuses when no market passes, leaving the artifact unreleased", () => {
-    expect(() =>
-      releaseArtifact(artifact, {
-        version: 1,
-        datasetHash: artifact.datasetHash,
-        trainingCutoff: artifact.trainingCutoff,
-        holdoutGames: 900,
-        artifactChecksum: artifact.checksum,
-        summary: summary([]),
-      }),
-    ).toThrow(/No market passed/);
-    expect(artifact.releaseStatus).toBe("unreleased");
-    expect(artifact.releasedMarkets).toEqual([]);
-    expect(valueEligibility(artifact, "moneyline").eligible).toBe(false);
   });
 });

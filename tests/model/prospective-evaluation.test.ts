@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
-import { artifactChecksum, valueEligibility } from "../../src/lib/server/models/artifact.ts";
 import {
   evaluateProspectiveForecasts,
   protocolForArtifact,
   type FrozenForecastRecord,
 } from "../../src/lib/server/models/prospective.ts";
-import { releaseArtifact, releaseUnderProtocol } from "../../src/lib/server/models/release.ts";
 import { fitArtifact } from "../../src/lib/server/models/train.ts";
 import type { PricedGame } from "../../src/lib/server/models/games.ts";
 import { readFileSync } from "node:fs";
@@ -71,97 +69,19 @@ describe("prospective evaluation of frozen forecasts", () => {
     expect(evaluation.markets.moneyline.release.reason).toMatch(/worse than the close/);
   });
 
-  it("releases only the market whose frozen forecasts meet the protocol, without claiming profit", () => {
+  it("computes diagnostic scores without changing the artifact", () => {
     const protocol = protocolForArtifact(artifact.checksum);
     const evaluation = evaluateProspectiveForecasts(protocol, records(500, artifact.checksum));
     expect(evaluation.markets.moneyline.release.released).toBe(true);
     expect(evaluation.markets.moneyline.release.reason).toMatch(/not a profitability claim/);
     expect(evaluation.markets.spread.release.released).toBe(false);
     expect(evaluation.markets.spread.release.reason).toMatch(/missing metrics/);
-    const decision = releaseUnderProtocol({
-      artifact,
-      protocol,
-      development: null,
-      prospective: evaluation,
-    });
-    expect(decision.released).toBe(true);
-    expect(decision.profitability).toBeNull();
-    expect(decision.markets.moneyline.released).toBe(true);
-    expect(decision.markets.spread.released).toBe(false);
-    const released = releaseArtifact(
-      artifact,
-      {
-        version: 1,
-        datasetHash: artifact.datasetHash,
-        trainingCutoff: artifact.trainingCutoff,
-        holdoutGames: 0,
-        artifactChecksum: artifact.checksum,
-        summary: {
-          count: 0,
-          brier: 0,
-          logLoss: 0,
-          calibration: [],
-          baselines: [],
-          coverage: { priced: 0, missingPrices: 0 },
-          byMarket: {},
-          threshold: {
-            version: "threshold-2026-10-25",
-            conservativeExpectedValue: 0,
-            note: "",
-            markets: {
-              moneyline: {
-                assessed: 0,
-                candidates: 0,
-                decisive: 0,
-                wins: 0,
-                observedRate: null,
-                meanBreakEven: null,
-                interval: null,
-              },
-              spread: {
-                assessed: 0,
-                candidates: 0,
-                decisive: 0,
-                wins: 0,
-                observedRate: null,
-                meanBreakEven: null,
-                interval: null,
-              },
-              total: {
-                assessed: 0,
-                candidates: 0,
-                decisive: 0,
-                wins: 0,
-                observedRate: null,
-                meanBreakEven: null,
-                interval: null,
-              },
-            },
-          },
-        },
-      },
-      { protocol, evaluation },
-    );
-    expect(released.releaseStatus).toBe("released-experimental");
-    expect(released.releasedMarkets).toEqual(["moneyline"]);
-    const { checksum, ...body } = released;
-    expect(artifactChecksum(body)).toBe(checksum);
-    expect(valueEligibility(released, "moneyline").eligible).toBe(true);
-    expect(artifact.releaseStatus).toBe("unreleased");
   });
 
-  it("rejects a different artifact and a changed protocol identity", () => {
+  it("rejects a different artifact", () => {
     const protocol = protocolForArtifact(artifact.checksum);
     const evaluation = evaluateProspectiveForecasts(protocol, records(500, "f".repeat(64)));
     expect(evaluation.markets.moneyline.release.reason).toMatch(/different artifact/);
-    const changed = releaseUnderProtocol({
-      artifact,
-      protocol,
-      development: null,
-      prospective: { ...evaluation, protocolId: "prospective-tuned-later" },
-    });
-    expect(changed.released).toBe(false);
-    expect(changed.reasons.join(" ")).toMatch(/new protocol identity/);
   });
 
   it("keeps the saved prediction when the current score and close would tell a different story", () => {

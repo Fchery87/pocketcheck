@@ -26,7 +26,8 @@ The historical scores in this note are superseded development evidence. They wer
 ```bash
 npm run model:fit -- data/sources/games.csv data/artifacts/baseline.json 2022-03-01T00:00:00Z
 npm run model:evaluate -- data/artifacts/baseline.json data/sources/games.csv data/artifacts/baseline-evaluation.json
-npm run model:release -- data/artifacts/baseline.json data/artifacts/baseline-evaluation.json data/artifacts/baseline-released.json
+npm run model:prospective -- journal-v1.json protocol.json prospective-report.json
+npm run model:release -- data/artifacts/baseline.json journal-v1.json protocol.json released-artifact.json
 ```
 
 The fit command also accepts the synthetic JSON fixture in `tests/model/fixtures/`. Without a cutoff, the kickoff at the 70% boundary supplies the decision cutoff, and only outcomes available before it train. The artifact (version 4) stores the dataset hash, feature definitions and parameters, training cutoff, fit parameters, base rates, residual source, residual support, key weights, a walk-forward calibration table, and a checksum of those fields. Artifacts stay under `data/artifacts/`, which is gitignored. Evaluating on the full history takes about 10 seconds.
@@ -233,6 +234,14 @@ Beating the training base rate does not count. A clean comparison is **developme
 `npm run model:evaluate` prints each market's development decision and reason. `npm run model:release` reads that report only as development context. It does not write a released artifact from the holdout. Missing independent prospective results exit with code 1 and leave the output unwritten.
 
 ## Prospective protocol
+
+The commands read files only. They do not load `.env`, connect to a database, fetch sources, or regenerate forecasts. `journal-v1.json` is a version 1 journal export. `protocol.json` contains one complete `ProtocolRegistration` copied from that export's `protocolRegistrations` collection, including `id`, `registeredAt`, `cohort`, and `protocol`. It is a reference to journal provenance, not independent proof of registration. Every field must equal the saved registration. An identifier alone, a verdict report, an edited registration, or a changed frozen period is rejected.
+
+`model:prospective` writes a version 1 diagnostic report even when the qualified sample fails the release gate. The report includes the full registration, artifact checksum, source file paths and SHA-256 hashes, board and pick identities, settlement and closing snapshot identities, qualified records, exclusions, and per-market denominators. Missing closes and unresolved outcomes remain separate from priced games. Forecasts with missing provenance stay excluded.
+
+`model:release` accepts the same journal and registration reference plus the original artifact. It recomputes eligibility from the journal, never from diagnostic verdicts. The historical-only invocation remains an explicit refusal. Both commands validate before publishing a new output file. An existing path, including a symlink or hard link to an input, cannot be replaced. A rejected command leaves input bytes and existing output bytes unchanged and removes its temporary output.
+
+The command-boundary tests run real Node subprocesses with temporary files. Run `npx vp test run tests/model/prospective-command.test.ts`. Their 500-game passing sample is synthetic workflow evidence only. It does not release a real market.
 
 The independent protocol is `prospective-2026-10-26`. It was frozen on 2026-10-26, before its outcomes exist to inspect. Its identity covers:
 

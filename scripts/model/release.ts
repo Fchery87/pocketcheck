@@ -1,21 +1,38 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseArtifact, parseEvaluationReport } from "../../src/lib/server/models/inputs.ts";
-import { releaseArtifact } from "../../src/lib/server/models/release.ts";
+import { releaseFromJournal } from "../../src/lib/server/models/release.ts";
+import { assertNewOutput, readProspectiveSources, writeNewOutput } from "./prospective.ts";
 
-// Releases the markets where an evaluated artifact is no worse than the no-vig closing price.
-// The released artifact is written to a new file. The input artifact is left unchanged.
-
-const artifactPath = resolve(process.argv[2] ?? "data/artifacts/baseline.json");
-const evaluationPath = resolve(process.argv[3] ?? "data/artifacts/baseline-evaluation.json");
-const output = resolve(process.argv[4] ?? "data/artifacts/baseline-released.json");
 try {
-  const artifactValue: unknown = JSON.parse(readFileSync(artifactPath, "utf8"));
-  const stored = parseArtifact(artifactValue);
-  const reportValue: unknown = JSON.parse(readFileSync(evaluationPath, "utf8"));
-  const report = parseEvaluationReport({ value: reportValue, artifact: stored });
-  const released = releaseArtifact(stored, report);
-  writeFileSync(output, `${JSON.stringify(released, null, 2)}\n`);
+  const args = process.argv.slice(2);
+  const artifactPath = resolve(args[0] ?? "data/artifacts/baseline.json");
+  const artifact = parseArtifact(JSON.parse(readFileSync(artifactPath, "utf8")) as unknown);
+  if (args.length < 4) {
+    const evaluationPath = resolve(args[1] ?? "data/artifacts/baseline-evaluation.json");
+    parseEvaluationReport({
+      value: JSON.parse(readFileSync(evaluationPath, "utf8")) as unknown,
+      artifact,
+    });
+    throw new Error(
+      "No market passed the release gate. Independent prospective evidence is missing or failed. A registered journal and protocol are required.",
+    );
+  }
+  if (args.length !== 4)
+    throw new Error(
+      "Usage: model:release <artifact> <journal-v1.json> <protocol.json> <new-artifact>",
+    );
+  const journalPath = args[1]!;
+  const protocolPath = args[2]!;
+  const output = resolve(args[3]!);
+  assertNewOutput(output, [artifactPath, journalPath, protocolPath]);
+  const { journal, sample } = readProspectiveSources(journalPath, protocolPath);
+  const released = releaseFromJournal({
+    artifact,
+    journal,
+    registrationId: sample.protocol.id,
+  });
+  writeNewOutput(output, released, [artifactPath, journalPath, protocolPath]);
   console.log(
     JSON.stringify({
       output,
