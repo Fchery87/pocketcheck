@@ -63,6 +63,7 @@ const usable = [
 ];
 
 const valid = {
+  formatVersion: 2,
   picks: [
     {
       market: "moneyline",
@@ -70,8 +71,8 @@ const valid = {
       grade: "lean",
       americanOdds: -150,
       pointLine: null,
-      summary: "The forecasting model chose PHI at -150.",
-      otherSideCase: "DAL at +130 pays more if the model is wrong.",
+      summary: "The forecasting model chose {{picked.label}}.",
+      otherSideCase: "{{other.label}} could win if the model is wrong.",
       claims: [
         { text: "The matchup is as scheduled.", stance: "supporting", evidenceIds: ["ev-1"] },
         { text: "Nothing here shows an edge.", stance: "opposing", evidenceIds: ["ev-1"] },

@@ -196,6 +196,21 @@ describe("pick explanation contradictions", () => {
       (report: PickExplanationReport) => (report.picks[0]!.summary += " A fair price is +175."),
     ],
     [
+      "a literal price even when it matches",
+      (report: PickExplanationReport) => (report.picks[0]!.summary += " The price is -150."),
+    ],
+    [
+      "a spelled-out line",
+      (report: PickExplanationReport) =>
+        (report.picks[0]!.summary =
+          "The forecasting model chose over ninety-nine and a half points."),
+    ],
+    [
+      "an odds reference used as a line",
+      (report: PickExplanationReport) =>
+        (report.picks[0]!.summary = "The model chose a line of {{picked.odds}}."),
+    ],
+    [
       "the other side as the pick",
       (report: PickExplanationReport) => (report.picks[0]!.summary = "The model picks DAL here."),
     ],
@@ -222,18 +237,130 @@ describe("pick explanation contradictions", () => {
     expect(saved.markets[0]!.pick!.calculation.grade).toBe("lean");
   });
 
-  it("accepts the supplied numbers, rounded", async () => {
+  it("rejects provider-authored references to contract numbers", async () => {
     const store = createMemoryStore();
     const drafter = scripted(async (packet) =>
       withReport(
         await fixtureAnswer(packet),
         (report) =>
           (report.picks[0]!.summary =
-            "PHI is the pick at -150, with the model near 62% against a no-vig 57.98%."),
+            "{{picked.label}} is the pick at {{picked.odds}}, with the model near {{picked.win}} against a no-vig {{picked.noVig}}."),
       ),
     );
     const outcome = await run(store, drafter, { requestId: "supplied" });
+    expect(outcome.ok).toBe(false);
+  });
+
+  it("renders references from the frozen pick and rejects unknown references", async () => {
+    const store = createMemoryStore();
+    const good = scripted(async (packet) =>
+      withReport(await fixtureAnswer(packet), (report) => {
+        report.picks[0]!.summary = "The model chose {{picked.label}}.";
+      }),
+    );
+    const outcome = await run(store, good, { requestId: "fact-reference" });
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok)
+      expect(outcome.board.explanation?.picks[0]?.summary).toBe("The model chose PHI.");
+    const bad = scripted(async (packet) =>
+      withReport(await fixtureAnswer(packet), (report) => {
+        report.picks[0]!.summary = "The model chose {{picked.invalid}}.";
+      }),
+    );
+    const rejected = await run(createMemoryStore(), bad, { requestId: "bad-fact-reference" });
+    expect(rejected.ok).toBe(false);
+    if (!rejected.ok) expect(rejected.error).toContain("Unknown moneyline fact reference");
+  });
+
+  it("renders numeric evidence references only when the claim cites that evidence", async () => {
+    const collect = async () => ({
+      items: [
+        {
+          id: "source:team:qb",
+          sourceId: "example",
+          url: null,
+          retrievedAt: "2026-10-25T15:00:00Z",
+          publishedAt: "2026-10-25T15:00:00Z",
+          origin: "automatic" as const,
+          facts: { passingYards: 287, change: -3.5 },
+          excerpt: "Quarterback evidence",
+          checksum: null,
+          factKey: null,
+        },
+      ],
+      gaps: ["The injury report is older than 24 hours."],
+      materialGaps: [],
+    });
+    const drafter = scripted(async (packet) =>
+      withReport(await fixtureAnswer(packet), (report) => {
+        const claim = report.picks[0]!.claims[0]!;
+        claim.text = "{{evidence:source:team:qb:passingYards}}";
+        claim.evidenceIds = ["source:team:qb"];
+      }),
+    );
+    const store = createMemoryStore();
+    const outcome = await runGameBoard(board({ requestId: "evidence-number" }), {
+      store,
+      collect,
+      model: model(),
+      drafter,
+    });
     expect(outcome.ok, outcome.ok ? "" : outcome.error).toBe(true);
+    if (!outcome.ok) return;
+    const saved = await store.getBoard(outcome.board.id);
+    expect(saved?.explanation?.picks[0]?.claims[0]?.text).toBe("passingYards: 287");
+    expect(saved?.explanation?.rendererVersion).toBe(1);
+    expect(saved?.explanation?.picks[0]?.missingInputs).toContain(
+      "The injury report is older than 24 hours.",
+    );
+    const restored = createMemoryStore();
+    await restored.restoreJournal(await store.exportJournal());
+    const restoredBoard = await restored.getBoard(outcome.board.id);
+    expect(restoredBoard?.explanation).toEqual(saved?.explanation);
+
+    const misused = scripted(async (packet) =>
+      withReport(await fixtureAnswer(packet), (report) => {
+        report.picks[0]!.summary = "The line is {{evidence:source:team:qb:passingYards}}.";
+      }),
+    );
+    const misusedResult = await runGameBoard(board({ requestId: "misused-number" }), {
+      store: createMemoryStore(),
+      collect,
+      model: model(),
+      drafter: misused,
+    });
+    expect(misusedResult.ok).toBe(false);
+
+    const uncited = scripted(async (packet) =>
+      withReport(await fixtureAnswer(packet), (report) => {
+        const claim = report.picks[0]!.claims[0]!;
+        claim.text = "{{evidence:source:team:qb:passingYards}}";
+        claim.evidenceIds = [packet.items.find((item) => item.id !== "source:team:qb")!.id];
+      }),
+    );
+    const rejected = await runGameBoard(board({ requestId: "uncited-number" }), {
+      store: createMemoryStore(),
+      collect,
+      model: model(),
+      drafter: uncited,
+    });
+    expect(rejected.ok).toBe(false);
+    if (!rejected.ok) expect(rejected.error).toContain("must cite evidence source:team:qb");
+
+    const missing = scripted(async (packet) =>
+      withReport(await fixtureAnswer(packet), (report) => {
+        report.picks[0]!.claims[0]!.text = "{{evidence:source:team:qb:missing}}";
+        report.picks[0]!.claims[0]!.evidenceIds = ["source:team:qb"];
+      }),
+    );
+    const missingResult = await runGameBoard(board({ requestId: "missing-number" }), {
+      store: createMemoryStore(),
+      collect,
+      model: model(),
+      drafter: missing,
+    });
+    expect(missingResult.ok).toBe(false);
+    if (!missingResult.ok) expect(missingResult.error).toContain("evidence fact reference");
   });
 });
 
@@ -339,6 +466,32 @@ describe("pick explanation provider accounting and recovery", () => {
       side: "home",
     });
     expect(retried.board.usage).toMatchObject({ totalTokens: 150, costUsd: 0.01 });
+  });
+
+  it("does not accept an unversioned new response after a failed finalization", async () => {
+    const store = createMemoryStore();
+    let calls = 0;
+    const drafter = scripted(async (packet) => {
+      calls += 1;
+      const drafted = await fixtureAnswer(packet);
+      const { formatVersion: _version, ...unversioned } = drafted.report!;
+      return {
+        ...drafted,
+        report: unversioned,
+        providerRequests: [request("unversioned", "draft", { response: unversioned })],
+      };
+    });
+    const finish = store.finishBoard.bind(store);
+    let failures = 1;
+    store.finishBoard = async (input) => {
+      if (failures-- > 0) throw new Error("connection lost");
+      return finish(input);
+    };
+    await expect(run(store, drafter, { requestId: "unversioned-recovery" })).rejects.toThrow();
+    const retried = await run(store, drafter, { requestId: "unversioned-recovery" });
+    expect(retried.ok).toBe(false);
+    expect(calls).toBe(1);
+    if (!retried.ok) expect(retried.error).toMatch(/formatVersion/);
   });
 
   it("finalizes from a saved response that arrived as raw JSON text", async () => {

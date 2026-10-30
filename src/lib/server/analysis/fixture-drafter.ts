@@ -2,7 +2,6 @@ import type {
   DraftPickExplanationResult,
   DraftThesisResult,
   PickExplanationPacket,
-  PickExplanationSideFacts,
   ThesisDrafter,
   ThesisPacket,
 } from "../providers/contracts.ts";
@@ -61,9 +60,6 @@ export function createFixtureDrafter(): ThesisDrafter {
       packet: PickExplanationPacket;
     }): Promise<DraftPickExplanationResult> {
       const cited = input.packet.items[0]?.id;
-      const percent = (value: number) => `${(value * 100).toFixed(1)}%`;
-      const priced = (side: PickExplanationSideFacts) =>
-        `${side.americanOdds > 0 ? "+" : ""}${side.americanOdds}`;
       return {
         draftingFailed: false,
         repairAttempted: false,
@@ -74,14 +70,15 @@ export function createFixtureDrafter(): ThesisDrafter {
         modelId: input.modelId,
         packet: input.packet,
         report: {
+          formatVersion: 2,
           picks: input.packet.picks.map((pick) => ({
             market: pick.market,
             side: pick.picked.selection,
             grade: pick.grade,
             americanOdds: pick.picked.americanOdds,
             pointLine: pick.picked.pointLine,
-            summary: `The forecasting model chose ${pick.picked.label} in the ${pick.market} market at ${priced(pick.picked)}. It gives that side ${percent(pick.picked.modelWinProbability)} to win, against ${percent(pick.picked.noVigProbability)} implied by the prices once the margin is removed. The fixture drafter only explains this model pick and cites the supplied schedule evidence.`,
-            otherSideCase: `${pick.other.label} at ${priced(pick.other)} implies ${percent(pick.other.noVigProbability)}, and the schedule evidence says nothing that shows the forecasting model is right about this game.`,
+            summary: `The forecasting model chose {{picked.label}} in the ${pick.market} market. The fixture drafter only explains this model pick and cites the supplied schedule evidence.`,
+            otherSideCase: `{{other.label}} is the opposing side, and the schedule evidence says nothing that shows the forecasting model is right about this game.`,
             claims: cited
               ? [
                   {
@@ -96,7 +93,7 @@ export function createFixtureDrafter(): ThesisDrafter {
                   },
                 ]
               : [],
-            missingInputs: [...input.packet.gaps],
+            missingInputs: [],
           })),
         },
       };

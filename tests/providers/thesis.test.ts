@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 import { americanToDecimal, breakEven } from "../../src/lib/domain/odds.ts";
 import { buildThesisPacket, thesisRequestBody } from "../../src/lib/server/analysis/packet.ts";
-import { validateThesisReport } from "../../src/lib/server/analysis/report-validation.ts";
+import {
+  renderResearchClaim,
+  validateThesisReport,
+} from "../../src/lib/server/analysis/report-validation.ts";
 import type { EvidenceItem } from "../../src/lib/server/sources/contracts.ts";
 import { createDeepSeekProvider } from "../../src/lib/server/providers/deepseek.ts";
 import { selectThesisModel } from "../../src/lib/server/providers/selection.ts";
@@ -11,6 +14,8 @@ import type {
   ThesisProvider,
 } from "../../src/lib/server/providers/contracts.ts";
 import { renderThesisExport } from "../../src/lib/server/analysis/export.ts";
+import { thesisGame, thesisOffer } from "../fixtures/thesis-offer.ts";
+import { parseOffer } from "../../src/lib/domain/offer.ts";
 
 const FAKE_KEY = "sk-test-secret";
 
@@ -78,6 +83,8 @@ function calculations() {
 function packet(policyConclusion = "insufficient evidence") {
   const math = calculations();
   return buildThesisPacket({
+    game: thesisGame,
+    offer: thesisOffer,
     items,
     decimalOdds: math.decimalOdds,
     decisiveBreakEven: math.decisiveBreakEven,
@@ -109,6 +116,95 @@ function validReportJson() {
     decisiveBreakEven: math.decisiveBreakEven,
   });
 }
+
+it("keeps every frozen gap when the provider omits it", () => {
+  const input = { ...packet(), gaps: ["Starting quarterback unavailable."] };
+  const draft = { ...JSON.parse(validReportJson()), missingInputs: [] };
+  const result = validateThesisReport(draft, input);
+  expect(result.ok).toBe(true);
+  if (result.ok) expect(result.report.missingInputs).toContain("Starting quarterback unavailable.");
+});
+
+it("accepts an insufficient-evidence report without inventing claims", () => {
+  const input = buildThesisPacket({ ...packet(), items: [], gaps: ["No current evidence"] });
+  const result = validateThesisReport(
+    { ...JSON.parse(validReportJson()), claims: [], missingInputs: [] },
+    input,
+  );
+  expect(result).toMatchObject({
+    ok: true,
+    report: { claims: [], missingInputs: ["No current evidence"] },
+  });
+});
+
+it("validates every optional reference and renders numeric facts from the frozen packet", () => {
+  const input = buildThesisPacket({ ...packet(), gaps: ["Current lineup unavailable"] });
+  const claim = {
+    text: "Lineup remains unresolved.",
+    stance: "opposing" as const,
+    evidenceIds: ["ev-injury"],
+    gapIds: [input.requiredGaps[0]!.id],
+    factReferences: ["decimalOdds" as const],
+  };
+  const result = validateThesisReport({ ...JSON.parse(validReportJson()), claims: [claim] }, input);
+  expect(result.ok).toBe(true);
+  if (result.ok) {
+    expect(result.report.claims[0]).toEqual({
+      ...claim,
+      renderedText: `Lineup remains unresolved.\nDecimal odds ${input.decimalOdds}`,
+    });
+    expect(result.report.rendererVersion).toBe(1);
+    expect(renderResearchClaim(result.report.claims[0]!, input)).toBe(
+      `Lineup remains unresolved.\nDecimal odds ${input.decimalOdds}`,
+    );
+  }
+  for (const overrides of [
+    { gapIds: ["gap:invented"] },
+    { gapIds: "not an array" },
+    { factReferences: ["otherMarket.decimalOdds"] },
+    { factReferences: ["offer.pointLine"] },
+    { evidenceIds: ["ev-invented"] },
+  ]) {
+    expect(
+      validateThesisReport(
+        { ...JSON.parse(validReportJson()), claims: [{ ...claim, ...overrides }] },
+        input,
+      ).ok,
+    ).toBe(false);
+  }
+});
+
+it("rejects nonfinite provider calculations", () => {
+  for (const number of [NaN, Infinity, -Infinity]) {
+    expect(
+      validateThesisReport({ ...JSON.parse(validReportJson()), decimalOdds: number }, packet()).ok,
+    ).toBe(false);
+    expect(
+      validateThesisReport(
+        { ...JSON.parse(validReportJson()), decisiveBreakEven: number },
+        packet(),
+      ).ok,
+    ).toBe(false);
+  }
+});
+
+it("sends stable gap identities and frozen offer details to the drafter", () => {
+  const input = buildThesisPacket({
+    game: thesisGame,
+    offer: thesisOffer,
+    items: [],
+    gaps: ["Starting quarterback unavailable."],
+    ...calculations(),
+    policy: { version: "test", conclusion: "insufficient evidence", blockingReason: null },
+  });
+  const body = JSON.parse(thesisRequestBody({ modelId: "m", packet: input }));
+  const user = JSON.parse(body.messages[1].content);
+  expect(user.offer).toEqual(thesisOffer);
+  expect(user.game).toEqual(thesisGame);
+  expect(user.requiredGaps).toEqual(input.requiredGaps);
+  expect(input.requiredGaps[0]?.id).toMatch(/^gap:[0-9a-f]{64}$/);
+  expect(buildThesisPacket({ ...input }).requiredGaps).toEqual(input.requiredGaps);
+});
 
 function chatResponse(content: string, usage?: Record<string, unknown> | null) {
   const body: Record<string, unknown> = {
@@ -240,6 +336,63 @@ describe("thesis drafting", () => {
   const compatible: ModelCatalogEntry[] = [
     { id: "grok-4.7", object: "model", compatible: true, reason: null, capability: "tested" },
   ];
+
+  it("sends distinct same-price offers unchanged on initial and repair requests", async () => {
+    for (const terms of [
+      { market: "moneyline" as const, selection: "away" as const },
+      { market: "spread" as const, selection: "home" as const, pointLine: -3.5 },
+      { market: "spread" as const, selection: "home" as const, pointLine: -7.5 },
+      { market: "total" as const, selection: "under" as const, pointLine: 45.5 },
+    ]) {
+      const offer = parseOffer({ ...thesisOffer, ...terms });
+      const input = buildThesisPacket({ ...packet(), offer, gaps: ["Lineup unavailable"] });
+      let attempts = 0;
+      const { provider, calls } = providerWith(() =>
+        chatResponse(++attempts === 1 ? "invalid json" : validReportJson()),
+      );
+      const result = await provider.draftThesis({
+        modelId: "grok-4.7",
+        catalog: compatible,
+        packet: input,
+      });
+      expect(result.draftingFailed).toBe(false);
+      const requests = calls.filter((call) => call.url.includes("chat/completions"));
+      expect(requests).toHaveLength(2);
+      for (const call of requests) {
+        const body = JSON.parse(String(call.init?.body));
+        const user = JSON.parse(body.messages[1].content);
+        expect(user.offer).toEqual(offer);
+        expect(user.requiredGaps).toEqual(input.requiredGaps);
+        expect(user.gaps).toEqual(input.gaps);
+        expect(user.decimalOdds).toBe(calculations().decimalOdds);
+      }
+      expect(result.report?.missingInputs).toContain("Lineup unavailable");
+    }
+  });
+
+  it("repairs unresolved gap references once and fails visibly if they remain", async () => {
+    const bad = JSON.stringify({
+      ...JSON.parse(validReportJson()),
+      claims: [
+        {
+          text: "Lineup unresolved.",
+          stance: "opposing",
+          evidenceIds: ["ev-injury"],
+          gapIds: ["gap:unknown"],
+        },
+      ],
+    });
+    const { provider, calls } = providerWith(() => chatResponse(bad));
+    const result = await provider.draftThesis({
+      modelId: "grok-4.7",
+      catalog: compatible,
+      packet: packet(),
+    });
+    expect(result.draftingFailed).toBe(true);
+    expect(result.error?.message).toContain("Unknown gap id gap:unknown");
+    expect(result.providerRequests).toHaveLength(2);
+    expect(calls.filter((call) => call.url.includes("chat/completions"))).toHaveLength(2);
+  });
 
   it("sends the evidence packet and precomputed numbers without the user lean", async () => {
     const { provider, calls } = providerWith((call) => {
@@ -426,6 +579,8 @@ describe("thesis drafting", () => {
 
   it("allows a percentage that an evidence item supplies", () => {
     const withRain = buildThesisPacket({
+      game: thesisGame,
+      offer: thesisOffer,
       ...calculations(),
       items: [...items, { ...items[1]!, id: "ev-rain", facts: { precipitationChancePercent: 40 } }],
       policy: packet().policy,

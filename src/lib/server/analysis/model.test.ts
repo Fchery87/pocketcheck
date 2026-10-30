@@ -7,12 +7,6 @@ import { parseOffer, type Offer } from "#lib/domain/offer.ts";
 import { withChecksum, type ModelArtifact } from "#lib/server/models/artifact.ts";
 import { FEATURE_DEFINITIONS } from "#lib/server/models/features.ts";
 import { predictMean } from "#lib/server/models/fit.ts";
-import { releaseArtifact } from "#lib/server/models/release.ts";
-import {
-  evaluateProspectiveForecasts,
-  protocolForArtifact,
-  type FrozenForecastRecord,
-} from "#lib/server/models/prospective.ts";
 import { starterDecision } from "#lib/server/models/starter.ts";
 import { fitArtifact } from "#lib/server/models/train.ts";
 import type { ScheduledGame } from "#lib/server/sources/contracts.ts";
@@ -359,60 +353,9 @@ describe("the model a run uses", () => {
   });
 
   it("is eligible only for a market released by the prospective protocol", async () => {
-    const savedProbability = { win: 0.7, loss: 0.3, push: 0 };
-    const closing = { win: 0.4, loss: 0.6, push: 0 };
-    const frozen = (market: "moneyline" | "spread"): FrozenForecastRecord[] =>
-      Array.from({ length: 500 }, (_, index) => ({
-        id: `${market}-${index}`,
-        decisionCutoff: "2026-11-01T17:00:00Z",
-        artifactChecksum: artifact.checksum,
-        market,
-        probabilities: savedProbability,
-        closingBaseline: closing,
-        executableOfferAt: "2026-11-01T16:00:00Z",
-        slate: `slate-${index % 20}`,
-        outcome: "win" as const,
-      }));
-    const protocol = protocolForArtifact(artifact.checksum);
-    const emptyMarket = {
-      assessed: 0,
-      candidates: 0,
-      decisive: 0,
-      wins: 0,
-      observedRate: null,
-      meanBreakEven: null,
-      interval: null,
-    };
-    const report = {
-      version: 1 as const,
-      datasetHash: artifact.datasetHash,
-      trainingCutoff: artifact.trainingCutoff,
-      holdoutGames: 0,
-      artifactChecksum: artifact.checksum,
-      summary: {
-        count: 0,
-        brier: 0,
-        logLoss: 0,
-        calibration: [],
-        baselines: [],
-        coverage: { priced: 0, missingPrices: 0 },
-        byMarket: {},
-        threshold: {
-          version: "threshold-2026-10-25",
-          conservativeExpectedValue: 0,
-          note: "",
-          markets: {
-            moneyline: emptyMarket,
-            spread: emptyMarket,
-            total: emptyMarket,
-          },
-        },
-      },
-    };
-    const releasedFor = (market: "moneyline" | "spread") => {
-      const evaluation = evaluateProspectiveForecasts(protocol, frozen(market));
-      return releaseArtifact(artifact, report, { protocol, evaluation });
-    };
+    const { checksum: _checksum, ...body } = artifact;
+    const releasedFor = (market: "moneyline" | "spread") =>
+      withChecksum({ ...body, releaseStatus: "released-experimental", releasedMarkets: [market] });
     const spread = await createArtifactModel({
       artifactPath: saved("spread.json", releasedFor("spread")),
       schedulePath,

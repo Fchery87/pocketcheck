@@ -83,10 +83,13 @@ export function buildPickExplanationPacket(input: {
 const RULES = [
   "Explain each frozen model pick in plain language as a JSON object. No markdown.",
   "The forecasting model already chose each side and the code already graded it. Copy side, grade, americanOdds, and pointLine exactly and never argue for a different side or grade.",
-  "Use only the numbers supplied in picks. Do not add win, loss, push, or probability fields, and do not state a percentage, price, or line that is not supplied.",
+  "Use only frozen pick facts and supplied evidence. Do not add win, loss, push, or probability fields.",
+  "Use {{picked.label}} and {{other.label}} to name the sides. The application displays the frozen contract and numerical values separately; do not restate them in prose.",
+  "To cite a numeric evidence fact, make the entire claim text {{evidence:<evidence id>:<fact key>}} and cite that evidence id. The application renders the fact name and recorded number separately.",
+  "Return formatVersion 2. Do not write literal prices, lines or percentages in prose; use the references.",
   "Cite only evidence ids from the packet. Every claim cites at least one id.",
   "Give every pick at least one opposing claim and an otherSideCase: the strongest case for the other side, from supplied evidence only.",
-  "Say that the forecasting model, not you, chose the side. List relevant packet gaps in missingInputs.",
+  "Say that the forecasting model, not you, chose the side. The application supplies packet gaps; missingInputs may contain additional qualitative caveats.",
   'Fields: picks: array with one entry per supplied pick, each {market: string, side: "home"|"away"|"over"|"under", grade: "strong"|"lean"|"no edge", americanOdds: number, pointLine: number|null, summary: string, otherSideCase: string, claims: array of {text: string, stance: "supporting"|"opposing", evidenceIds: array of strings}, missingInputs: array of strings}.',
 ].join(" ");
 
@@ -182,15 +185,83 @@ export function explanationShapeProblems(value: unknown): string[] {
 
 const NUMBER_TOLERANCE = 1e-6;
 const PERCENTAGE = /(\d+(?:\.\d+)?)\s*(?:%|percent\b)/gi;
+const WRITTEN_NUMBER =
+  /\b(?:over|under|total|line|odds|price|spread|decimal odds|decimal price)\s+(?:(?:of|is|at|set at)\s+)?(?:(?:minus|plus|negative|positive)\s+)?(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|half|a half)\b/i;
 // A signed token such as -3.5, +130, or −110. A hyphen inside a word or date never matches.
 const SIGNED = /(?<![\w.])([+\-−])(\d+(?:\.\d+)?)(?!\d)/g;
 
-function escaped(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+type PickFactReference = "picked.label" | "other.label";
+
+function renderReferences(
+  text: string,
+  facts: PickExplanationFacts,
+  packet: PickExplanationPacket,
+  reasons: string[],
+  options: { cited?: readonly string[]; maskEvidence?: boolean } = {},
+): string {
+  const values: Record<PickFactReference, string> = {
+    "picked.label": facts.picked.label,
+    "other.label": facts.other.label,
+  };
+  return text.replace(/\{\{([^{}]+)\}\}/g, (token, key: string) => {
+    if (Object.hasOwn(values, key)) return values[key as PickFactReference];
+    if (key.startsWith("evidence:")) {
+      const matches = packet.items.flatMap((item) =>
+        Object.entries(item.facts)
+          .filter(
+            ([name, value]) =>
+              `evidence:${item.id}:${name}` === key &&
+              typeof value === "number" &&
+              Number.isFinite(value),
+          )
+          .map(([name, value]) => ({ item, name, value })),
+      );
+      if (matches.length !== 1) {
+        reasons.push(`Unknown or ambiguous ${facts.market} evidence fact reference ${token}`);
+        return token;
+      }
+      const match = matches[0]!;
+      if (options.cited && !options.cited.includes(match.item.id)) {
+        reasons.push(
+          `The ${facts.market} claim must cite evidence ${match.item.id} used by ${token}`,
+        );
+        return token;
+      }
+      return options.maskEvidence ? "recorded value" : `${match.name}: ${match.value}`;
+    }
+    reasons.push(
+      `Unknown ${facts.market} fact reference ${token}; frozen contract values are displayed separately`,
+    );
+    return token;
+  });
 }
 
-function allSides(packet: PickExplanationPacket): PickExplanationSideFacts[] {
-  return packet.picks.flatMap((pick) => [pick.picked, pick.other]);
+function renderedEntry(
+  entry: PickExplanationEntry,
+  facts: PickExplanationFacts,
+  packet: PickExplanationPacket,
+  reasons: string[],
+  maskEvidence = false,
+): PickExplanationEntry {
+  return {
+    ...entry,
+    summary: renderReferences(entry.summary, facts, packet, reasons, { maskEvidence }),
+    otherSideCase: renderReferences(entry.otherSideCase, facts, packet, reasons, { maskEvidence }),
+    claims: entry.claims.map((claim) => ({
+      ...claim,
+      text: renderReferences(claim.text, facts, packet, reasons, {
+        cited: claim.evidenceIds,
+        maskEvidence,
+      }),
+    })),
+    missingInputs: entry.missingInputs.map((item) =>
+      renderReferences(item, facts, packet, reasons, { maskEvidence }),
+    ),
+  };
+}
+
+function escaped(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function problemsInProse(
@@ -206,7 +277,7 @@ function problemsInProse(
   ];
   const where = `${facts.market} explanation`;
   const reasons: string[] = [];
-  const sides = allSides(packet);
+  const sides = [facts.picked, facts.other];
 
   const suppliedPercentages = [
     ...sides.flatMap((side) => [side.modelWinProbability * 100, side.noVigProbability * 100]),
@@ -247,6 +318,25 @@ function problemsInProse(
     reasons.push(
       `The ${where} states numbers the packet did not supply: ${strayNumbers.join(", ")}`,
     );
+  }
+
+  const contractNumbers =
+    /\b(?:over|under|total|line|decimal odds|decimal price)\s*(?:of|is|at|:)?\s*(\d+(?:\.\d+)?)/gi;
+  for (const text of prose) {
+    for (const match of text.matchAll(contractNumbers)) {
+      const label = match[0].toLowerCase();
+      const number = Number(match[1]);
+      const known = label.startsWith("decimal")
+        ? sides.map((side) =>
+            side.americanOdds > 0
+              ? 1 + side.americanOdds / 100
+              : 1 + 100 / Math.abs(side.americanOdds),
+          )
+        : sides.flatMap((side) => (side.pointLine === null ? [] : [side.pointLine]));
+      if (known.every((value) => Math.abs(value - number) > 0.0051)) {
+        reasons.push(`The ${where} states an unsupported contract value: ${match[0]}`);
+      }
+    }
   }
 
   for (const grade of GRADES.filter((item) => item !== facts.grade)) {
@@ -291,6 +381,10 @@ export function validatePickExplanation(
   }
   const shape = explanationShapeProblems(value);
   if (shape.length > 0) return { ok: false, reasons: [...reasons, ...shape] };
+  const version = (value as { formatVersion?: unknown }).formatVersion;
+  if (version !== 2) {
+    return { ok: false, reasons: ["Explanation formatVersion must be 2"] };
+  }
   const entries = (value as { picks: PickExplanationEntry[] }).picks;
   const allowedIds = new Set(packet.items.map((item) => item.id));
 
@@ -331,7 +425,53 @@ export function validatePickExplanation(
     if (entry.otherSideCase.trim() === "") {
       reasons.push(`The ${facts.market} explanation has no case for the other side`);
     }
-    reasons.push(...problemsInProse(entry, facts, packet));
+    const rendered = renderedEntry(entry, facts, packet, reasons, true);
+    if (version === 2) {
+      for (const text of [entry.summary, entry.otherSideCase, ...entry.missingInputs]) {
+        if (/\{\{evidence:/.test(text)) {
+          reasons.push(
+            `The ${facts.market} explanation must put numeric evidence in a standalone cited claim`,
+          );
+        }
+      }
+      for (const claim of entry.claims) {
+        if (
+          /\{\{evidence:/.test(claim.text) &&
+          !/^\s*\{\{evidence:[^{}]+\}\}\s*$/.test(claim.text)
+        ) {
+          reasons.push(
+            `The ${facts.market} explanation must put numeric evidence in a standalone cited claim`,
+          );
+        }
+      }
+      const prose = [
+        entry.summary,
+        entry.otherSideCase,
+        ...entry.claims.map((claim) => claim.text),
+        ...entry.missingInputs,
+      ];
+      for (const text of prose) {
+        const literal = text.replace(/\{\{[^{}]+\}\}/g, "");
+        SIGNED.lastIndex = 0;
+        PERCENTAGE.lastIndex = 0;
+        if (
+          /\d/.test(literal) ||
+          WRITTEN_NUMBER.test(literal) ||
+          SIGNED.test(literal) ||
+          PERCENTAGE.test(literal) ||
+          /\b(?:over|under|total|line|decimal odds|decimal price)\s*(?:of|is|at|:)?\s*\d/i.test(
+            literal,
+          )
+        ) {
+          reasons.push(
+            `The ${facts.market} explanation must use frozen fact references for prices, lines, and percentages`,
+          );
+        }
+        SIGNED.lastIndex = 0;
+        PERCENTAGE.lastIndex = 0;
+      }
+    }
+    reasons.push(...problemsInProse(rendered, facts, packet));
   }
   for (const entry of entries) {
     if (!packet.picks.some((facts) => facts.market === entry.market)) {
@@ -360,6 +500,28 @@ export function validatePickExplanation(
           missingInputs: [...entry.missingInputs],
         };
       }),
+      ...(version === 2 ? { formatVersion: 2 as const } : {}),
     },
+  };
+}
+
+export function renderPickExplanation(
+  report: PickExplanationReport,
+  packet: PickExplanationPacket,
+): PickExplanationReport {
+  return {
+    ...report,
+    ...(report.formatVersion === 2 ? { rendererVersion: 1 as const } : {}),
+    picks: report.picks.map((entry) => {
+      const rendered = renderedEntry(
+        entry,
+        packet.picks.find((pick) => pick.market === entry.market)!,
+        packet,
+        [],
+      );
+      return report.formatVersion === 2
+        ? { ...rendered, missingInputs: [...new Set([...packet.gaps, ...rendered.missingInputs])] }
+        : rendered;
+    }),
   };
 }

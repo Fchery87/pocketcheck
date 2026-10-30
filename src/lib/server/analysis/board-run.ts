@@ -12,7 +12,11 @@ import type { ScheduledGame } from "../sources/contracts.ts";
 import type { FrozenMarketResult, GameBoard, GameBoardStore } from "./board-store.ts";
 import type { PickDrafter } from "../providers/contracts.ts";
 import { createFixtureDrafter } from "./fixture-drafter.ts";
-import { buildPickExplanationPacket, validatePickExplanation } from "./pick-explanation.ts";
+import {
+  buildPickExplanationPacket,
+  renderPickExplanation,
+  validatePickExplanation,
+} from "./pick-explanation.ts";
 import { noSources, type EvidenceCollector } from "./evidence.ts";
 import { gameHasStarted } from "./games.ts";
 import { gatherEvidence } from "./gather-evidence.ts";
@@ -34,6 +38,7 @@ import type { EvidenceItem } from "../sources/contracts.ts";
 export type GameBoardRequest = {
   /** Stable browser-generated submission identifier, reused only to retry this exact board. */
   requestId?: string;
+  protocolRegistrationId?: string;
   game: ScheduledGame;
   /** Decision cutoff for this board. Evidence after it is excluded. */
   nowIso: string;
@@ -243,7 +248,8 @@ async function finishWithExplanation(
   board: GameBoard,
   drafted: unknown,
 ): Promise<GameBoardOutcome> {
-  const checked = validatePickExplanation(drafted, packetOf(board));
+  const packet = packetOf(board);
+  const checked = validatePickExplanation(drafted, packet);
   if (!checked.ok) {
     const reason = checked.reasons.join("; ");
     const failed = await store.finishBoard({
@@ -257,7 +263,7 @@ async function finishWithExplanation(
     boardId: board.id,
     status: "completed",
     failureReason: null,
-    explanation: checked.report,
+    explanation: renderPickExplanation(checked.report, packet),
   });
   return { ok: true, board: finished };
 }
@@ -319,6 +325,18 @@ export async function runGameBoard(
     );
   }
 
+  const cutoff = Date.parse(request.nowIso);
+  const observedTimes = [
+    request.observedAt,
+    ...(request.extraQuotes ?? []).map((quote) => quote.observedAt),
+  ];
+  if (
+    !Number.isFinite(cutoff) ||
+    observedTimes.some((time) => !Number.isFinite(Date.parse(time)) || Date.parse(time) > cutoff)
+  ) {
+    return { ok: false, error: "Every price must be observed at or before the decision cutoff." };
+  }
+
   let manual: EvidenceItem[];
   try {
     manual = (request.manualEvidence ?? []).map((entry) =>
@@ -344,21 +362,31 @@ export async function runGameBoard(
 
   const scheduleRetrievedAt = request.scheduleRetrievedAt ?? request.nowIso;
   const identity = {
-    manualEvidence: manual,
+    manualEvidence: request.manualEvidence ?? [],
     carriedEvidence: carried.map((item) => item.id),
     lean,
     game: snapshot(request.game),
     parentId: request.parentId ?? null,
-    cutoffAt: request.nowIso,
+    explanationFormatVersion: 2 as const,
+    ...(request.protocolRegistrationId
+      ? { protocolRegistrationId: request.protocolRegistrationId }
+      : {}),
     sportsbook: request.sportsbook,
     observedAt: request.observedAt,
     markets,
-    scheduleRetrievedAt,
+    scheduleRetrievedAt: request.scheduleRetrievedAt ?? null,
     drafter: { provider: drafter.id, modelId: drafter.modelId },
   };
   const hash = createHash("sha256").update(JSON.stringify(identity)).digest("hex");
   const begun = await store.beginBoard({
-    request: { id: request.requestId ?? randomUUID(), hash },
+    request: {
+      id: request.requestId ?? randomUUID(),
+      hash,
+      explanationFormatVersion: 2,
+      ...(request.protocolRegistrationId
+        ? { protocolRegistrationId: request.protocolRegistrationId }
+        : {}),
+    },
     parentId: identity.parentId,
     game: identity.game,
     sportsbook: request.sportsbook,

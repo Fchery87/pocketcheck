@@ -3,8 +3,11 @@ import { buildThesisPacket } from "../analysis/packet.ts";
 import { createMemorySettings } from "../settings/store.ts";
 import type { ModelCatalogEntry, ProviderId, ThesisProvider } from "./contracts.ts";
 import { resolveDrafter } from "./drafter.ts";
+import { thesisGame, thesisOffer } from "../../../../tests/fixtures/thesis-offer.ts";
 
 const packet = buildThesisPacket({
+  game: thesisGame,
+  offer: thesisOffer,
   items: [],
   decimalOdds: 1.9,
   decisiveBreakEven: 1 / 1.9,

@@ -4,12 +4,15 @@ import { buildThesisPacket } from "../../src/lib/server/analysis/packet.ts";
 import { ProviderError } from "../../src/lib/server/providers/contracts.ts";
 import { createDeepSeekProvider } from "../../src/lib/server/providers/deepseek.ts";
 import { createTheClawBayProvider } from "../../src/lib/server/providers/theclawbay.ts";
+import { thesisGame, thesisOffer } from "../fixtures/thesis-offer.ts";
 
 const FAKE_KEY = "sk-transport-test-secret-123";
 const fixture = (name: string) =>
   readFileSync(new URL(`../fixtures/providers/${name}`, import.meta.url), "utf8");
 
 const packet = buildThesisPacket({
+  game: thesisGame,
+  offer: thesisOffer,
   items: [
     {
       id: "ev-1",

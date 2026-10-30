@@ -1,4 +1,4 @@
-import type { Market, SideSelection } from "#lib/domain/offer.ts";
+import type { Market, Offer, SideSelection } from "#lib/domain/offer.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
 import type { ModelPickRelease, ModelPickTieBreak, StrengthGrade } from "../analysis/model-pick.ts";
 
@@ -45,6 +45,9 @@ export type PacketPolicy = {
 };
 
 export type ThesisPacket = ThesisCalculations & {
+  game: { id: string; home: string; away: string; kickoff: string };
+  offer: Offer;
+  requiredGaps: Array<{ id: string; text: string }>;
   items: EvidenceItem[];
   /** Missing evidence and caveats the report must acknowledge. */
   gaps: string[];
@@ -53,11 +56,17 @@ export type ThesisPacket = ThesisCalculations & {
 
 export type ThesisClaim = {
   text: string;
+  renderedText?: string;
   stance: "supporting" | "opposing";
   evidenceIds: string[];
+  gapIds?: string[];
+  factReferences?: Array<
+    "offer.americanOdds" | "offer.pointLine" | "decimalOdds" | "decisiveBreakEven"
+  >;
 };
 
 export type ThesisReport = ThesisCalculations & {
+  rendererVersion?: 1;
   conclusion: string;
   summary: string;
   claims: ThesisClaim[];
@@ -112,7 +121,11 @@ export type PickExplanationEntry = {
   missingInputs: string[];
 };
 
-export type PickExplanationReport = { picks: PickExplanationEntry[] };
+export type PickExplanationReport = {
+  formatVersion?: 2;
+  rendererVersion?: 1;
+  picks: PickExplanationEntry[];
+};
 
 export type UsageRecord = {
   promptTokens: number | null;

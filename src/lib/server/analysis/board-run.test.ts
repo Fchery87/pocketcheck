@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
 import { loadFixtureGames } from "#lib/server/analysis/games.ts";
 import { runGameBoard, type GameBoardRequest } from "#lib/server/analysis/board-run.ts";
+import { createFixtureDrafter } from "#lib/server/analysis/fixture-drafter.ts";
 import { createMemoryStore } from "#lib/server/analysis/store.ts";
 import type { ModelSource } from "#lib/server/analysis/model.ts";
 import type { OutcomeProbabilities } from "#lib/domain/odds.ts";
 import { quiet, scriptedModel } from "../../../../tests/board-fixtures.ts";
+import { PROSPECTIVE_PROTOCOL } from "#lib/server/models/release.ts";
 
 const NOW = "2026-10-25T16:00:00.000Z";
 const game = loadFixtureGames("tests/fixtures/sources/games-minimized.csv", NOW).find(
@@ -23,6 +25,89 @@ function board(overrides: Partial<GameBoardRequest> = {}): GameBoardRequest {
 }
 
 describe("game board run", () => {
+  it("rejects prices observed after the decision cutoff before saving a board", async () => {
+    for (const overrides of [
+      { observedAt: "2026-10-25T16:01:00.000Z" },
+      {
+        extraQuotes: [
+          {
+            sportsbook: "Other",
+            market: "moneyline" as const,
+            selection: "home" as const,
+            americanOdds: 120,
+            pointLine: null,
+            observedAt: "2026-10-25T16:01:00.000Z",
+          },
+        ],
+      },
+    ]) {
+      const store = createMemoryStore();
+      const outcome = await runGameBoard(board(overrides), { store, collect: quiet });
+      expect(outcome).toMatchObject({ ok: false, error: expect.stringMatching(/decision cutoff/) });
+      expect(await store.listModelPicks()).toEqual([]);
+    }
+  });
+
+  it("reuses the saved board when an identical submission is retried at a later time", async () => {
+    const store = createMemoryStore();
+    const drafter = createFixtureDrafter();
+    const deps = { store, collect: quiet, drafter };
+    const first = await runGameBoard(
+      board({
+        requestId: "same-board",
+        manualEvidence: [{ text: "Lineup", url: "", sourceTime: "unknown" }],
+      }),
+      deps,
+    );
+    const retry = await runGameBoard(
+      board({
+        requestId: "same-board",
+        nowIso: "2026-10-25T16:05:00.000Z",
+        manualEvidence: [{ text: "Lineup", url: "", sourceTime: "unknown" }],
+      }),
+      deps,
+    );
+    expect(first.ok).toBe(true);
+    expect(retry.ok).toBe(true);
+    expect(retry.board?.id).toBe(first.board?.id);
+    expect(retry.board?.cutoffAt).toBe(NOW);
+  });
+  it("freezes the selected registration with the submission and rejects a retry with another registration", async () => {
+    const store = createMemoryStore({ now: () => "2026-10-26T12:00:00.000Z" });
+    await store.recordProtocolRegistration({
+      id: "protocol-one",
+      cohort: "primary-model-picks",
+      protocol: { ...PROSPECTIVE_PROTOCOL, artifactChecksum: "f".repeat(64) },
+    });
+    const registeredBoard = {
+      requestId: "registered-board",
+      nowIso: "2026-10-26T13:00:00.000Z",
+      game: { ...game, kickoff: "2026-10-27T17:00:00.000Z" },
+    };
+    const deps = {
+      store,
+      collect: quiet,
+      model: scriptedModel({ home: { win: 0.62, loss: 0.36, push: 0.02 } }),
+    };
+    const first = await runGameBoard(
+      board({ ...registeredBoard, protocolRegistrationId: "protocol-one" }),
+      deps,
+    );
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect((await store.getBoard(first.board.id))?.request.protocolRegistrationId).toBe(
+      "protocol-one",
+    );
+    const retry = await runGameBoard(
+      board({ ...registeredBoard, protocolRegistrationId: "protocol-two" }),
+      deps,
+    );
+    expect(retry.ok).toBe(false);
+    expect((await store.getBoard(first.board.id))?.request.protocolRegistrationId).toBe(
+      "protocol-one",
+    );
+  });
+
   it("freezes a moneyline board and its unvalidated model pick", async () => {
     const store = createMemoryStore();
     const model = scriptedModel({

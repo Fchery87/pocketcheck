@@ -11,7 +11,7 @@ import {
 } from "#lib/domain/offer.ts";
 import { buildThesisPacket, thesisRequestBody } from "./packet.ts";
 import { redactText } from "./redact.ts";
-import { validateThesisReport } from "./report-validation.ts";
+import { renderResearchClaim, validateThesisReport } from "./report-validation.ts";
 import { createFixtureDrafter } from "./fixture-drafter.ts";
 import { gameHasStarted } from "./games.ts";
 import {
@@ -114,17 +114,21 @@ async function finalizeFromDurable(
   durable: ProviderRequestRecord,
 ): Promise<AnalysisOutcome> {
   const report = durable.response as ThesisReport;
-  const checked = validateThesisReport(report, {
+  const decimalOdds = americanToDecimal(current.offer.americanOdds);
+  const packet = buildThesisPacket({
     items: current.evidence,
     gaps: current.gaps,
-    decimalOdds: report.decimalOdds,
-    decisiveBreakEven: report.decisiveBreakEven,
+    decimalOdds,
+    decisiveBreakEven: breakEven(decimalOdds).decisive,
+    game: current.game,
+    offer: current.offer,
     policy: {
       version: current.policy?.policyVersion ?? "unknown",
       conclusion: current.policy?.conclusion ?? report.conclusion,
       blockingReason: current.policy?.blockingReason ?? null,
     },
   });
+  const checked = validateThesisReport(report, packet);
   if (!checked.ok) {
     const failed = await store.saveRun({
       ...current,
@@ -138,7 +142,9 @@ async function finalizeFromDurable(
   const renderedText = [
     checked.report.conclusion,
     checked.report.summary,
-    ...checked.report.claims.map((claim) => `${claim.evidenceIds.join(", ")}: ${claim.text}`),
+    ...checked.report.claims.map(
+      (claim) => `${claim.evidenceIds.join(", ")}: ${renderResearchClaim(claim, packet)}`,
+    ),
     ...checked.report.missingInputs,
     `American odds ${current.offer.americanOdds}`,
   ].join("\n");
@@ -217,6 +223,11 @@ export async function runAnalysis(
     forecast,
   }: AnalysisDependencies,
 ): Promise<AnalysisOutcome> {
+  const cutoff = Date.parse(request.nowIso);
+  const observed = Date.parse(request.observedAt);
+  if (!Number.isFinite(cutoff) || !Number.isFinite(observed) || observed > cutoff) {
+    return { ok: false, error: "The price must be observed at or before the decision cutoff." };
+  }
   const requestId = request.requestId ?? randomUUID();
   const stages: ProgressStage[] = [];
   stages.push("checking inputs");
@@ -266,10 +277,9 @@ export async function runAnalysis(
       JSON.stringify({
         game: snapshot(request.game),
         parentId: request.parentId ?? null,
-        cutoffAt: request.nowIso,
         offer,
         lean: leanOf(request),
-        scheduleRetrievedAt: request.scheduleRetrievedAt ?? request.nowIso,
+        scheduleRetrievedAt: request.scheduleRetrievedAt ?? null,
         manualEvidence: request.manualEvidence ?? [],
         carriedEvidence: request.carriedEvidence ?? [],
         drafter: { provider: drafter.id, modelId: drafter.modelId },
@@ -387,6 +397,8 @@ export async function runAnalysis(
       decimalOdds,
     });
     const thesisPacket = buildThesisPacket({
+      game: snapshot(request.game),
+      offer,
       items: gathered.items,
       gaps,
       decimalOdds,
@@ -413,7 +425,7 @@ export async function runAnalysis(
     const drafted = await drafter.draftThesis({
       modelId: drafter.modelId,
       catalog: [],
-      packet: thesisPacket,
+      packet: structuredClone(thesisPacket),
     });
 
     const providerRequests = providerRequestsOf(drafted);
@@ -459,7 +471,9 @@ export async function runAnalysis(
     const renderedText = [
       checked.report.conclusion,
       checked.report.summary,
-      ...checked.report.claims.map((claim) => `${claim.evidenceIds.join(", ")}: ${claim.text}`),
+      ...checked.report.claims.map(
+        (claim) => `${claim.evidenceIds.join(", ")}: ${renderResearchClaim(claim, thesisPacket)}`,
+      ),
       ...checked.report.missingInputs,
       `American odds ${offer.americanOdds}`,
     ].join("\n");

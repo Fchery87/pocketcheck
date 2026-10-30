@@ -44,6 +44,79 @@ function capturingDrafter(): ThesisDrafter & { packets: ThesisPacket[] } {
 }
 
 describe("research run", () => {
+  it("saves code-rendered research facts alongside the provider commentary", async () => {
+    const inner = createFixtureDrafter();
+    const drafter: ThesisDrafter = {
+      ...inner,
+      async draftThesis(input) {
+        const result = await inner.draftThesis(input);
+        if (result.report?.claims[0]) {
+          result.report.claims[0].factReferences = ["offer.americanOdds", "decimalOdds"];
+        }
+        return result;
+      },
+    };
+    const outcome = await runAnalysis(request(), { store: createMemoryStore(), drafter });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.run?.report?.claims[0]?.factReferences).toEqual([
+      "offer.americanOdds",
+      "decimalOdds",
+    ]);
+    expect(outcome.run?.renderedText).toContain(
+      "American odds -110\nDecimal odds 1.9090909090909092",
+    );
+    expect(outcome.run?.report?.claims[0]?.renderedText).toContain(
+      "American odds -110\nDecimal odds 1.9090909090909092",
+    );
+    expect(outcome.run?.report?.rendererVersion).toBe(1);
+  });
+
+  it("does not let a drafter mutate the saved packet or authorize a changed price", async () => {
+    const store = createMemoryStore();
+    const inner = createFixtureDrafter();
+    const drafter: ThesisDrafter = {
+      ...inner,
+      async draftThesis(input) {
+        input.packet.offer.americanOdds = 900;
+        input.packet.decimalOdds = 10;
+        input.packet.decisiveBreakEven = 0.1;
+        input.packet.gaps.length = 0;
+        input.packet.items.length = 0;
+        return inner.draftThesis(input);
+      },
+    };
+    const outcome = await runAnalysis(request(), { store, drafter });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.run?.offer.americanOdds).toBe(-110);
+    expect(outcome.run?.gaps.length).toBeGreaterThan(0);
+    expect(outcome.run?.evidence.length).toBeGreaterThan(0);
+    expect(outcome.run?.failureReason).toMatch(/decimalOdds does not match/);
+  });
+
+  it("rejects a price observed after the decision cutoff without contacting the drafter", async () => {
+    const drafter = capturingDrafter();
+    const result = await runAnalysis(request({ observedAt: "2026-10-25T16:01:00.000Z" }), {
+      store: createMemoryStore(),
+      drafter,
+    });
+    expect(result).toMatchObject({ ok: false, error: expect.stringMatching(/decision cutoff/) });
+    expect(drafter.packets).toEqual([]);
+  });
+
+  it("reuses an identical attempt at a later submission time", async () => {
+    const store = createMemoryStore();
+    const drafter = capturingDrafter();
+    const first = await runAnalysis(request({ requestId: "same-run" }), { store, drafter });
+    const retry = await runAnalysis(
+      request({ requestId: "same-run", nowIso: "2026-10-25T16:05:00.000Z" }),
+      { store, drafter },
+    );
+    expect(first.ok).toBe(true);
+    expect(retry.ok).toBe(true);
+    expect(retry.run?.id).toBe(first.run?.id);
+    expect(retry.run?.cutoffAt).toBe(NOW);
+    expect(drafter.packets).toHaveLength(1);
+  });
   it("analyzes when the private lean names a team code or a side", async () => {
     for (const lean of ["PHI", "home", "DAL"]) {
       const outcome = await runAnalysis(request({ lean }), { store: createMemoryStore() });
@@ -60,6 +133,12 @@ describe("research run", () => {
     });
     expect(outcome.ok).toBe(true);
     expect(JSON.stringify(drafter.packets)).not.toContain(sentinel);
+    expect(drafter.packets[0]?.offer).toEqual(outcome.run?.offer);
+    expect(drafter.packets[0]?.game).toMatchObject({
+      id: game.id,
+      home: game.home,
+      away: game.away,
+    });
     expect(outcome.run?.lean?.text).toBe(sentinel);
   });
 

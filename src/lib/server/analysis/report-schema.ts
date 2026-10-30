@@ -45,7 +45,9 @@ export function reportShapeProblems(value: unknown): string[] {
     }
   }
   for (const field of ["decimalOdds", "decisiveBreakEven"]) {
-    if (typeof record[field] !== "number") problems.push(`${field} must be a number`);
+    if (typeof record[field] !== "number" || !Number.isFinite(record[field])) {
+      problems.push(`${field} must be a finite number`);
+    }
   }
   if (!Array.isArray(record.claims)) {
     problems.push("claims must be an array");
@@ -58,6 +60,14 @@ export function reportShapeProblems(value: unknown): string[] {
       return;
     }
     const row = claim as Record<string, unknown>;
+    for (const field of ["gapIds", "factReferences"]) {
+      if (
+        row[field] !== undefined &&
+        (!Array.isArray(row[field]) || !row[field].every((id) => typeof id === "string"))
+      ) {
+        problems.push(`${at}.${field} must be an array of strings`);
+      }
+    }
     if (typeof row.text !== "string") problems.push(`${at}.text must be a string`);
     if (row.stance !== "supporting" && row.stance !== "opposing") {
       problems.push(
