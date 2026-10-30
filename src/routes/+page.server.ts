@@ -34,7 +34,6 @@ const FIELDS = [
   "lean",
   "rationale",
   "requestId",
-  "cutoffAt",
   "scheduleRetrievedAt",
 ] as const;
 
@@ -78,8 +77,7 @@ export const actions = {
     const refuse = (status: number, error: string) =>
       fail(status, { error, values, manual: manual.rows });
     if (!manual.ok) return refuse(400, manual.error);
-    const cutoffAt = values.cutoffAt ?? "";
-    const nowIso = Number.isFinite(Date.parse(cutoffAt)) ? new Date(cutoffAt).toISOString() : now();
+    const nowIso = now();
     const schedule = readSchedule(schedulePath());
     if (!schedule.ok) return refuse(503, schedule.reason);
     const game = schedule.games.find((item) => item.id === values.gameId);
@@ -129,7 +127,7 @@ export const actions = {
         game,
         requestId: values.requestId || randomUUID(),
         nowIso,
-        scheduleRetrievedAt: values.scheduleRetrievedAt || schedule.retrievedAt,
+        scheduleRetrievedAt: schedule.retrievedAt,
         sportsbook: values.sportsbook ?? "",
         market,
         selection,

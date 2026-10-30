@@ -44,7 +44,28 @@ export class ConfigError extends Error {
   }
 }
 
+let verificationClock: string | null = null;
+let verificationContradiction = false;
+
+export function setVerificationContradiction(enabled: boolean): void {
+  if (POCKETCHECK_TEST_MODE !== "fixture-browser") {
+    throw new Error("The verification draft exists only in fixture-browser mode.");
+  }
+  verificationContradiction = enabled;
+}
+
+export function setVerificationClock(value: string | null): void {
+  if (POCKETCHECK_TEST_MODE !== "fixture-browser") {
+    throw new Error("The verification clock exists only in fixture-browser mode.");
+  }
+  if (value !== null && !Number.isFinite(Date.parse(value))) {
+    throw new Error("Invalid verification clock.");
+  }
+  verificationClock = value === null ? null : new Date(value).toISOString();
+}
+
 export function now(): string {
+  if (POCKETCHECK_TEST_MODE === "fixture-browser" && verificationClock) return verificationClock;
   return POCKETCHECK_NOW ? new Date(POCKETCHECK_NOW).toISOString() : new Date().toISOString();
 }
 
@@ -117,7 +138,9 @@ let store: JournalStore | undefined;
 /** The journal. Neon unless the memory journal is explicitly requested; never a silent fallback. */
 export function researchStore(): JournalStore {
   store ??=
-    POCKETCHECK_JOURNAL === "memory" ? createMemoryStore() : createNeonStore(databaseForJournal());
+    POCKETCHECK_JOURNAL === "memory"
+      ? createMemoryStore({ now })
+      : createNeonStore(databaseForJournal());
   return store;
 }
 
@@ -152,8 +175,28 @@ export function makeProvider(id: ProviderId, apiKey: string): ThesisProvider {
 }
 
 /** The drafter chosen in Settings, or the reason it cannot be used. */
-export function thesisDrafter(): Promise<
+export async function thesisDrafter(): Promise<
   { ok: true; drafter: ThesisDrafter } | { ok: false; error: string }
 > {
-  return resolveDrafter({ settings: settingsStore(), keys: providerKeys(), makeProvider });
+  const resolved = await resolveDrafter({
+    settings: settingsStore(),
+    keys: providerKeys(),
+    makeProvider,
+  });
+  if (!resolved.ok || POCKETCHECK_TEST_MODE !== "fixture-browser" || !verificationContradiction) {
+    return resolved;
+  }
+  const drafter = resolved.drafter;
+  return {
+    ok: true,
+    drafter: {
+      ...drafter,
+      async draftPickExplanation(input) {
+        const drafted = await drafter.draftPickExplanation(input);
+        const entry = drafted.report?.picks[0];
+        if (entry) entry.summary = "The total pick is over 99.5 at decimal odds 3.00.";
+        return drafted;
+      },
+    },
+  };
 }

@@ -1,4 +1,5 @@
 import { error, fail } from "@sveltejs/kit";
+import { validFinalScores } from "#lib/domain/settlement.ts";
 import { ConfigError, now, researchStore } from "#lib/server/config.ts";
 import type { SettlementNoticeKind } from "#lib/server/analysis/store.ts";
 import type { Actions, PageServerLoad } from "./$types";
@@ -50,8 +51,11 @@ export const actions = {
     }
     const homeScore = homeText === "" ? null : Number(homeText);
     const awayScore = awayText === "" ? null : Number(awayText);
-    if (kind === "final" && (!Number.isInteger(homeScore) || !Number.isInteger(awayScore))) {
-      return fail(400, { settled: false, error: "A final result needs whole-number scores" });
+    if (kind === "final" && !validFinalScores(homeScore, awayScore)) {
+      return fail(400, {
+        settled: false,
+        error: "A final result needs nonnegative whole-number scores",
+      });
     }
     const journal = store();
     const board = uuid.test(params.id) ? await journal.getBoard(params.id) : null;

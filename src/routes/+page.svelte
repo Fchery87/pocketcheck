@@ -198,7 +198,6 @@
       }}
     >
       <input type="hidden" name="requestId" value={value("requestId", data.requestId)} />
-      <input type="hidden" name="cutoffAt" value={value("cutoffAt", data.cutoffAt)} />
       <input
         type="hidden"
         name="scheduleRetrievedAt"

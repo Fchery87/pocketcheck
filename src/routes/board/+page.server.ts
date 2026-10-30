@@ -41,8 +41,8 @@ const FIELDS = [
   "totalUnder",
   "requestId",
   "parentId",
-  "cutoffAt",
   "scheduleRetrievedAt",
+  "protocolRegistrationId",
 ] as const;
 
 type Values = Partial<Record<(typeof FIELDS)[number], string>>;
@@ -200,6 +200,14 @@ export const load: PageServerLoad = async ({ url }) => {
     }
   }
   const schedule = readSchedule(schedulePath());
+  let registrations: Awaited<
+    ReturnType<ReturnType<typeof researchStore>["listProtocolRegistrations"]>
+  > = [];
+  try {
+    registrations = await researchStore().listProtocolRegistrations();
+  } catch (error) {
+    if (!(error instanceof ConfigError)) throw error;
+  }
   const games = schedule.ok
     ? upcomingGames(schedule.games, nowIso).map((game) => ({
         id: game.id,
@@ -219,6 +227,7 @@ export const load: PageServerLoad = async ({ url }) => {
     observedDefault: localInputValue(nowIso),
     requestId: randomUUID(),
     cutoffAt: nowIso,
+    registrations,
   };
 };
 
@@ -233,8 +242,7 @@ export const actions = {
       fail(status, { error, values, manual: manual.rows, quotes: quotes.rows });
     if (!manual.ok) return refuse(400, manual.error);
     if (!quotes.ok) return refuse(400, quotes.error);
-    const cutoffAt = values.cutoffAt ?? "";
-    const nowIso = Number.isFinite(Date.parse(cutoffAt)) ? new Date(cutoffAt).toISOString() : now();
+    const nowIso = now();
     const schedule = readSchedule(schedulePath());
     if (!schedule.ok) return refuse(503, schedule.reason);
     const game = schedule.games.find((item) => item.id === values.gameId);
@@ -270,13 +278,30 @@ export const actions = {
     }
     const drafting = await thesisDrafter();
     if (!drafting.ok) return refuse(503, drafting.error);
+    const registrationId = values.protocolRegistrationId;
+    const registrations = registrationId ? await store.listProtocolRegistrations() : [];
+    const registration = registrations.find((item) => item.id === registrationId);
+    if (registrationId && !registration)
+      return refuse(400, "Choose an existing evaluation registration.");
+    if (
+      registration &&
+      (Date.parse(registration.registeredAt) >= Date.parse(nowIso) ||
+        Date.parse(nowIso) > Date.parse(now()) ||
+        Date.parse(nowIso) < Date.parse(registration.protocol.period.start) ||
+        (registration.protocol.period.end !== null &&
+          Date.parse(nowIso) >= Date.parse(registration.protocol.period.end)))
+    ) {
+      return refuse(400, "The board must be after registration and within the evaluation period.");
+    }
+    const freezeForecast = forecastSource();
     const result = await runGameBoard(
       {
         game,
         parentId: values.parentId || null,
         requestId: values.requestId || randomUUID(),
+        ...(registration ? { protocolRegistrationId: registration.id } : {}),
         nowIso,
-        scheduleRetrievedAt: values.scheduleRetrievedAt || schedule.retrievedAt,
+        scheduleRetrievedAt: schedule.retrievedAt,
         sportsbook: values.sportsbook ?? "",
         observedAt,
         moneyline: {
@@ -305,7 +330,26 @@ export const actions = {
         store,
         collect: evidenceCollector(),
         model: modelSource(),
-        forecast: forecastSource(),
+        forecast: freezeForecast
+          ? async (...args) => {
+              const saved = await freezeForecast(...args);
+              if (!saved || !registration) return saved;
+              const market = args[2].market;
+              if (
+                saved.artifact.checksum !== registration.protocol.artifactChecksum ||
+                saved.inputAvailability.version !== registration.protocol.inputAvailability ||
+                !registration.protocol.markets.includes(market) ||
+                Date.parse(saved.decisionCutoff) < Date.parse(registration.protocol.period.start) ||
+                (registration.protocol.period.end !== null &&
+                  Date.parse(saved.decisionCutoff) >= Date.parse(registration.protocol.period.end))
+              ) {
+                throw new Error(
+                  "This forecasting artifact or market does not match the selected evaluation registration.",
+                );
+              }
+              return { ...saved, protocolRegistrationId: registration.id };
+            }
+          : undefined,
         drafter: drafting.drafter,
       },
     );

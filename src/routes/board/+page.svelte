@@ -134,7 +134,6 @@
   >
     <input type="hidden" name="requestId" value={value("requestId", data.requestId)} />
     <input type="hidden" name="parentId" value={value("parentId")} />
-    <input type="hidden" name="cutoffAt" value={value("cutoffAt", data.cutoffAt)} />
     <input
       type="hidden"
       name="scheduleRetrievedAt"
@@ -188,6 +187,20 @@
           />
         </label>
       </div>
+      {#if data.registrations.length > 0}
+        <label class="pc-field">
+          Prospective evaluation
+          <select name="protocolRegistrationId" data-testid="board-protocol">
+            <option value="">Do not include this board</option>
+            {#each data.registrations as registration (registration.id)}
+              <option value={registration.id} selected={value("protocolRegistrationId") === registration.id}>
+                {registration.protocol.artifactChecksum.slice(0, 12)} registered {registration.registeredAt}
+              </option>
+            {/each}
+          </select>
+        </label>
+        <p class="pc-hint">The selected evaluation must match the forecasting artifact. Only forecasts recorded after registration can be included.</p>
+      {/if}
     </section>
 
     <section class="pc-section" aria-labelledby="board-moneyline-title">

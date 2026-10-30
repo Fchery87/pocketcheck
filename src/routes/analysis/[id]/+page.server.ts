@@ -37,6 +37,7 @@ export const load: PageServerLoad = async ({ params }) => {
     decisiveBreakEven: breakEven(run.offer.decimalOdds).decisive,
     claims: (run.report?.claims ?? []).map((claim) => ({
       ...claim,
+      text: claim.renderedText ?? claim.text,
       evidence: claim.evidenceIds.map((id) => evidenceById[id] ?? null),
     })),
     citations: [...new Set(run.report?.claims.flatMap((claim) => claim.evidenceIds) ?? [])].map(
@@ -60,7 +61,6 @@ export const actions = {
     const field = (name: string) => String(data.get(name) ?? "");
     const values = {
       requestId: field("requestId") || randomUUID(),
-      cutoffAt: field("cutoffAt"),
       scheduleRetrievedAt: field("scheduleRetrievedAt"),
       sportsbook: field("sportsbook").trim() || parent.offer.sportsbook,
       pointLine: field("pointLine"),
@@ -92,8 +92,8 @@ export const actions = {
       {
         game,
         requestId: values.requestId,
-        nowIso: validCutoff(values.cutoffAt) ?? now(),
-        scheduleRetrievedAt: values.scheduleRetrievedAt || schedule.retrievedAt,
+        nowIso: now(),
+        scheduleRetrievedAt: schedule.retrievedAt,
         sportsbook: parsed.contract.sportsbook,
         market: parsed.contract.market,
         selection: parsed.contract.selection,
@@ -118,8 +118,3 @@ export const actions = {
     return refuse(400, result.ok ? "Refresh failed" : result.error);
   },
 } satisfies Actions;
-
-function validCutoff(value: string): string | null {
-  const time = Date.parse(value);
-  return Number.isFinite(time) ? new Date(time).toISOString() : null;
-}

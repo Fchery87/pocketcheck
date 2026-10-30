@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { error, fail } from "@sveltejs/kit";
+import { parseGameBoard } from "#lib/domain/board.ts";
+import { validFinalScores } from "#lib/domain/settlement.ts";
 import {
   parseOffer,
   type Market,
@@ -9,6 +11,8 @@ import {
 } from "#lib/domain/offer.ts";
 import { ConfigError, now, researchStore } from "#lib/server/config.ts";
 import { journalSummaries } from "#lib/server/analysis/summary.ts";
+import { parseObservedAt } from "#lib/server/analysis/form.ts";
+import { PROSPECTIVE_PROTOCOL } from "#lib/server/models/release.ts";
 import type { SettlementNoticeKind } from "#lib/server/analysis/store.ts";
 import type { JournalExport } from "#lib/server/db/repository.ts";
 import type { Actions, PageServerLoad } from "./$types";
@@ -55,12 +59,15 @@ export const load: PageServerLoad = async ({ url }) => {
   const journal = store();
   const pickId = url.searchParams.get("pick");
   const pickBet = pickId ? await pickStart(journal, pickId) : null;
-  const [assessments, bets, closings, modelPicks] = await Promise.all([
-    journal.listCompleted(),
-    journal.listBets(),
-    journal.listClosings(),
-    journal.listModelPicks(),
-  ]);
+  const [assessments, bets, closings, modelPicks, registrations, closingMarkets] =
+    await Promise.all([
+      journal.listCompleted(),
+      journal.listBets(),
+      journal.listClosings(),
+      journal.listModelPicks(),
+      journal.listProtocolRegistrations(),
+      journal.listClosingMarketSnapshots(),
+    ]);
   const settlements = await Promise.all(
     assessments.map(async (assessment) => {
       const related = bets.filter((bet) => bet.analysisId === assessment.id);
@@ -115,10 +122,118 @@ export const load: PageServerLoad = async ({ url }) => {
     performance,
     pickBet,
     modelPicks,
+    registrations,
+    closingMarkets,
   };
 };
 
 export const actions = {
+  registerProtocol: async ({ request }) => {
+    const data = await request.formData();
+    const checksum = String(data.get("artifactChecksum") ?? "").trim();
+    if (!/^[0-9a-f]{64}$/i.test(checksum)) {
+      return fail(400, {
+        protocolRecorded: false,
+        error: "Enter the forecasting artifact checksum.",
+      });
+    }
+    const id = `prospective-${randomUUID()}`;
+    try {
+      await store().recordProtocolRegistration({
+        id,
+        cohort: "primary-model-picks",
+        protocol: {
+          ...PROSPECTIVE_PROTOCOL,
+          artifactChecksum: checksum.toLowerCase(),
+        },
+      });
+      return { protocolRecorded: true, error: null };
+    } catch (cause) {
+      return fail(400, {
+        protocolRecorded: false,
+        error: cause instanceof Error ? cause.message : "Protocol was not registered.",
+      });
+    }
+  },
+  closingMarket: async ({ request }) => {
+    const data = await request.formData();
+    const field = (name: string) => String(data.get(name) ?? "").trim();
+    const gameId = field("gameId");
+    const market = field("market");
+    const sportsbook = field("sportsbook");
+    const source = field("source");
+    const observedAt = parseObservedAt(field("observedAt"));
+    const firstText = field("firstOdds");
+    const secondText = field("secondOdds");
+    const lineText = field("pointLine");
+    const pointLine = lineText ? Number(lineText) : undefined;
+    const tie = ties.has(field("tie") as TieRule) ? (field("tie") as TieRule) : undefined;
+    const journal = store();
+    const game = (await journal.listModelPicks()).find((item) => item.game.id === gameId)?.game;
+    if (
+      !game ||
+      !markets.has(market as Market) ||
+      !sportsbook ||
+      !source ||
+      !observedAt ||
+      !firstText ||
+      !secondText
+    ) {
+      return fail(400, {
+        closingMarketRecorded: false,
+        error:
+          "Choose a game and market, and enter the sportsbook, both prices, observation time, and source.",
+      });
+    }
+    if (Date.parse(observedAt) > Date.parse(now())) {
+      return fail(400, {
+        closingMarketRecorded: false,
+        error: "The observation time cannot be in the future.",
+      });
+    }
+    const first = Number(firstText.replace("−", "-"));
+    const second = Number(secondText.replace("−", "-"));
+    try {
+      const parsed = parseGameBoard({
+        gameId,
+        kickoffAt: game.kickoff,
+        sportsbook,
+        observedAt,
+        ...(market === "moneyline"
+          ? { moneyline: { home: first, away: second, tieRule: tie } }
+          : {}),
+        ...(market === "spread"
+          ? {
+              spread: {
+                homeLine: pointLine,
+                awayLine: pointLine === undefined ? undefined : -pointLine,
+                home: first,
+                away: second,
+              },
+            }
+          : {}),
+        ...(market === "total"
+          ? { total: { overLine: pointLine, underLine: pointLine, over: first, under: second } }
+          : {}),
+      });
+      const entry = parsed[0];
+      if (!entry) throw new Error("Enter both sides of the market.");
+      await journal.recordClosingMarketSnapshot({
+        id: randomUUID(),
+        gameId,
+        market: entry.market,
+        offers: entry.offers,
+        observedAt,
+        source,
+      });
+      return { closingMarketRecorded: true, error: null };
+    } catch (cause) {
+      return fail(400, {
+        closingMarketRecorded: false,
+        error: cause instanceof Error ? cause.message : "Closing market was not saved.",
+      });
+    }
+  },
   bet: async ({ request }) => {
     const data = await request.formData();
     const analysisId = String(data.get("analysisId") ?? "").trim();
@@ -260,10 +375,10 @@ export const actions = {
     }
     const homeScore = homeText === "" ? null : Number(homeText);
     const awayScore = awayText === "" ? null : Number(awayText);
-    if (kind === "final" && (!Number.isInteger(homeScore) || !Number.isInteger(awayScore))) {
+    if (kind === "final" && !validFinalScores(homeScore, awayScore)) {
       return fail(400, {
         settled: false,
-        error: "A final result needs whole-number scores",
+        error: "A final result needs nonnegative whole-number scores",
       });
     }
     const journal = store();

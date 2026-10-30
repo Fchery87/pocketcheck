@@ -399,7 +399,6 @@
       name="requestId"
       value={refreshValue("requestId", data.refreshRequestId)}
     />
-    <input type="hidden" name="cutoffAt" value={refreshValue("cutoffAt", data.refreshCutoffAt)} />
     <input
       type="hidden"
       name="scheduleRetrievedAt"

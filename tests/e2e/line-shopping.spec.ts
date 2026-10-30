@@ -6,6 +6,24 @@ test.beforeEach(async ({ request }) => {
   expect(await response.json()).toMatchObject({ mode: "fixture-browser" });
 });
 
+test("a future-dated shopped quote cannot enter a board", async ({ page }) => {
+  await page.goto("/board");
+  await page.getByTestId("board-game").selectOption("2026_07_DAL_PHI");
+  await page.getByTestId("board-sportsbook").fill("Anchor Book");
+  await page.getByTestId("board-observed-at").fill("2026-10-25T11:30");
+  await page.getByTestId("moneyline-home").fill("-150");
+  await page.getByTestId("moneyline-away").fill("+130");
+  await page.getByTestId("board-tie-rule").selectOption("push");
+  const quote = page.getByTestId("quote-row").first();
+  await quote.getByTestId("quote-sportsbook").fill("Better Book");
+  await quote.getByTestId("quote-market").selectOption("moneyline");
+  await quote.getByTestId("quote-selection").selectOption("away");
+  await quote.getByTestId("quote-odds").fill("+140");
+  await quote.getByTestId("quote-observed-at").fill("2026-10-25T12:01");
+  await page.getByTestId("freeze-board").click();
+  await expect(page.getByTestId("board-error")).toContainText("at or before the decision cutoff");
+});
+
 test("a board shops the best price and a bet starts from it", async ({ page }) => {
   await page.goto("/board");
   await page.waitForLoadState("networkidle");

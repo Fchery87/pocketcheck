@@ -97,7 +97,7 @@ test("offer, report, refresh, and unchanged prior report", async ({ page, reques
   // One conclusion, owned by the policy.
   await expect(page.getByTestId("conclusion")).toHaveText("insufficient evidence");
   const backup = await (await request.get("/journal/export")).json();
-  expect(backup.analyses[0].cutoffAt).toBe("2026-10-25T16:00:00.000Z");
+  expect(backup.runs[0].cutoffAt).toBe("2026-10-25T16:00:00.000Z");
   await expect(page.getByTestId("manual-coverage")).toContainText("kickoff forecast");
   await expect(page.getByTestId("snapshot-provenance")).toHaveText(
     "Game and research offer captured with this report.",

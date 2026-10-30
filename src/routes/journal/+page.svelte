@@ -313,6 +313,70 @@
       </li>
     {/each}
   </ul>
+  <h2>Prospective evaluation</h2>
+  <p class="pc-hint">Register a forecasting artifact before recording forecasts for evaluation. Registration cannot apply to earlier forecasts. A market can be released only when protocol prospective-2026-10-26 meets its requirements.</p>
+  <form class="pc-form" method="POST" action="?/registerProtocol" data-testid="protocol-form">
+    <label>
+      Forecasting artifact checksum
+      <input name="artifactChecksum" required pattern={"[0-9a-fA-F]{64}"} data-testid="protocol-checksum" />
+    </label>
+    <Button type="submit">Register evaluation</Button>
+  </form>
+  {#if form?.protocolRecorded}<p class="pc-success" data-testid="protocol-recorded">Evaluation registered</p>{/if}
+  <ul class="pc-ledger" data-testid="protocol-registrations">
+    {#each data.registrations as registration (registration.id)}
+      <li><span class="pc-figure">{registration.protocol.artifactChecksum}</span> registered {easternTime(registration.registeredAt)}</li>
+    {/each}
+  </ul>
+
+  <h2>Two-sided closing markets</h2>
+  <p class="pc-hint">Record both prices from one sportsbook at the same time. This gives prospective evaluation a closing market for comparison.</p>
+  <form class="pc-form" method="POST" action="?/closingMarket" data-testid="closing-market-form">
+    <label>
+      Game
+      <select name="gameId" required data-testid="closing-market-game">
+        <option value="">choose a game</option>
+        {#each [...new Map(data.modelPicks.map((item) => [item.game.id, item.game])).values()] as game (game.id)}
+          <option value={game.id}>{game.away} at {game.home}</option>
+        {/each}
+      </select>
+    </label>
+    <label>Sportsbook <input name="sportsbook" required data-testid="closing-market-book" /></label>
+    <label>
+      Market
+      <select name="market" data-testid="closing-market-type">
+        <option value="moneyline">moneyline</option>
+        <option value="spread">spread</option>
+        <option value="total">total</option>
+      </select>
+    </label>
+    <label>Home spread or total line <input name="pointLine" inputmode="decimal" data-testid="closing-market-line" /></label>
+    <label>Home or over American odds <input name="firstOdds" inputmode="numeric" required data-testid="closing-market-first" /></label>
+    <label>Away or under American odds <input name="secondOdds" inputmode="numeric" required data-testid="closing-market-second" /></label>
+    <label>
+      Moneyline tie rule
+      <select name="tie" data-testid="closing-market-tie">
+        <option value="">choose for a moneyline</option>
+        <option value="push">push</option>
+        <option value="loss">loss</option>
+        <option value="win">win</option>
+        <option value="void">void</option>
+      </select>
+    </label>
+    <label>Observed at <input name="observedAt" type="datetime-local" required data-testid="closing-market-time" /></label>
+    <label>Source <input name="source" required data-testid="closing-market-source" /></label>
+    <Button type="submit">Record closing market</Button>
+  </form>
+  {#if form?.closingMarketRecorded}<p class="pc-success" data-testid="closing-market-recorded">Closing market recorded</p>{/if}
+  {#if form?.error && (form?.closingMarketRecorded === false || form?.protocolRecorded === false)}
+    <Alert data-testid="prospective-form-error">{form.error}</Alert>
+  {/if}
+  <ul class="pc-ledger" data-testid="closing-markets">
+    {#each data.closingMarkets as snapshot (snapshot.id)}
+      <li>{snapshot.market} at {snapshot.offers[0].sportsbook}, observed {easternTime(snapshot.observedAt)}. {snapshot.offers[0].selection} {snapshot.offers[0].americanOdds}, {snapshot.offers[1].selection} {snapshot.offers[1].americanOdds}. {snapshot.source}</li>
+    {/each}
+  </ul>
+
   <h2>Closing observations</h2>
   <p class="pc-hint" data-testid="closing-measure">
     A direct comparison is the change in decimal odds for the same market, side, point line, sportsbook,
