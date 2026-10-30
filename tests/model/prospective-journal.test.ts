@@ -2,7 +2,10 @@ import { describe, expect, it } from "vite-plus/test";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { parseOffer } from "../../src/lib/domain/offer.ts";
-import { buildProspectiveSample } from "../../src/lib/server/analysis/prospective-sample.ts";
+import {
+  buildProspectiveSample,
+  closeAgeByMarket,
+} from "../../src/lib/server/analysis/prospective-sample.ts";
 import type { JournalExport } from "../../src/lib/server/db/repository.ts";
 import { parseArtifact } from "../../src/lib/server/models/inputs.ts";
 import { PROSPECTIVE_PROTOCOL, releaseFromJournal } from "../../src/lib/server/models/release.ts";
@@ -290,6 +293,38 @@ describe("prospective journal qualification", () => {
     expect(sample.records[2]!.outcome).toBeNull();
   });
 
+  it("reports how long before kickoff each close was observed without changing the sample", () => {
+    const backup = journal(4);
+    const reobserve = (index: number, minutesBeforeKickoff: number) => {
+      const close = backup.closingMarketSnapshots![index]!;
+      const kickoff = Date.parse(backup.gameBoards![index]!.game.kickoff);
+      close.observedAt = new Date(kickoff - minutesBeforeKickoff * 60000).toISOString();
+      close.offers = close.offers.map((offer) => ({ ...offer, observedAt: close.observedAt }));
+    };
+    reobserve(1, 90);
+    reobserve(2, 45);
+    const unaged = buildProspectiveSample({ journal: journal(4), registrationId: registration.id });
+    backup.closingMarketSnapshots!.splice(3, 1);
+    const sample = buildProspectiveSample({ journal: backup, registrationId: registration.id });
+    expect(sample.records.map((record) => record.closingObservedAt)).toEqual([
+      backup.closingMarketSnapshots![0]!.observedAt,
+      backup.closingMarketSnapshots![1]!.observedAt,
+      backup.closingMarketSnapshots![2]!.observedAt,
+      null,
+    ]);
+    expect(sample.records.slice(0, 3).map((record) => record.closingBaseline)).toEqual(
+      unaged.records.slice(0, 3).map((record) => record.closingBaseline),
+    );
+    expect(closeAgeByMarket(sample)).toEqual({
+      moneyline: {
+        closes: 3,
+        missing: 1,
+        minutesBeforeKickoff: { median: 60, p90: 90, oldest: 90 },
+      },
+      spread: { closes: 0, missing: 0, minutesBeforeKickoff: null },
+      total: { closes: 0, missing: 0, minutesBeforeKickoff: null },
+    });
+  });
   it("rejects malformed model and closing probabilities before diagnostic scoring", async () => {
     const { evaluateProspectiveForecasts, protocolForArtifact } =
       await import("../../src/lib/server/models/prospective.ts");

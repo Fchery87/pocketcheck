@@ -189,6 +189,11 @@ describe("prospective command boundary", { timeout: 120000 }, () => {
     expect(report.protocol).toEqual(registration);
     expect(report.artifactChecksum).toBe(artifact.checksum);
     expect(report.denominators.markets.moneyline.pricedGames).toBe(1);
+    expect(report.closeAge.moneyline).toEqual({
+      closes: 1,
+      missing: 0,
+      minutesBeforeKickoff: { median: 60, p90: 60, oldest: 60 },
+    });
     expect(report.sourceIdentities.boards[0]).toEqual({
       boardId: "board-0",
       gameId: "game-0",
