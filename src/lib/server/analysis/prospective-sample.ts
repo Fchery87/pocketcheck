@@ -3,6 +3,7 @@ import type { Offer } from "#lib/domain/offer.ts";
 import { assertRestorable, type JournalExport } from "../db/repository.ts";
 import { slateOf } from "../models/uncertainty.ts";
 import { validateProtocolRegistration, type ProtocolRegistration } from "../models/protocol.ts";
+import type { Market } from "../models/games.ts";
 import type { FrozenForecastRecord } from "../models/prospective.ts";
 import { gradeFromNotices } from "./store.ts";
 
@@ -15,6 +16,8 @@ type QualifiedForecastRecord = FrozenForecastRecord & {
   kickoffAt: string;
   registrationId: string;
   closingSnapshotId: string | null;
+  /** When the selected close was observed. Provenance only: it does not choose the close. */
+  closingObservedAt: string | null;
   contract: Offer;
 };
 
@@ -225,6 +228,7 @@ export function buildProspectiveSample(input: {
         kickoffAt: board.game.kickoff,
         registrationId: registration.id,
         closingSnapshotId: snapshot?.id ?? null,
+        closingObservedAt: snapshot?.observedAt ?? null,
         contract: structuredClone(offer),
         decisionCutoff: board.cutoffAt,
         artifactChecksum: forecast.artifact.checksum,
@@ -238,4 +242,39 @@ export function buildProspectiveSample(input: {
     }
   }
   return { [qualification]: true, protocol: registration, records, excluded };
+}
+
+export type CloseAge = {
+  closes: number;
+  missing: number;
+  minutesBeforeKickoff: { median: number; p90: number; oldest: number } | null;
+};
+
+/**
+ * How long before kickoff each qualified record's close was observed. The latest matching quote
+ * before kickoff can still be days old, so this shows whether the closing comparison is a close.
+ */
+export function closeAgeByMarket(sample: ProspectiveSample): Record<Market, CloseAge> {
+  const rank = (sorted: number[], fraction: number) =>
+    sorted[Math.max(0, Math.ceil(fraction * sorted.length) - 1)]!;
+  const age = {} as Record<Market, CloseAge>;
+  for (const market of ["moneyline", "spread", "total"] as const) {
+    const members = sample.records.filter((record) => record.market === market);
+    const minutes = members
+      .flatMap((record) =>
+        record.closingObservedAt === null
+          ? []
+          : [(Date.parse(record.kickoffAt) - Date.parse(record.closingObservedAt)) / 60000],
+      )
+      .sort((a, b) => a - b);
+    age[market] = {
+      closes: minutes.length,
+      missing: members.length - minutes.length,
+      minutesBeforeKickoff:
+        minutes.length === 0
+          ? null
+          : { median: rank(minutes, 0.5), p90: rank(minutes, 0.9), oldest: minutes.at(-1)! },
+    };
+  }
+  return age;
 }

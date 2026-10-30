@@ -3,7 +3,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
-import { buildProspectiveSample } from "../../src/lib/server/analysis/prospective-sample.ts";
+import {
+  buildProspectiveSample,
+  closeAgeByMarket,
+} from "../../src/lib/server/analysis/prospective-sample.ts";
 import { evaluateProspectiveForecasts } from "../../src/lib/server/models/prospective.ts";
 import { parseProtocolRegistration } from "../../src/lib/server/models/protocol.ts";
 import type { JournalExport } from "../../src/lib/server/db/repository.ts";
@@ -105,6 +108,7 @@ function main() {
           ]),
         ),
       },
+      closeAge: closeAgeByMarket(sample),
       excluded: sample.excluded,
       records: sample.records,
       evaluation,
