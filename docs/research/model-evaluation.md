@@ -221,6 +221,20 @@ A live board priced each side differently from how the model was trained and sco
 
 Now one function prices every offer: history joined to play-by-play, decision-time starters with the injury report, and the anchor sportsbook's two sides. A shopped price changes what a side pays, not where the forecast starts. The board picks each side from its frozen forecast. Season play-by-play summaries are cached beside each file, so a joined history read takes about 4 seconds instead of 150. A single offer without its other side has no forecast.
 
+## Calibration table from anchored forecasts
+
+The artifact written before commit `272f635` built its walk-forward calibration table from the adjustment alone, without the anchor line. Every moneyline training forecast sat between 45% and 55%, every total forecast sat at 0.2% or 99.8%, and the spread bins had observed rates near 50% whatever they predicted. Anchored holdout forecasts rarely landed in a populated bin, so the threshold report assessed 50 moneyline, 860 spread, and 0 total games. Live runs read the same table, so a total could never be assessed.
+
+Refit on the current code with the same data and cutoff (training through 2023-10-22, 860 holdout games), checksum `6a92073cd387`:
+
+| Market    | Assessed before | Assessed after | Candidates | Model minus close, log loss (90% interval) |
+| --------- | --------------- | -------------- | ---------- | ------------------------------------------ |
+| Moneyline | 50              | 819            | 0          | -0.0003 to +0.0008                         |
+| Spread    | 860             | 860            | 0          | -0.0040 to +0.0015                         |
+| Total     | 0               | 860            | 0          | +0.0006 to +0.0086                         |
+
+The 41 unassessed moneyline games fall in bins with 10 training forecasts. Conservative rates sit 3 to 7 points below the predicted rate, so no side clears the frozen threshold. Moneyline log loss is 0.6281 against the close's 0.6278, a tie within slate noise. `data/artifacts/baseline.json` is this refit, registered in the journal under `prospective-2026-10-26`. The earlier artifact is kept as `baseline.v6-stale-calibration.json`. An artifact checksum proves the file is intact, not which code built it, so refit after any change to training.
+
 ## Release gate
 
 `releaseDecision` (`src/lib/server/models/release.ts`) compares each market with the `market-no-vig` baseline on the artifact's historical holdout. A clean comparison still needs:
