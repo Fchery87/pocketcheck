@@ -3,6 +3,7 @@ import type { EvidenceItem, ScheduledGame } from "../sources/contracts.ts";
 import { readDownloadRecord } from "../sources/download-record.ts";
 import { injuryEvidenceFromCsv } from "../sources/injuries.ts";
 import type { WeatherEvidence } from "../sources/weather.ts";
+import { INJURY_STALE_HOURS } from "../sources/downloads.ts";
 
 /**
  * `gaps` is everything the report must show. `materialGaps` is the subset that blocks a
@@ -34,7 +35,7 @@ export const noSources: EvidenceCollector = async () => {
   };
 };
 
-const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
+const STALE_AFTER_MS = INJURY_STALE_HOURS * 60 * 60 * 1000;
 const injuryUrl = (season: number) =>
   `https://github.com/nflverse/nflverse-data/releases/download/injuries/injuries_${season}.csv`;
 
