@@ -113,12 +113,12 @@ The app has these pages.
 | Board report           | `/board/<id>`        | Read model picks, settle the game, refresh the board, or withdraw it.                                      |
 | Model-pick performance | `/board/performance` | Read results of primary model picks, grouped by forecasting artifact.                                      |
 | Journal                | `/journal`           | List analyses, record bets, settlements, and closing prices, register evaluations, and back up or restore. |
-| Settings               | `/settings`          | Choose who writes the explanation text and manage AI model catalogs.                                       |
+| Settings               | `/settings`          | Check and download source data, choose who writes the explanation text, and manage AI model catalogs.      |
 | Handbook               | `/handbook`          | Read short definitions of the odds and model terms the app uses.                                           |
 
 ### A typical week
 
-1. Before you research, refresh the data. Run `npm run data:schedule` and `npm run data:injuries`. Run `npm run data:depth-charts` when depth charts change.
+1. Before you research, refresh the data. On **Settings**, under **Source data**, choose **Download** for the schedule and the injury report. Download the depth chart when depth charts change. The npm commands do the same thing from a terminal.
 2. For an offer you are considering, freeze an analysis on the **New analysis** page.
 3. For the model's side on a whole game, freeze a game board on the **Game board** page.
 4. If you place a bet, record it on the **Journal** page under **Record an actual bet**.
@@ -153,7 +153,7 @@ Freezing writes one permanent analysis. It saves the game as scheduled now, the 
 
 During the run, PocketCheck collects two sources on its own.
 
-- **Injuries.** It reads the nflverse injury file for both teams. nflverse does not publish a report time, so the app knows only when you downloaded the file. Coverage older than 24 hours is a material gap, so run `npm run data:injuries` the same day you research. A team with no rows has unknown coverage, not a clean report.
+- **Injuries.** It reads the nflverse injury file for both teams. nflverse does not publish a report time, so the app knows only when you downloaded the file. Coverage older than 24 hours is a material gap, so download the injury report the same day you research. **Settings** marks the file stale once it is older than 24 hours. A team with no rows has unknown coverage, not a clean report.
 - **Weather.** It fetches the National Weather Service forecast for kickoff at U.S. outdoor venues. International venues have no NWS forecast, and the report lists that as a gap. A closed roof makes weather irrelevant.
 
 ### Read an analysis report
@@ -289,6 +289,19 @@ The **Model-pick performance** page at `/board/performance` counts frozen primar
 
 Every view states how many records are settled, unresolved, push, void, or missing a comparable close. It also states the denominator for return and for closing comparisons. A push or a void returns the stake and is left out of the return denominator. A refresh is never counted as another observation.
 
+### Check and download source data
+
+Open **Settings** at `/settings`. The **Source data** section lists the four files the app reads for the current season.
+
+- Each file shows its path, when it was retrieved, how many hours ago that was, and its row count. A file with no retrieval record shows "Rows unknown". A file that does not exist shows "Not downloaded".
+- The injury report shows "◷ Stale" once it is older than 24 hours. An analysis records a material injury gap until you download it again.
+- The schedule, the injury report, and the depth chart each have a **Download** button. It runs the same download as the matching npm command.
+- Play-by-play has no button. Each season file is about 100 MB, so run `npm run data:play-by-play` in a terminal after each week's games.
+
+A download writes the new file under a temporary name and renames it into place only after it arrives and passes its column checks. If the download fails, the page shows the reason, and the existing file stays as it was. A second download of the same file while one is running is refused. Frozen analyses and boards keep their own snapshots, so a new schedule never changes an existing record.
+
+The buttons are off under `npm run verify`, because verification reads checked-in fixture files.
+
 ### Choose who writes the explanation text
 
 Open **Settings** at `/settings`. Under **Thesis drafter**, choose one option and then **Use this drafter**.
@@ -370,7 +383,7 @@ To fit without some input groups, list them in `MODEL_EXCLUDE_GROUPS`, separated
 
 ### Open PocketCheck on your phone
 
-> **Warning.** PocketCheck has no login. When it listens on an address other than `127.0.0.1`, anyone who can reach your computer on the network can read the journal, change settings, and record analyses and bets. Use it only on a home network you trust, and stop the server when you are done.
+> **Warning.** PocketCheck has no login. When it listens on an address other than `127.0.0.1`, anyone who can reach your computer on the network can read the journal, change settings, record analyses and bets, and start source downloads. Use it only on a home network you trust, and stop the server when you are done.
 
 1. Find your computer's address on the home network. On Linux, run `hostname -I`. On macOS, run `ipconfig getifaddr en0`. On Windows, run `ipconfig` and read the IPv4 address. It usually looks like `192.168.1.20`.
 2. Start the server on that one address. That is narrower than `0.0.0.0`, which listens on every network interface.

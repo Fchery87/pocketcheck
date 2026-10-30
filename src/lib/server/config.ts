@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   DATABASE_URL,
   DEEPSEEK_API_KEY,
@@ -24,6 +24,7 @@ import { resolveDrafter } from "./providers/drafter.ts";
 import { createTheClawBayProvider } from "./providers/theclawbay.ts";
 import { createNeonSettings } from "./settings/neon-settings.ts";
 import { createMemorySettings, type SettingsStore } from "./settings/store.ts";
+import type { SourceId } from "./sources/downloads.ts";
 import { fetchKickoffForecast } from "./sources/nws.ts";
 
 /**
@@ -73,11 +74,29 @@ export function schedulePath(): string {
   return resolve(POCKETCHECK_SCHEDULE_CSV || "data/sources/games.csv");
 }
 
+/** The file the app reads for each source. Play-by-play seasons sit beside the schedule. */
+export function sourcePath(id: SourceId, season: number): string {
+  switch (id) {
+    case "schedule":
+      return schedulePath();
+    case "injuries":
+      return resolve(POCKETCHECK_INJURY_CSV || `data/sources/injuries_${season}.csv`);
+    case "depth-charts":
+      return resolve(`data/sources/depth_charts_${season}.csv`);
+    case "play-by-play":
+      return join(dirname(schedulePath()), `play_by_play_${season}.csv`);
+  }
+}
+
+/** Verification reads checked-in fixtures, which a download must never overwrite. */
+export function sourceDownloadsEnabled(): boolean {
+  return !POCKETCHECK_TEST_MODE;
+}
+
 /** Injuries from the file npm run data:injuries keeps; the kickoff forecast live from NWS. */
 export function evidenceCollector(): EvidenceCollector {
   return createSourceCollector({
-    injuryPath: (season) =>
-      resolve(POCKETCHECK_INJURY_CSV || `data/sources/injuries_${season}.csv`),
+    injuryPath: (season) => sourcePath("injuries", season),
     weather:
       POCKETCHECK_WEATHER === "off"
         ? async () => ({
@@ -106,7 +125,7 @@ export function modelSource(): ModelSource {
   return createArtifactModel({
     artifactPath: resolve(POCKETCHECK_MODEL_ARTIFACT || "data/artifacts/baseline.json"),
     schedulePath: schedulePath(),
-    depthChartPath: (season) => resolve(`data/sources/depth_charts_${season}.csv`),
+    depthChartPath: (season) => sourcePath("depth-charts", season),
   });
 }
 
@@ -116,7 +135,7 @@ export function forecastSource(): ForecastSource | undefined {
   return createArtifactForecast({
     artifactPath: resolve(POCKETCHECK_MODEL_ARTIFACT || "data/artifacts/baseline.json"),
     schedulePath: schedulePath(),
-    depthChartPath: (season) => resolve(`data/sources/depth_charts_${season}.csv`),
+    depthChartPath: (season) => sourcePath("depth-charts", season),
   });
 }
 

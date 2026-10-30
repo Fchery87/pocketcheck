@@ -31,6 +31,8 @@
     <p class="pc-success" data-testid="form-success">{form.tested}.</p>
   {:else if form && "chosen" in form}
     <p class="pc-success" data-testid="form-success">Drafter saved.</p>
+  {:else if form && "downloaded" in form}
+    <p class="pc-success" data-testid="form-success">{form.downloaded} downloaded.</p>
   {/if}
 
   <section class="pc-section">
@@ -53,6 +55,52 @@
       There is no automatic fallback. If the chosen model is removed or its key is missing, analysis
       stops and says why.
     </p>
+  </section>
+
+  <section class="pc-section" data-testid="source-data">
+    <h2>Source data</h2>
+    <p class="pc-hint">
+      Files for the {data.season} season. A download replaces the file only after it arrives and passes
+      its checks, so a failed download changes nothing. Frozen analyses and boards keep their own
+      snapshots.
+    </p>
+    <ul class="pc-ledger">
+      {#each data.sources as source (source.id)}
+        <li data-testid="source-{source.id}">
+          <strong>{source.title}</strong>
+          <span class="pc-figure pc-hint">{source.file}</span>
+          {#if source.status.state === "missing"}
+            <p><span class="pc-unknown">Not downloaded</span></p>
+          {:else}
+            <p>
+              Retrieved <span class="pc-figure">{source.status.retrievedLabel}</span>
+              ({source.status.ageHours === 0
+                ? "less than an hour ago"
+                : `${source.status.ageHours} ${source.status.ageHours === 1 ? "hour" : "hours"} ago`}).
+              {#if source.status.rows === null}Rows unknown.{:else}{source.status.rows} rows.{/if}
+            </p>
+            {#if source.status.stale}
+              <p>
+                <span class="pc-hl">◷ Stale</span> Older than {source.staleAfterHours} hours, so an analysis
+                records a material injury gap until you download it again.
+              </p>
+            {/if}
+          {/if}
+          {#if source.downloadable}
+            <form method="POST" action="?/download">
+              <input type="hidden" name="source" value={source.id} />
+              <Button type="submit" variant="outline" aria-label="Download the {source.title.toLowerCase()}">
+                Download
+              </Button>
+            </form>
+          {:else}
+            <p class="pc-hint">
+              Each season is about 100 MB, so run <code>{source.command}</code> in a terminal after each week's games.
+            </p>
+          {/if}
+        </li>
+      {/each}
+    </ul>
   </section>
 
   {#each data.providers as provider (provider.id)}

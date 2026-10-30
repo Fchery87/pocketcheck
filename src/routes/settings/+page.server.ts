@@ -1,6 +1,15 @@
+import { relative } from "node:path";
 import { error, fail } from "@sveltejs/kit";
 import { easternTime } from "#lib/format.ts";
-import { ConfigError, makeProvider, now, providerKeys, settingsStore } from "#lib/server/config.ts";
+import {
+  ConfigError,
+  makeProvider,
+  now,
+  providerKeys,
+  settingsStore,
+  sourceDownloadsEnabled,
+  sourcePath,
+} from "#lib/server/config.ts";
 import { redactText } from "#lib/server/analysis/redact.ts";
 import {
   applyModelTests,
@@ -10,9 +19,23 @@ import {
 import { PROVIDER_KEY_NAMES, PROVIDER_LABELS } from "#lib/server/providers/drafter.ts";
 import { selectThesisModel } from "#lib/server/providers/selection.ts";
 import { chooseDrafter } from "#lib/server/settings/choose.ts";
+import {
+  downloadSource,
+  seasonOf,
+  SOURCES,
+  sourceStatus,
+  type SourceId,
+} from "#lib/server/sources/downloads.ts";
 import type { Actions, PageServerLoad } from "./$types";
 
 const PROVIDERS: ProviderId[] = ["theclawbay", "deepseek"];
+
+const SOURCE_TITLES: Record<SourceId, string> = {
+  schedule: "Schedule",
+  injuries: "Injury report",
+  "depth-charts": "Depth chart",
+  "play-by-play": "Play-by-play",
+};
 
 function settings() {
   try {
@@ -52,7 +75,25 @@ export const load: PageServerLoad = async () => {
       };
     }),
   );
-  return { drafter: await store.getDrafter(), providers };
+  const current = now();
+  const season = seasonOf(current);
+  const sources = (Object.keys(SOURCES) as SourceId[]).map((id) => {
+    const path = sourcePath(id, season);
+    const status = sourceStatus(id, path, current);
+    return {
+      id,
+      title: SOURCE_TITLES[id],
+      file: relative(process.cwd(), path),
+      command: SOURCES[id].command,
+      downloadable: SOURCES[id].settings,
+      staleAfterHours: SOURCES[id].staleAfterHours,
+      status:
+        status.state === "missing"
+          ? status
+          : { ...status, retrievedLabel: easternTime(status.retrievedAt) },
+    };
+  });
+  return { drafter: await store.getDrafter(), providers, season, sources };
 };
 
 export const actions = {
@@ -84,6 +125,26 @@ export const actions = {
     return result.ok
       ? { tested: `${modelId} returned JSON and can draft` }
       : fail(502, { error: `${modelId} failed its test: ${redactText(result.reason ?? "")}` });
+  },
+
+  download: async ({ request }) => {
+    const id = String((await request.formData()).get("source") ?? "") as SourceId;
+    if (!Object.hasOwn(SOURCES, id) || !SOURCES[id].settings) {
+      return fail(400, { error: "Choose the schedule, the injury report, or the depth chart." });
+    }
+    if (!sourceDownloadsEnabled()) {
+      return fail(409, {
+        error: "Downloads are off in verification mode, which reads checked-in fixtures.",
+      });
+    }
+    const season = seasonOf(now());
+    const result = await downloadSource(id, {
+      season,
+      output: sourcePath(id, season),
+      fetch,
+      now: () => new Date().toISOString(),
+    });
+    return result.ok ? { downloaded: SOURCE_TITLES[id] } : fail(502, { error: result.failure });
   },
 
   choose: async ({ request }) => {
