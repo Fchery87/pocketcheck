@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { afterAll, describe, expect, it } from "vite-plus/test";
 import { parseArtifact } from "../../src/lib/server/models/inputs.ts";
 import { fitArtifact, readGames } from "../../src/lib/server/models/train.ts";
+import { TRAINING_CODE } from "../../src/lib/server/models/training-code.ts";
 
 const directory = mkdtempSync(join(tmpdir(), "pocketcheck-inputs-"));
 afterAll(() => rmSync(directory, { recursive: true, force: true }));
@@ -210,6 +211,23 @@ describe("public release input boundary", { timeout: 30_000 }, () => {
   it("rejects checksum-valid artifacts with missing chronology at parsing", () => {
     const { chronology: _chronology, checksum: _checksum, ...body } = artifact;
     expect(() => parseArtifact(signed(body))).toThrow(/chronology/);
+  });
+
+  it.each([["training-2026-01-01"], [undefined]])(
+    "refuses a checksum-valid artifact built by training code %s",
+    (trainingCode) => {
+      const { trainingCode: _trainingCode, checksum: _checksum, ...body } = artifact;
+      expect(() => parseArtifact(signed({ ...body, trainingCode }))).toThrow(
+        `artifact.trainingCode: built by training code ${String(trainingCode)}, not ${TRAINING_CODE}. Refit required`,
+      );
+    },
+  );
+
+  it("parses the checked-in browser fixture built by the current training code", () => {
+    const fixture = parseArtifact(
+      JSON.parse(readFileSync("tests/fixtures/models/browser-forecasting-model.json", "utf8")),
+    );
+    expect(fixture.trainingCode).toBe(TRAINING_CODE);
   });
 
   it("rejects checksum-valid artifacts with missing chronology at public release", () => {

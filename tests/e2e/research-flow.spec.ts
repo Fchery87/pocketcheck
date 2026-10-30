@@ -25,7 +25,7 @@ test.beforeEach(async ({ request }) => {
     weather: "off",
     model: {
       artifact: "tests/fixtures/models/browser-forecasting-model.json",
-      checksum: "9b48472f20f7acfbfb0ca2f29c8ec6da9269c739acc06b68d1774311a64f5c9f",
+      checksum: "a9f3e3e2effcd0317019712ce997ee63229b29221bd589fa8aecd109ecbd976b",
       releaseStatus: "unreleased",
       trainingCutoff: "2024-09-22T17:00:00Z",
     },

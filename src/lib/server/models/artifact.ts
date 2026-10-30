@@ -10,6 +10,8 @@ export type ReleaseStatus = "unreleased" | "released-experimental";
 export type ModelArtifact = {
   kind: "pocketcheck-baseline";
   version: 6;
+  /** The training code that built this artifact. See TRAINING_CODE. */
+  trainingCode: string;
   /** How the forecast starts. The fit learns only the deviation from this mean. */
   anchor: {
     definition: string;
@@ -61,19 +63,13 @@ export function withChecksum(artifact: Omit<ModelArtifact, "checksum">): ModelAr
 }
 
 export function valueEligibility(
-  artifact: Pick<ModelArtifact, "releaseStatus" | "releasedMarkets" | "uncertainty">,
+  artifact: Pick<ModelArtifact, "releaseStatus" | "releasedMarkets">,
   market: Market,
 ): ValueEligibility {
   if (artifact.releaseStatus !== "released-experimental") {
     return {
       eligible: false,
       reason: "Unreleased artifacts are not eligible for a value recommendation.",
-    };
-  }
-  if (artifact.uncertainty.calibrationVersion !== "anchored-v1") {
-    return {
-      eligible: false,
-      reason: "This artifact predates anchored calibration. Refit is required.",
     };
   }
   if (!artifact.releasedMarkets.includes(market)) {
