@@ -43,6 +43,11 @@ test("a three-market game board freezes a model pick for each market", async ({ 
   const total = page.getByTestId("model-pick-total");
   await expect(total.getByTestId("side-over")).toContainText("44.5");
   await expect(total.getByTestId("side-under")).toContainText("44.5");
+  await expect(page.getByTestId("chance-moneyline")).toContainText("Chance to win");
+  await expect(spread.getByTestId("chance-spread")).toContainText("Chance to cover");
+  await expect(total.getByTestId("chance-total")).toContainText("Chance to finish over or under");
+  // A half-point line cannot push, so no push chance is set aside.
+  await expect(spread.getByTestId("chance-push")).toHaveCount(0);
   // Pushes come from the forecasting model's margin and total distributions.
   await expect(spread.getByTestId("model-push").first()).toHaveText(/^\d+\.\d\d%$/);
   await expect(total.getByTestId("model-push").first()).toHaveText(/^\d+\.\d\d%$/);

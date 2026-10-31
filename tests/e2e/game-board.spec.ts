@@ -56,6 +56,18 @@ test("a moneyline game board freezes an unvalidated model pick", async ({ page, 
   // here. Without a calibrated uncertainty the pick cannot be strong.
   await expect(card.getByTestId("picked-side")).toHaveText("DAL moneyline +130");
   await expect(card.getByTestId("strength-grade")).toHaveText("lean");
+  // The card leads with the model's chance beside the market's no-vig chance, not a winner.
+  const chance = card.getByTestId("chance-moneyline");
+  await expect(chance).toContainText("Chance to win");
+  const homeChance = chance.getByTestId("chance-home");
+  const awayChance = chance.getByTestId("chance-away");
+  await expect(homeChance).toContainText("PHI");
+  await expect(homeChance.getByTestId("chance-model")).toHaveText("0.0%");
+  await expect(homeChance.getByTestId("chance-market")).toHaveText("58.0%");
+  await expect(homeChance.getByTestId("chance-gap")).toHaveText("−58.0 pts");
+  await expect(awayChance.getByTestId("chance-model")).toHaveText("100.0%");
+  await expect(awayChance.getByTestId("chance-market")).toHaveText("42.0%");
+  await expect(awayChance.getByTestId("chance-gap")).toHaveText("+58.0 pts");
   const home = card.getByTestId("side-home");
   const away = card.getByTestId("side-away");
   await expect(home).toContainText("PHI");
