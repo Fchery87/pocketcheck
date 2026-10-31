@@ -164,7 +164,15 @@
             evidence of an edge.
           {/if}
         </p>
-        <p class="pc-kicker">Side chosen by the forecasting model: the better value at its price, not a predicted winner</p>
+        <p class="pc-kicker" data-testid="picked-caption">
+          {#if calculation.tieBreak === "expected value"}
+            Side chosen by the forecasting model: the better value at its price, not a predicted winner
+          {:else if calculation.tieBreak === "model win probability"}
+            Both sides are equal value at their prices. This side has the higher model chance.
+          {:else}
+            Both sides are level, so home (or over) is named by default, not as a predicted winner
+          {/if}
+        </p>
         <p class="pc-offer-line" data-testid="picked-side">
           {team(picked.selection)} {market.market}{lined(picked.pointLine)} {signed(picked.americanOdds)}
         </p>
