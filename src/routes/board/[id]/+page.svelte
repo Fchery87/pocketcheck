@@ -1,7 +1,8 @@
 <script lang="ts">
   import { Badge } from "#lib/components/ui/badge/index.ts";
   import { easternTime, percent } from "#lib/format.ts";
-  import type { SideSelection } from "#lib/domain/offer.ts";
+  import { marketComparison } from "#lib/domain/comparison.ts";
+  import type { Market, SideSelection } from "#lib/domain/offer.ts";
   import type { PageProps } from "./$types";
 
   import { Alert } from "#lib/components/ui/alert/index.ts";
@@ -33,6 +34,16 @@
     home_indicator: "Home field",
   };
   const points = (value: number) => `${value >= 0 ? "+" : "−"}${Math.abs(value).toFixed(2)}`;
+  /** What each side's chance is a chance of: spreads and totals can push. */
+  const CHANCE_LABELS: Record<Market, string> = {
+    moneyline: "Chance to win",
+    spread: "Chance to cover",
+    total: "Chance to finish over or under",
+  };
+  const gap = (value: number) => {
+    const shown = Math.abs(value).toFixed(1);
+    return shown === "0.0" ? "0.0 pts" : `${value > 0 ? "+" : "−"}${shown} pts`;
+  };
   /** The largest contributors to the market's own mean: margin for sides, total for totals. */
   const driversFor = (market: string, forecast: { drivers?: Drivers } | null) => {
     const part = market === "total" ? forecast?.drivers?.total : forecast?.drivers?.margin;
@@ -115,6 +126,36 @@
             {calculation.release === "released" ? "Released model pick" : "Unvalidated model pick"}
           </Badge>
         </p>
+        <div class="pc-chance" data-testid="chance-{market.market}">
+          <p class="pc-kicker">{CHANCE_LABELS[market.market]}: forecasting model beside the sportsbook</p>
+          <table class="pc-chance-table">
+            <thead>
+              <tr>
+                <th scope="col">Side</th>
+                <th scope="col">Model</th>
+                <th scope="col">Market, no-vig</th>
+                <th scope="col">Gap</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each calculation.sides as side (side.selection)}
+                {@const compared = marketComparison(side)}
+                <tr data-testid="chance-{side.selection}">
+                  <th scope="row">{sideName(side.selection)}{lined(side.pointLine)}</th>
+                  <td data-testid="chance-model">{percent(compared.model, 1)}</td>
+                  <td data-testid="chance-market">{percent(compared.market, 1)}</td>
+                  <td data-testid="chance-gap">{gap(compared.gapPoints)}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+          {#if calculation.sides[0].probabilities.push > 0}
+            <p class="pc-hint" data-testid="chance-push">
+              The forecasting model gives a {percent(calculation.sides[0].probabilities.push, 1)} chance of a push. The market column sets the same
+              share aside, so both columns count the same outcomes.
+            </p>
+          {/if}
+        </div>
         <p data-testid="release-note">
           {#if calculation.release === "released"}
             This market passed the release gate. Release eligibility is not a profitability claim.
@@ -123,11 +164,19 @@
             evidence of an edge.
           {/if}
         </p>
-        <p class="pc-kicker">Side chosen by the forecasting model</p>
+        <p class="pc-kicker" data-testid="picked-caption">
+          {#if calculation.tieBreak === "expected value"}
+            Side chosen by the forecasting model: the better value at its price, not a predicted winner
+          {:else if calculation.tieBreak === "model win probability"}
+            Both sides are equal value at their prices. This side has the higher model chance.
+          {:else}
+            Both sides are level, so home (or over) is named by default, not as a predicted winner
+          {/if}
+        </p>
         <p class="pc-offer-line" data-testid="picked-side">
           {team(picked.selection)} {market.market}{lined(picked.pointLine)} {signed(picked.americanOdds)}
         </p>
-        <p class="pc-verdict-word" data-testid="strength-grade">{calculation.grade}</p>
+        <p class="pc-pick-grade">Graded <span class="pc-figure" data-testid="strength-grade">{calculation.grade}</span></p>
         {@const graded = grades.find((item) => item.market === market.market)?.grade}
         {#if graded}
           <div data-testid="settlement-{market.market}">

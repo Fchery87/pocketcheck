@@ -1277,4 +1277,58 @@
   .pc-pick-sides {
     align-items: start;
   }
+
+  /* The card's headline: the model's chance beside the market's. Plain ink, since no colour signals profit. */
+  .pc-chance {
+    display: grid;
+    gap: 8px;
+    max-width: 640px;
+  }
+
+  .pc-chance-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .pc-chance-table :is(th, td) {
+    padding: 10px 0 10px 12px;
+    border-bottom: 1px solid var(--rule);
+    text-align: right;
+  }
+
+  .pc-chance-table :is(th, td):first-child {
+    padding-left: 0;
+    text-align: left;
+  }
+
+  .pc-chance-table thead th {
+    color: var(--ink-2);
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    font-weight: 400;
+  }
+
+  .pc-chance-table tbody th {
+    font-weight: 600;
+  }
+
+  .pc-chance-table td {
+    font-family: var(--font-mono);
+    font-size: 1.25rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .pc-pick-grade {
+    color: var(--ink-2);
+  }
+
+  .pc-pick-grade .pc-figure {
+    color: var(--ink);
+  }
+
+  @media (max-width: 480px) {
+    .pc-chance-table td {
+      font-size: 1rem;
+    }
+  }
 }
