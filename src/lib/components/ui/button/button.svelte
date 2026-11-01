@@ -9,7 +9,7 @@
 		variants: {
 			variant: {
 				default: "bg-primary text-primary-foreground font-display font-extrabold [font-stretch:120%] shadow-[6px_6px_0_var(--ink)] hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-[4px_4px_0_var(--ink)] active:translate-x-1.5 active:translate-y-1.5 active:shadow-none",
-				outline: "border border-input bg-card text-foreground hover:bg-foreground hover:text-background",
+				outline: "border border-input bg-card text-foreground hover:border-primary hover:text-primary",
 				link: "text-foreground underline decoration-primary decoration-2 underline-offset-4 hover:text-primary",
 			},
 			size: {

@@ -543,11 +543,23 @@ test("the theme cookie picks the server-rendered theme and the switch changes it
   const themes = page.getByTestId("theme-switch");
   await expect(themes.getByRole("radio", { name: "Dark" })).toHaveAttribute("aria-checked", "true");
   await themes.getByRole("radio", { name: "Light" }).click();
+  await expect(themes.getByRole("radio", { name: "Light" })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
+  await expect(themes.getByRole("radio", { name: "Dark" })).toHaveAttribute(
+    "aria-checked",
+    "false",
+  );
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
 
   await page.getByTestId("theme-switch").getByRole("radio", { name: "System" }).click();
+  await expect(themes.getByRole("radio", { name: "System" })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
   await expect(page.locator("html")).not.toHaveAttribute("data-theme");
   const cookie = (await context.cookies()).find((item) => item.name === "pocketcheck-theme");
   expect(cookie?.value).toBe("system");

@@ -3,18 +3,20 @@
   import { THEME_COOKIE, THEMES, type Theme } from "#lib/theme.ts";
 
   let { theme }: { theme: Theme } = $props();
+  let selected = $derived(theme);
 
   const labels: Record<Theme, string> = { light: "Light", dark: "Dark", system: "System" };
 
   function apply(value: string) {
     const next = THEMES.find((option) => option === value) ?? "system";
+    selected = next;
     if (next === "system") document.documentElement.removeAttribute("data-theme");
     else document.documentElement.setAttribute("data-theme", next);
     document.cookie = `${THEME_COOKIE}=${next}; path=/; max-age=31536000; samesite=lax`;
   }
 
   const group = new RadioGroup({
-    value: () => theme,
+    value: () => selected,
     orientation: "horizontal",
     onValueChange: apply,
   });

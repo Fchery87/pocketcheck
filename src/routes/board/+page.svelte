@@ -389,7 +389,7 @@
       </div>
     </section>
 
-    <Button type="submit" size="lg" class="justify-self-start" data-testid="freeze-board" disabled={!selected}>
+    <Button type="submit" variant="default" size="lg" class="justify-self-start" data-testid="freeze-board" disabled={!selected}>
       {isRefresh ? "Freeze refreshed board" : "Freeze board"}
     </Button>
   </form>

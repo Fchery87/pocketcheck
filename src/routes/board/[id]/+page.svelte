@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Badge } from "#lib/components/ui/badge/index.ts";
   import { easternTime, percent } from "#lib/format.ts";
+  import { featureLabel } from "#lib/domain/feature-labels.ts";
   import { marketComparison } from "#lib/domain/comparison.ts";
   import type { Market, SideSelection } from "#lib/domain/offer.ts";
   import type { PageProps } from "./$types";
@@ -18,21 +19,6 @@
   const units = (value: number) => `${value >= 0 ? "+" : "-"}${Math.abs(value).toFixed(4)}`;
   const team = (selection: SideSelection) =>
     selection === "home" ? board.game.home : selection === "away" ? board.game.away : selection;
-  const FEATURE_LABELS: Record<string, string> = {
-    home_prior_margin: "Home team's recent point margin",
-    away_prior_margin: "Away team's recent point margin",
-    home_prior_points_for: "Home team's recent points scored",
-    away_prior_points_for: "Away team's recent points scored",
-    home_prior_points_against: "Home team's recent points allowed",
-    away_prior_points_against: "Away team's recent points allowed",
-    home_rest_days: "Home team's rest days",
-    away_rest_days: "Away team's rest days",
-    home_qb_share: "Home quarterback continuity",
-    away_qb_share: "Away quarterback continuity",
-    home_qb_rating: "Home quarterback rating",
-    away_qb_rating: "Away quarterback rating",
-    home_indicator: "Home field",
-  };
   const points = (value: number) => `${value >= 0 ? "+" : "−"}${Math.abs(value).toFixed(2)}`;
   /** What each side's chance is a chance of: spreads and totals can push. */
   const CHANCE_LABELS: Record<Market, string> = {
@@ -183,7 +169,7 @@
             <p class="pc-kicker">Result of the picked side's own contract</p>
             <p class="pc-verdict-word" data-testid="pick-result">
               {#if graded.history.length === 0}
-                <span class="pc-unknown">∅ Not settled</span>
+                <span class="pc-unknown">Not settled</span>
               {:else}
                 {resultWord(graded.effective)}
               {/if}
@@ -236,7 +222,7 @@
               <dt>Conservative expected value</dt>
               <dd>
                 {#if side.conservativeExpectedValue === null}
-                  <span class="pc-unknown">∅ Unavailable</span>
+                  <span class="pc-unknown">Unavailable</span>
                 {:else}
                   {units(side.conservativeExpectedValue)}
                 {/if}
@@ -253,7 +239,7 @@
               {calculation.priceCutoff.keeps ? "Keeps" : "Reaches"} {calculation.priceCutoff.grade} at prices better than
               {signed(calculation.priceCutoff.americanOdds)} ({calculation.priceCutoff.decimalOdds.toFixed(3)})
             {:else}
-              {#if !calculation.priceCutoff.everyPriceKeeps}<span class="pc-unknown">∅ Unavailable</span>{/if}
+              {#if !calculation.priceCutoff.everyPriceKeeps}<span class="pc-unknown">Unavailable</span>{/if}
               {calculation.priceCutoff.reason}
             {/if}
           </dd>
@@ -267,7 +253,7 @@
             <ul class="pc-ledger" data-testid="driver-list">
               {#each drivers.largest as driver (driver.feature)}
                 <li data-testid="driver">
-                  {FEATURE_LABELS[driver.feature] ?? driver.feature}
+                  {featureLabel(driver.feature)}
                   <span class="pc-figure">{points(driver.points)} points</span>
                 </li>
               {/each}
@@ -278,7 +264,7 @@
             </p>
           {:else}
             <p class="pc-hint" data-testid="drivers-unavailable">
-              <span class="pc-unknown">∅ Unavailable</span> This model pick has no frozen forecast with drivers.
+              <span class="pc-unknown">Unavailable</span> This model pick has no frozen forecast with drivers.
             </p>
           {/if}
         </div>
@@ -348,11 +334,11 @@
             </ul>
           {:else if board.status === "failed"}
             <p class="pc-hint" data-testid="explanation-missing">
-              <span class="pc-unknown">∅ No explanation</span> The drafter's text was not saved. The model pick above is unchanged.
+              <span class="pc-unknown">No explanation</span> The drafter's text was not saved. The model pick above is unchanged.
             </p>
           {:else}
             <p class="pc-hint" data-testid="explanation-missing">
-              <span class="pc-unknown">∅ No explanation</span> This board has no drafter explanation.
+              <span class="pc-unknown">No explanation</span> This board has no drafter explanation.
             </p>
           {/if}
         </div>
@@ -365,11 +351,11 @@
         </p>
       {:else if market.noPickReason !== null}
         <p data-testid="no-pick">
-          <span class="pc-unknown">∅ No model pick</span>
+          <span class="pc-unknown">No model pick</span>
           {market.noPickReason}
         </p>
       {:else}
-        <p data-testid="no-pick"><span class="pc-unknown">∅ Not computed</span> This board stopped before its model picks were frozen.</p>
+        <p data-testid="no-pick"><span class="pc-unknown">Not computed</span> This board stopped before its model picks were frozen.</p>
       {/if}
       {#if data.parent}
         {@const earlier = data.parent.markets.find((item) => item.market === market.market)}

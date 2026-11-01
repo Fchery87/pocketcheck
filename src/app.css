@@ -298,6 +298,8 @@
   /* Plain pages: Journal, Settings, Handbook, and the report body */
   .pc-page {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    overflow-wrap: anywhere;
     gap: 20px;
     padding-block: 24px 48px;
   }
@@ -738,9 +740,11 @@
     cursor: pointer;
   }
 
-  .pc-stepper button:hover {
-    background: var(--ink);
-    color: var(--paper);
+  @media (hover: hover) {
+    .pc-stepper button:hover {
+      border-color: var(--pen);
+      color: var(--pen);
+    }
   }
 
   .pc-evidence {
