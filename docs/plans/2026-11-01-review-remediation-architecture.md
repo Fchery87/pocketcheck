@@ -2,17 +2,17 @@
 
 This design implements the confirmed findings in the [review assessment](../research/2026-11-01-review-validation.md). It extends the existing SvelteKit application and `JournalStore`, preserves frozen records, and separates forecasting from explanation attempts. The companion [implementation plan](2026-11-01-review-remediation-implementation.md) defines the delivery sequence and acceptance checks.
 
-Status: designed, application changes not implemented. Source baseline: `ee318d0`. This document supersedes neither the completed [October 29 plan](2026-10-29-correctness-architecture.md) nor existing ADRs. Proposed changes to their contracts are identified below. It authorizes no live migration, provider call, artifact replacement, deployment, or market release.
+Status: all planned increments are delivered and application and disposable-database verification passed on 2026-11-01. Design baseline: `ee318d0`. The companion plan's completion record contains task evidence and remaining activation boundaries. This document supersedes neither the completed [October 29 plan](2026-10-29-correctness-architecture.md) nor existing ADRs. Changes to their contracts are identified below. It authorizes no live migration, provider call, production artifact replacement, deployment, or market release.
 
 ## Working checklist
 
 - [x] Ground the design in source, glossary, journal specification, testing guidance, DESIGN, ADRs, and the validated review.
 - [x] Compare two independent architectural candidates.
 - [x] Synthesize ownership, caller usage, types, persistence, and verification requirements.
-- [ ] Implement the increments in the companion plan.
-- [ ] Pass application and disposable-database verification for the implemented behavior.
+- [x] Implement the increments in the companion plan.
+- [x] Pass application and disposable-database verification for the implemented behavior.
 
-The requested deliverable is the architecture and executable implementation plan. Implementation boxes stay open until production code and its acceptance checks exist.
+The companion plan records the implemented increments and both passed verification commands. Research activation and production deployment remain separate operations.
 
 ## Existing architecture and constraints
 

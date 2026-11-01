@@ -14,7 +14,7 @@ Status on 2026-10-30. The research workflow and the game board run end to end on
 
 That has three consequences you will see in the app.
 
-- Every valid analysis whose evidence is complete concludes `insufficient evidence`. The reason it gives is that the model artifact is unreleased. The analysis still records the model's probabilities and its frozen forecast.
+- An analysis with complete paired prices records its probabilities and frozen forecast when a compatible artifact is configured. A missing opposing price leaves the forecast unavailable. An unreleased market cannot produce a value conclusion, even when its evidence and prices are complete.
 - Every model pick is labeled "Unvalidated model pick". It is tracked so it can be evaluated later. It is not evidence of an edge.
 - A `strong` grade means the code's conservative expected-value check passed at the entered price. It is not a measured win rate.
 
@@ -84,7 +84,7 @@ npm run model:fit -- data/sources/games.csv data/artifacts/baseline.json
 
 Without a third argument, the earliest 70% of games train the model. To choose the training cutoff yourself, add an ISO time, such as `2022-03-01T00:00:00Z`. The command prints the new artifact's checksum. Keep that checksum, because the prospective evaluation needs it.
 
-The artifact in use was trained through 2023-10-22 and has checksum `68f341bc8a02…`. If you refit, the checksum changes, and the new artifact needs its own prospective registration.
+The archived local artifact was trained through 2023-10-22 and has checksum `68f341bc8a02…`. The corrected inputs and discrete-anchor mapping now require artifact version 7 and `training-2026-11-01`. Older live artifacts are refused with a refit-required reason. Saved forecasts remain readable and are never regenerated. Only the synthetic browser fixture was refitted during remediation. Fit any real candidate to a new path, inspect its chronological development evaluation, and register its checksum before prospective activation. No production artifact was replaced or released.
 
 ### Start the app
 
@@ -138,6 +138,7 @@ Open the **New analysis** page at `/`. The form has five stages. Your typed valu
    - Choose the **Selection**. A moneyline or a spread offers home or away. A total offers over or under.
    - For a spread, enter the **Selected-side line**. Home -3.5 and away +3.5 are different contracts. For a total, enter the **Total line**, which over and under share. The minus and plus buttons move the line by half a point.
    - Enter the **American odds**, such as -110 or +130. The buttons move the odds by 5.
+   - Enter **Opposing American odds** from the same sportsbook and observation time to capture a forecast. Leave this blank only when the opposing price is unavailable. The saved attempt then records why it has no forecast.
    - Set **When you saw this price**.
    - For a moneyline, choose the **Moneyline tie rule** your sportsbook uses: push, loss, win, or void.
 3. **Your evidence (optional).** Add notes from sources you trust, such as a club injury report or a beat reporter. Each note has a link, a publication time, and an optional team. Use **Stands in for** to let a note replace a missing source.
@@ -353,13 +354,13 @@ To score the evidence, follow these steps.
    - `closeAge` shows, per market, how many closes were found, how many are missing, and the median, 90th-percentile, and oldest minutes before kickoff.
    - `evaluation.markets.<market>.release` says whether the market passed and why.
 
-If a market passes, `model:release` writes a new artifact that marks that market released.
+If a market passes, `model:release` writes a separate immutable release attestation. The predictor file and its checksum do not change, so another market's registration remains bound to the same predictor.
 
 ```sh
-npm run model:release -- data/artifacts/baseline.json pocketcheck-journal-v1.json protocol.json released-artifact.json
+npm run model:release -- data/artifacts/baseline.json pocketcheck-journal-v1.json protocol.json release-attestation.json
 ```
 
-It refuses when the registration, the artifact, or the protocol settings do not match, or when no market passes.
+It refuses when the registration, predictor, or protocol settings do not match, when no market passes, or when the output already exists. The attestation includes the complete local evidence bundle. Runtime verification reconstructs the sample and recomputes the gate rather than trusting an edited verdict or a matching hash. Set `POCKETCHECK_RELEASE_ATTESTATION` to that file only as a deliberate deployment change. Historical release flags alone cannot authorize new value recommendations. No current market has passed this gate.
 
 ### Refit and evaluate the model
 
@@ -383,7 +384,13 @@ To fit without some input groups, list them in `MODEL_EXCLUDE_GROUPS`, separated
 
 ### Open PocketCheck on your phone
 
-> **Warning.** PocketCheck has no login. When it listens on an address other than `127.0.0.1`, anyone who can reach your computer on the network can read the journal, change settings, record analyses and bets, and start source downloads. Use it only on a home network you trust, and stop the server when you are done.
+Network binding now requires a shared access secret or an explicit unsafe opt-in. Earlier versions allowed unauthenticated LAN access by setting `HOST` alone. That configuration now fails at startup.
+
+Set `POCKETCHECK_ACCESS_SECRET` in `.env` to a random secret of at least 32 characters. Generate one locally with `node -p 'require("node:crypto").randomBytes(32).toString("hex")'`. Do not put it in a URL or a journal note. Every page, data request, action, and backup download requires sign-in when the secret is configured, including loopback access.
+
+Sign-in creates a signed 12-hour HttpOnly SameSite session. Logout removes that browser's cookie. Changing the configured secret invalidates existing sessions after restart. This is one personal journal, not multi-user accounts.
+
+> **Warning.** A shared secret does not encrypt HTTP. Anyone who can observe trusted-LAN HTTP traffic can capture the secret or session. Use an HTTPS proxy for network confidentiality and keep the server's backend unreachable by untrusted clients. HTTPS sessions use Secure cookies. Never expose the server directly to the internet.
 
 1. Find your computer's address on the home network. On Linux, run `hostname -I`. On macOS, run `ipconfig getifaddr en0`. On Windows, run `ipconfig` and read the IPv4 address. It usually looks like `192.168.1.20`.
 2. Start the server on that one address. That is narrower than `0.0.0.0`, which listens on every network interface.
@@ -394,7 +401,7 @@ To fit without some input groups, list them in `MODEL_EXCLUDE_GROUPS`, separated
 
 3. On the phone, on the same Wi-Fi network, open `http://192.168.1.20:3000`. Your firewall may need to allow incoming connections on that port.
 
-The startup log repeats the no-login warning whenever `HOST` is not a loopback address. `npm run dev` and `npm run preview` always stay on `127.0.0.1`.
+The startup log reports the access policy and HTTP limitation whenever `HOST` is not a loopback address. To retain the old unauthenticated behavior deliberately, set `POCKETCHECK_UNSAFE_LAN=1`. Anyone who can reach that address can read and change the journal or trigger provider work. Stop the server when finished. `npm run dev` and `npm run preview` stay on `127.0.0.1`.
 
 `npm start` checks the `Host` header of every request. It accepts `localhost`, `127.0.0.1`, `[::1]`, and this computer's own IP addresses, on any port. Any other name gets status `421`. This blocks DNS rebinding, where a web page points its own domain at your computer and reads the journal through your browser. To open PocketCheck by a name such as `desk.local`, list the name. Only list names you control.
 
@@ -459,49 +466,52 @@ The threshold is `threshold-2026-10-25`, a conservative expected value above 0 u
 
 ## Command reference
 
-| Command                                                                | What it does                                                                            |
-| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `npm run dev`                                                          | Starts the development server on `127.0.0.1`.                                           |
-| `npm run build`                                                        | Builds the production server into `build/`.                                             |
-| `npm start`                                                            | Runs the production server with `.env`, on `HOST` and `PORT`.                           |
-| `npm run preview`                                                      | Serves the production build on `127.0.0.1`.                                             |
-| `npm run db:migrate`                                                   | Applies pending migrations to `DATABASE_URL`.                                           |
-| `npm run data:schedule [output]`                                       | Downloads the nflverse schedule.                                                        |
-| `npm run data:injuries [season] [output]`                              | Downloads the nflverse injury report.                                                   |
-| `npm run data:depth-charts [season] [output]`                          | Downloads nflverse depth charts.                                                        |
-| `npm run data:play-by-play [season] [output]`                          | Downloads one season of nflverse play-by-play data.                                     |
-| `npm run data:snap-counts [season] [output]`                           | Downloads nflverse snap counts. The app does not read them yet.                         |
-| `npm run data:import [schedule] [game-id]`                             | Prints an evidence packet for one game from a local schedule. It makes no network call. |
-| `npm run model:fit [games] [output] [cutoff]`                          | Fits a new unreleased artifact.                                                         |
-| `npm run model:refit <games> [in-use] [output] [--replace]`            | Fits a candidate beside the artifact in use.                                            |
-| `npm run model:evaluate [artifact] [games] [output]`                   | Scores an artifact on historical games.                                                 |
-| `npm run model:prospective <journal> <protocol> <new-report>`          | Scores registered prospective model picks.                                              |
-| `npm run model:release <artifact> <journal> <protocol> <new-artifact>` | Writes a released artifact if a market passes the protocol.                             |
-| `npm run check`                                                        | Runs format, lint, and type checks.                                                     |
-| `npm test`                                                             | Runs the unit tests.                                                                    |
-| `npm run test:e2e`                                                     | Runs the Playwright browser tests against `build/`. Run `npm run build` first.          |
-| `npm run verify`                                                       | Runs format, lint, types, unit tests, the build, and the browser tests.                 |
-| `npm run verify:database`                                              | Runs the storage tests against `TEST_DATABASE_URL`.                                     |
+| Command                                                                   | What it does                                                                            |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `npm run dev`                                                             | Starts the development server on `127.0.0.1`.                                           |
+| `npm run build`                                                           | Builds the production server into `build/`.                                             |
+| `npm start`                                                               | Runs the production server with `.env`, on `HOST` and `PORT`.                           |
+| `npm run preview`                                                         | Serves the production build on `127.0.0.1`.                                             |
+| `npm run db:migrate`                                                      | Applies pending migrations to `DATABASE_URL`.                                           |
+| `npm run data:schedule [output]`                                          | Downloads the nflverse schedule.                                                        |
+| `npm run data:injuries [season] [output]`                                 | Downloads the nflverse injury report.                                                   |
+| `npm run data:depth-charts [season] [output]`                             | Downloads nflverse depth charts.                                                        |
+| `npm run data:play-by-play [season] [output]`                             | Downloads one season of nflverse play-by-play data.                                     |
+| `npm run data:snap-counts [season] [output]`                              | Downloads nflverse snap counts. The app does not read them yet.                         |
+| `npm run data:import [schedule] [game-id]`                                | Prints an evidence packet for one game from a local schedule. It makes no network call. |
+| `npm run model:fit [games] [output] [cutoff]`                             | Fits a new unreleased artifact.                                                         |
+| `npm run model:refit <games> [in-use] [output] [--replace]`               | Fits a candidate beside the artifact in use.                                            |
+| `npm run model:evaluate [artifact] [games] [output]`                      | Scores an artifact on historical games.                                                 |
+| `npm run model:prospective <journal> <protocol> <new-report>`             | Scores registered prospective model picks.                                              |
+| `npm run model:release <artifact> <journal> <protocol> <new-attestation>` | Writes a separate attestation if a market passes the frozen protocol.                   |
+| `npm run check`                                                           | Runs format, lint, and type checks.                                                     |
+| `npm test`                                                                | Runs the unit tests.                                                                    |
+| `npm run test:e2e`                                                        | Runs the Playwright browser tests against `build/`. Run `npm run build` first.          |
+| `npm run verify`                                                          | Runs format, lint, types, unit tests, the build, and the browser tests.                 |
+| `npm run verify:database`                                                 | Runs the storage tests against `TEST_DATABASE_URL`.                                     |
 
 Pass arguments after `--`, as in `npm run data:injuries -- 2025`.
 
 ## Environment variables
 
-| Variable                     | Required              | Purpose                                                                                                |
-| ---------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------ |
-| `DATABASE_URL`               | Yes                   | The Neon connection string for your journal.                                                           |
-| `NWS_USER_AGENT`             | No                    | Identifies you to api.weather.gov. Include an email address.                                           |
-| `THECLAWBAY_API_KEY`         | No                    | Enables TheClawBay models in Settings.                                                                 |
-| `DEEPSEEK_API_KEY`           | No                    | Enables DeepSeek models in Settings.                                                                   |
-| `HOST`                       | No                    | The address `npm start` listens on. The default is `127.0.0.1`.                                        |
-| `PORT`                       | No                    | The port `npm start` listens on. The default is 3000.                                                  |
-| `ALLOWED_HOSTS`              | No                    | Extra host names `npm start` accepts, separated by commas.                                             |
-| `POCKETCHECK_SCHEDULE_CSV`   | No                    | Another schedule file. The default is `data/sources/games.csv`.                                        |
-| `POCKETCHECK_INJURY_CSV`     | No                    | Another injury file. The default is `data/sources/injuries_<season>.csv`.                              |
-| `POCKETCHECK_MODEL_ARTIFACT` | No                    | Another artifact path, or `off` to run without a model. The default is `data/artifacts/baseline.json`. |
-| `POCKETCHECK_WEATHER`        | No                    | Set to `off` to skip NWS forecasts.                                                                    |
-| `MODEL_EXCLUDE_GROUPS`       | No                    | Input groups `model:fit` leaves out, separated by commas.                                              |
-| `TEST_DATABASE_URL`          | For `verify:database` | A disposable database for storage tests. It is never read from `.env`.                                 |
+| Variable                          | Required              | Purpose                                                                                                |
+| --------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------ |
+| `DATABASE_URL`                    | Yes                   | The Neon connection string for your journal.                                                           |
+| `NWS_USER_AGENT`                  | No                    | Identifies you to api.weather.gov. Include an email address.                                           |
+| `THECLAWBAY_API_KEY`              | No                    | Enables TheClawBay models in Settings.                                                                 |
+| `DEEPSEEK_API_KEY`                | No                    | Enables DeepSeek models in Settings.                                                                   |
+| `HOST`                            | No                    | The address `npm start` listens on. The default is `127.0.0.1`.                                        |
+| `PORT`                            | No                    | The port `npm start` listens on. The default is 3000.                                                  |
+| `ALLOWED_HOSTS`                   | No                    | Extra host names `npm start` accepts, separated by commas.                                             |
+| `POCKETCHECK_ACCESS_SECRET`       | For protected LAN use | Random shared secret, at least 32 characters. Enables sign-in on every journal route.                  |
+| `POCKETCHECK_UNSAFE_LAN`          | No                    | Set to `1` only to deliberately permit unauthenticated network access.                                 |
+| `POCKETCHECK_SCHEDULE_CSV`        | No                    | Another schedule file. The default is `data/sources/games.csv`.                                        |
+| `POCKETCHECK_INJURY_CSV`          | No                    | Another injury file. The default is `data/sources/injuries_<season>.csv`.                              |
+| `POCKETCHECK_MODEL_ARTIFACT`      | No                    | Another artifact path, or `off` to run without a model. The default is `data/artifacts/baseline.json`. |
+| `POCKETCHECK_RELEASE_ATTESTATION` | No                    | Separate local release attestation. Eligibility requires complete evidence verification.               |
+| `POCKETCHECK_WEATHER`             | No                    | Set to `off` to skip NWS forecasts.                                                                    |
+| `MODEL_EXCLUDE_GROUPS`            | No                    | Input groups `model:fit` leaves out, separated by commas.                                              |
+| `TEST_DATABASE_URL`               | For `verify:database` | A disposable database for storage tests. It is never read from `.env`.                                 |
 
 `POCKETCHECK_TEST_MODE`, `POCKETCHECK_JOURNAL`, `POCKETCHECK_NOW`, and `POCKETCHECK_TEST_JOURNAL_ID` exist for the browser test suite. Leave them unset in normal use.
 
