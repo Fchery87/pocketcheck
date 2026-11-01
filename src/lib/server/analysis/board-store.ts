@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import type { BoardQuoteResult } from "#lib/domain/board.ts";
+import {
+  provesAnchorPair,
+  type BoardPricing,
+  type BoardQuoteResult,
+  type PricedMarket,
+} from "#lib/domain/board.ts";
 import type { Market, Offer } from "#lib/domain/offer.ts";
 import { requireFinalScores } from "#lib/domain/settlement.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
@@ -61,10 +66,18 @@ export type ModelPick = {
 
 export type BoardMarket = {
   market: Market;
-  /** Home (or over) first, then away (or under), each with the other as its opposing price. */
+  /**
+   * The executable offers a model pick is graded and a bet is placed from, home (or over) first,
+   * each naming the anchor's other side as its opposing price. A side can be a shopped price.
+   */
   offers: [Offer, Offer];
   /** Extra sportsbook quotes. A quote on a different line is another contract, not a better price. */
   quotes: BoardQuoteResult[];
+  /**
+   * The anchor pair with its pricing format. Absent on a market saved before it was recorded;
+   * `anchorPairOf` recovers that older anchor only from saved prices that prove it.
+   */
+  pricing?: BoardPricing;
   /** Null until the model picks are frozen, and null when the market has no model pick. */
   pick: ModelPick | null;
   /** Why this market has no model pick. Null while a pick exists or before computing. */
@@ -132,8 +145,23 @@ export type NewGameBoard = Pick<
   lean?: PrivateLean | null;
   /** Omitted means no drafter is named for this board. */
   drafter?: BoardDrafter | null;
-  markets: Array<Pick<BoardMarket, "market" | "offers"> & { quotes?: BoardQuoteResult[] }>;
+  /** A new market always records its anchor pair. */
+  markets: Array<
+    Pick<PricedMarket, "market" | "offers" | "pricing"> & {
+      quotes?: BoardQuoteResult[];
+    }
+  >;
 };
+
+/**
+ * Refuses a new market without one sportsbook's anchor pair on the executable contracts. Older
+ * markets are restored as saved; only a new write must carry the current pricing format.
+ */
+export function requireNewMarketPricing(market: NewGameBoard["markets"][number]): void {
+  if (!provesAnchorPair(market)) {
+    throw new Error(`A new ${market.market} market needs its anchor pair in the current format.`);
+  }
+}
 
 export type BeginBoardResult =
   | { kind: "created"; board: GameBoard }
@@ -316,7 +344,9 @@ export type OpenPick = {
 };
 
 export function requireBoardRegistration(
-  board: NewGameBoard,
+  board: Pick<GameBoard, "request" | "cutoffAt"> & {
+    markets: Array<{ market: Market }>;
+  },
   registration: ProtocolRegistration | undefined,
 ): void {
   if (!board.request.protocolRegistrationId) return;
@@ -335,7 +365,9 @@ export function requireBoardRegistration(
 }
 
 export function requirePickRegistration(
-  board: NewGameBoard,
+  board: Pick<GameBoard, "request" | "cutoffAt"> & {
+    markets: Array<{ market: Market }>;
+  },
   input: FreezeModelPicksInput,
   registration: ProtocolRegistration | undefined,
 ): void {
@@ -393,6 +425,7 @@ export function createMemoryBoardStore(
       if (input.parentId && !boards.has(input.parentId)) {
         throw new Error(`Parent game board not found: ${input.parentId}`);
       }
+      input.markets.forEach(requireNewMarketPricing);
       requireBoardRegistration(
         input,
         registrations.find((row) => row.id === input.request.protocolRegistrationId),

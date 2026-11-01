@@ -3,6 +3,7 @@
   import { easternTime, percent } from "#lib/format.ts";
   import { featureLabel } from "#lib/domain/feature-labels.ts";
   import { marketComparison } from "#lib/domain/comparison.ts";
+  import { anchorPairOf } from "#lib/domain/board.ts";
   import type { Market, SideSelection } from "#lib/domain/offer.ts";
   import type { PageProps } from "./$types";
 
@@ -101,6 +102,7 @@
   {/if}
 
   {#each board.markets as market (market.market)}
+    {@const anchor = anchorPairOf(market)}
     <section class="pc-section pc-pick" data-testid="model-pick-{market.market}" aria-labelledby="pick-{market.market}">
       <h2 id="pick-{market.market}">{market.market[0].toUpperCase()}{market.market.slice(1)}</h2>
       {#if market.pick}
@@ -371,10 +373,20 @@
           {/if}
         </p>
       {/if}
-      <p class="pc-hint">
-        Entered: {sideName(market.offers[0].selection)}{lined(market.offers[0].pointLine)} {signed(market.offers[0].americanOdds)},
-        {sideName(market.offers[1].selection)}{lined(market.offers[1].pointLine)} {signed(market.offers[1].americanOdds)}{#if market.offers[0].rules.tie}, tie rule {market.offers[0].rules.tie}{/if}.
+      <p class="pc-hint" data-testid="board-anchor">
+        {#if anchor}
+          Anchor at {anchor[0].sportsbook}: {sideName(anchor[0].selection)}{lined(anchor[0].pointLine)} {signed(anchor[0].americanOdds)},
+          {sideName(anchor[1].selection)}{lined(anchor[1].pointLine)} {signed(anchor[1].americanOdds)}{#if anchor[0].rules.tie}, tie rule {anchor[0].rules.tie}{/if}.
+          The no-vig chances and the margin come from these two prices only.
+        {:else}
+          <span class="pc-unknown">Unavailable</span> Anchor prices: this board was saved before both anchor sides were recorded, and its saved prices do not prove one sportsbook's pair.
+        {/if}
       </p>
+      {#each market.offers.filter((offer) => anchor === null || offer.sportsbook !== anchor[0].sportsbook || offer.observedAt !== anchor[0].observedAt) as offer}
+        <p class="pc-hint" data-testid="board-executed-{offer.selection}">
+          {sideName(offer.selection)}{lined(offer.pointLine)} is priced at {signed(offer.americanOdds)} from {offer.sportsbook}, observed {easternTime(offer.observedAt)}.
+        </p>
+      {/each}
       {#if market.quotes.length > 0}
         <ul data-testid="board-quotes">
           {#each market.quotes as quote}

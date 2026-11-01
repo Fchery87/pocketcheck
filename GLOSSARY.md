@@ -65,5 +65,5 @@ The no-vig market probability or line a forecast starts from before the forecast
 _Avoid_: Prior (alone), opening line (unless it is one)
 
 **Best available price**:
-The highest decimal odds among the sportsbook quotes the user entered for one side of one market at one time.
+The highest decimal odds for one side's own contract (selection, that side's point line, and rules) among the anchor sportsbook's price and the other quotes the user entered. The anchor price wins a tie; tied extra quotes are ordered by sportsbook, observation time, then entry order. It changes what a side pays and its expected value, never the anchor's no-vig probabilities or margin.
 _Avoid_: Best line (when the point line differs), market price

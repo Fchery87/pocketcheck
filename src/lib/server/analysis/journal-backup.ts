@@ -1,4 +1,5 @@
 import { validFinalScores, type Settlement as SettlementResult } from "#lib/domain/settlement.ts";
+import { provesAnchorPair } from "#lib/domain/board.ts";
 import type { Offer } from "#lib/domain/offer.ts";
 import {
   validateClosingMarketSnapshot,
@@ -427,6 +428,7 @@ const BOARD_MARKET_FIELDS = new Set<string>([
   "market",
   "offers",
   "quotes",
+  "pricing",
   "pick",
   "noPickReason",
 ] satisfies (keyof GameBoard["markets"][number])[]);
@@ -657,6 +659,18 @@ function parseBoard(value: unknown): GameBoard {
   for (const market of value.markets) {
     if (!isObject(market)) throw new Error(`Game board ${id} has a malformed market.`);
     requireKnownFields(market, BOARD_MARKET_FIELDS, `Game board ${id} market`);
+    if (
+      market.pricing !== undefined &&
+      !(
+        Array.isArray(market.offers) &&
+        market.offers.length === 2 &&
+        provesAnchorPair(market as Parameters<typeof provesAnchorPair>[0])
+      )
+    ) {
+      throw new Error(
+        `Game board ${id} has a ${String(market.market)} anchor pair in an unsupported format or on other contracts.`,
+      );
+    }
     if (market.pick !== null && market.pick !== undefined) {
       if (!isObject(market.pick)) throw new Error(`Game board ${id} has a malformed model pick.`);
       requireKnownFields(market.pick, MODEL_PICK_FIELDS, `Game board ${id} model pick`);

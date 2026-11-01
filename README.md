@@ -424,7 +424,7 @@ These rules hold on every page. They decide what a record means after kickoff.
 
 - A contract is the market, the selection, the point line, the sportsbook, and the settlement rules.
 - A different point line is a different contract. Home -3.5 and away +3.5 are different contracts.
-- The best available price is the highest decimal odds on the same point line.
+- The best available price is the highest decimal odds on that side's own contract, the anchor sportsbook's price included. Away +3.5 is compared only with away +3.5. It sets expected value. The no-vig chances and the sportsbook margin come only from the anchor sportsbook's two sides.
 - Settlement grades each record from its own contract. A model pick uses the picked side's contract. A bet uses the contract you placed.
 
 ### Unknown stays unknown

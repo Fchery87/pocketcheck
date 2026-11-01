@@ -264,6 +264,10 @@ describe("frozen protocol records", () => {
   it("stops the migration on a board naming a missing registration and leaves the reference", async () => {
     const isolated = await isolatedDb({ throughMigration: "024_board_explanation_format.sql" });
     open.push(isolated);
+    // Today's board writer needs the additive pricing columns, which do not depend on 025.
+    await isolated.db.unsafe(
+      await readFile(path.resolve("migrations/026_board_market_pricing.sql"), "utf8"),
+    );
     const store = createNeonStore(isolated.db);
     const template = (
       await runGameBoard(board("template"), { store, collect: quiet, model: model() })

@@ -149,7 +149,7 @@ describe("game board run", () => {
     expect(pick.parentPickId).toBeNull();
     expect(pick.forecastingModel.checksum).toBe("f".repeat(64));
     const calculation = pick.calculation;
-    expect(calculation.version).toBe("model-pick-2026-10-27.1");
+    expect(calculation.version).toBe("model-pick-2026-11-01.1");
     expect(calculation.pickedSelection).toBe("home");
     expect(calculation.grade).toBe("lean");
     expect(calculation.release).toBe("unvalidated");
@@ -224,6 +224,118 @@ describe("spread and total game boards", () => {
     if (!outcome.ok) return;
     expect(outcome.board.markets.map((market) => market.market)).toEqual(markets);
     expect(outcome.board.markets.every((market) => market.pick !== null)).toBe(true);
+  });
+});
+
+describe("shopped prices on a game board", () => {
+  const spread = { homeLine: -3.5, awayLine: 3.5, home: -110, away: -110 };
+  const total = { overLine: 44.5, underLine: 44.5, over: -105, under: -115 };
+  const decimal = (american: number) => (american > 0 ? 1 + american / 100 : 1 - 100 / american);
+  const fair = (own: number, other: number) =>
+    1 / decimal(own) / (1 / decimal(own) + 1 / decimal(other));
+
+  function anchorRecordingModel(): ModelSource & { anchors: unknown[] } {
+    const scripted = scriptedModel({
+      home: { win: 0.55, loss: 0.43, push: 0.02 },
+    });
+    const anchors: unknown[] = [];
+    const source: ModelSource = async (game, cutoff, offer, anchor) => {
+      anchors.push(anchor);
+      return scripted(game, cutoff, offer);
+    };
+    return Object.assign(source, { anchors });
+  }
+
+  it("prices expected value at the shopped price and the no-vig chance from the anchor pair", async () => {
+    const store = createMemoryStore();
+    const model = anchorRecordingModel();
+    const outcome = await runGameBoard(
+      board({
+        requestId: "shopped",
+        spread,
+        total,
+        extraQuotes: [
+          {
+            sportsbook: "Shop Book",
+            market: "moneyline",
+            selection: "home",
+            americanOdds: -135,
+            pointLine: null,
+            observedAt: "2026-10-25T15:10:00.000Z",
+          },
+          {
+            sportsbook: "Shop Book",
+            market: "spread",
+            selection: "away",
+            americanOdds: 105,
+            pointLine: 3.5,
+            observedAt: "2026-10-25T15:20:00.000Z",
+          },
+          {
+            sportsbook: "Shop Book",
+            market: "total",
+            selection: "under",
+            americanOdds: -102,
+            pointLine: 44.5,
+            observedAt: "2026-10-25T15:25:00.000Z",
+          },
+        ],
+      }),
+      { store, collect: quiet, model },
+    );
+    expect(outcome.ok, outcome.ok ? "" : outcome.error).toBe(true);
+    if (!outcome.ok) return;
+    const [moneyline, spreadMarket, totalMarket] = (await store.getBoard(outcome.board.id))!
+      .markets;
+    const cases = [
+      { market: moneyline!, anchor: [-150, 130], executed: [-135, 130] },
+      { market: spreadMarket!, anchor: [-110, -110], executed: [-110, 105] },
+      { market: totalMarket!, anchor: [-105, -115], executed: [-105, -102] },
+    ];
+    for (const { market, anchor, executed } of cases) {
+      const calculation = market.pick!.calculation;
+      expect(calculation.sides.map((side) => side.americanOdds)).toEqual(executed);
+      expect(calculation.sides[0].noVigProbability).toBeCloseTo(fair(anchor[0]!, anchor[1]!), 12);
+      expect(calculation.sides[1].noVigProbability).toBeCloseTo(fair(anchor[1]!, anchor[0]!), 12);
+      expect(calculation.margin).toBeCloseTo(
+        1 / decimal(anchor[0]!) + 1 / decimal(anchor[1]!) - 1,
+        12,
+      );
+      for (const [index, side] of calculation.sides.entries()) {
+        const { win, loss } = side.probabilities;
+        expect(side.expectedValue).toBeCloseTo(win * (decimal(executed[index]!) - 1) - loss, 12);
+      }
+      expect(market.pricing?.anchor.map((side) => side.americanOdds)).toEqual(anchor);
+      expect(calculation.version).toBe("model-pick-2026-11-01.1");
+    }
+    expect(model.anchors).toEqual([
+      { sportsbook: "Board Book", homeAmerican: -150, awayAmerican: 130 },
+      { sportsbook: "Board Book", homeAmerican: -150, awayAmerican: 130 },
+      {
+        sportsbook: "Board Book",
+        homeAmerican: -110,
+        awayAmerican: -110,
+        line: -3.5,
+      },
+      {
+        sportsbook: "Board Book",
+        homeAmerican: -110,
+        awayAmerican: -110,
+        line: -3.5,
+      },
+      {
+        sportsbook: "Board Book",
+        homeAmerican: -105,
+        awayAmerican: -115,
+        line: 44.5,
+      },
+      {
+        sportsbook: "Board Book",
+        homeAmerican: -105,
+        awayAmerican: -115,
+        line: 44.5,
+      },
+    ]);
   });
 });
 

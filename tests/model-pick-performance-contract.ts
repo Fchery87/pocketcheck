@@ -127,7 +127,11 @@ export function describeModelPickPerformanceContract(
         sportsbook: "Board Book",
         observedAt: "2026-10-25T15:00:00.000Z",
         cutoffAt: "2026-10-25T15:30:00.000Z",
-        markets: board.markets.map(({ market, offers }) => ({ market, offers })),
+        markets: board.markets.map(({ market, offers, pricing }) => ({
+          market,
+          offers,
+          pricing: pricing!,
+        })),
       });
       if (failed.kind !== "created") throw new Error("expected a new board");
       await store.freezeModelPicks({
@@ -165,7 +169,11 @@ export function describeModelPickPerformanceContract(
         observedAt: "2026-10-25T15:00:00.000Z",
         cutoffAt: NOW,
         markets: (await freeze(store, ask({ requestId: "seed" }))).markets.map(
-          ({ market, offers }) => ({ market, offers }),
+          ({ market, offers, pricing }) => ({
+            market,
+            offers,
+            pricing: pricing!,
+          }),
         ),
       });
       if (begun.kind !== "created") throw new Error("expected a new board");
@@ -486,7 +494,11 @@ export function describeModelPickPerformanceContract(
           sportsbook: "Board Book",
           observedAt: "2026-10-25T15:00:00.000Z",
           cutoffAt: "2026-10-25T15:30:00.000Z",
-          markets: board.markets.map(({ market, offers }) => ({ market, offers })),
+          markets: board.markets.map(({ market, offers, pricing }) => ({
+            market,
+            offers,
+            pricing: pricing!,
+          })),
         });
         if (pending.kind !== "created") throw new Error("expected a new board");
         await expect(

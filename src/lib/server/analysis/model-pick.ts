@@ -11,7 +11,14 @@ import { VALUE_THRESHOLD } from "#lib/domain/threshold.ts";
  * The model pick calculation's version. It is separate from the research policy version: a
  * saved model pick keeps the version it was graded under, and a grade change needs a new one.
  */
-export const MODEL_PICK_VERSION = "model-pick-2026-10-27.1";
+export const MODEL_PICK_VERSION = "model-pick-2026-11-01.1";
+
+/**
+ * Every version a saved model pick can hold. Version 2026-10-27.1 took the no-vig probabilities
+ * and margin from the executable prices, which a shopped price could mix across sportsbooks. A
+ * saved calculation keeps its own version and is never recomputed under a later one.
+ */
+export type ModelPickVersion = "model-pick-2026-10-27.1" | typeof MODEL_PICK_VERSION;
 
 export type StrengthGrade = "strong" | "lean" | "no edge";
 
@@ -22,6 +29,7 @@ export type ModelPickRelease = "released" | "unvalidated";
 export type ModelPickTieBreak = "expected value" | "model win probability" | "home or over";
 
 export type ModelPickSideInput = {
+  /** The executable offer: the price this side is bought at, possibly shopped. */
   offer: Offer;
   /** The forecasting model's outcome probabilities for this side at its own contract. */
   probabilities: OutcomeProbabilities;
@@ -31,6 +39,11 @@ export type ModelPickSideInput = {
 
 export type ModelPickInput = {
   market: Market;
+  /**
+   * The anchor sportsbook's own two sides, home (or over) first. The only source of the no-vig
+   * probabilities and the margin. A shopped executable price never changes them.
+   */
+  anchor: readonly [Offer, Offer];
   /** Home (or over) first, then away (or under). */
   sides: [ModelPickSideInput, ModelPickSideInput];
   released: boolean;
@@ -44,7 +57,7 @@ export type ModelPickSide = {
   decimalOdds: number;
   probabilities: OutcomeProbabilities;
   conservativeProbabilities: OutcomeProbabilities | null;
-  /** The sportsbook's implied probability with the margin removed proportionally. */
+  /** The anchor sportsbook's implied probability with its margin removed proportionally. */
   noVigProbability: number;
   /** Per unit staked at this side's own price, counting pushes. */
   expectedValue: number;
@@ -73,7 +86,7 @@ export type ModelPickPriceCutoff =
     };
 
 export type ModelPickCalculation = {
-  version: typeof MODEL_PICK_VERSION;
+  version: ModelPickVersion;
   market: Market;
   pickedSelection: SideSelection;
   grade: StrengthGrade;
@@ -81,7 +94,7 @@ export type ModelPickCalculation = {
   tieBreak: ModelPickTieBreak;
   threshold: typeof VALUE_THRESHOLD;
   materialEvidenceMissing: boolean;
-  /** Sportsbook margin (overround) across both sides. */
+  /** The anchor sportsbook's margin (overround) across its two sides. */
   margin: number;
   /** Home (or over) first, then away (or under). */
   sides: [ModelPickSide, ModelPickSide];
@@ -156,27 +169,37 @@ function priceCutoff(picked: ModelPickSide, grade: StrengthGrade): ModelPickPric
  */
 export function calculateModelPick(input: ModelPickInput): ModelPickCalculation {
   const [first, second] = input.sides;
+  const [home, away] = input.anchor;
+  if (
+    home.selection !== first.offer.selection ||
+    away.selection !== second.offer.selection ||
+    home.pointLine !== first.offer.pointLine ||
+    away.pointLine !== second.offer.pointLine ||
+    home.sportsbook !== away.sportsbook
+  ) {
+    throw new Error("A model pick needs one sportsbook's anchor pair on the priced contracts.");
+  }
   const margin = proportionalMargin([
-    { side: first.offer.selection, american: first.offer.americanOdds },
-    { side: second.offer.selection, american: second.offer.americanOdds },
+    { side: home.selection, american: home.americanOdds },
+    { side: away.selection, american: away.americanOdds },
   ]);
   if (!margin.available) throw new Error("A model pick needs both sides of the market.");
   const sides: [ModelPickSide, ModelPickSide] = [
     side(first, margin.probabilities[first.offer.selection]!),
     side(second, margin.probabilities[second.offer.selection]!),
   ];
-  const [home, away] = sides;
+  const [homeSide, awaySide] = sides;
 
   let picked: ModelPickSide;
   let tieBreak: ModelPickTieBreak;
-  if (home.expectedValue !== away.expectedValue) {
-    picked = home.expectedValue > away.expectedValue ? home : away;
+  if (homeSide.expectedValue !== awaySide.expectedValue) {
+    picked = homeSide.expectedValue > awaySide.expectedValue ? homeSide : awaySide;
     tieBreak = "expected value";
-  } else if (home.probabilities.win !== away.probabilities.win) {
-    picked = home.probabilities.win > away.probabilities.win ? home : away;
+  } else if (homeSide.probabilities.win !== awaySide.probabilities.win) {
+    picked = homeSide.probabilities.win > awaySide.probabilities.win ? homeSide : awaySide;
     tieBreak = "model win probability";
   } else {
-    picked = home;
+    picked = homeSide;
     tieBreak = "home or over";
   }
 

@@ -70,7 +70,11 @@ export function describeGameBoardContract(
         sportsbook: template.sportsbook,
         observedAt: cutoffAt,
         cutoffAt,
-        markets: template.markets.map(({ market, offers }) => ({ market, offers })),
+        markets: template.markets.map(({ market, offers, pricing }) => ({
+          market,
+          offers,
+          pricing: pricing!,
+        })),
       };
       const before = await store.exportJournal();
       await expect(
@@ -201,10 +205,25 @@ export function describeGameBoardContract(
       expect(saved).toEqual(outcome.board);
       expect(saved?.status).toBe("completed");
       expect(saved?.markets[0]?.pick?.calculation).toMatchObject({
-        version: "model-pick-2026-10-27.1",
+        version: "model-pick-2026-11-01.1",
         pickedSelection: "home",
         grade: "strong",
         release: "unvalidated",
+      });
+      expect(saved?.markets[0]?.pricing).toEqual({
+        format: "paired-anchor-1",
+        anchor: [
+          expect.objectContaining({
+            sportsbook: "Board Book",
+            selection: "home",
+            americanOdds: -150,
+          }),
+          expect.objectContaining({
+            sportsbook: "Board Book",
+            selection: "away",
+            americanOdds: 130,
+          }),
+        ],
       });
       expect(saved?.markets[0]?.offers[1]).toMatchObject({
         selection: "away",
@@ -255,6 +274,44 @@ export function describeGameBoardContract(
       expect(saved).toEqual(outcome.board);
       expect(saved?.markets[0]?.pick).toBeNull();
       expect(saved?.markets[0]?.noPickReason).toBe("No model artifact is configured.");
+    });
+
+    it("refuses a new market without one sportsbook's anchor pair and writes nothing", async () => {
+      const store = await makeStore();
+      const template = (await runGameBoard(ask(), { store, collect: quiet })).board!;
+      const [market] = template.markets;
+      const before = await store.exportJournal();
+      const [home, away] = market!.pricing!.anchor;
+      for (const pricing of [
+        undefined,
+        { format: "paired-anchor-9", anchor: [home, away] },
+        {
+          format: "paired-anchor-1",
+          anchor: [home, { ...away, sportsbook: "Other Book" }],
+        },
+      ]) {
+        await expect(
+          store.beginBoard({
+            request: {
+              id: `${scopeOf()}:${pricing?.format ?? "none"}:${Math.random()}`,
+              hash: "x",
+            },
+            parentId: null,
+            game: template.game,
+            sportsbook: template.sportsbook,
+            observedAt: template.observedAt,
+            cutoffAt: template.cutoffAt,
+            markets: [
+              {
+                market: market!.market,
+                offers: market!.offers,
+                pricing: pricing as never,
+              },
+            ],
+          }),
+        ).rejects.toThrow(/anchor pair/);
+      }
+      expect(await store.exportJournal()).toEqual(before);
     });
 
     it("returns the same board for a repeated submission and rejects changed inputs", async () => {
@@ -327,7 +384,11 @@ export function describeGameBoardContract(
         observedAt: "2026-10-25T15:30:00.000Z",
         cutoffAt: NOW,
         markets: (await runGameBoard(ask(), { store, collect: quiet })).board!.markets.map(
-          ({ market, offers }) => ({ market, offers }),
+          ({ market, offers, pricing }) => ({
+            market,
+            offers,
+            pricing: pricing!,
+          }),
         ),
       });
       expect(begun.kind).toBe("created");
@@ -490,7 +551,11 @@ export function describeGameBoardContract(
         sportsbook: "Board Book",
         observedAt: "2026-10-25T15:30:00.000Z",
         cutoffAt: NOW,
-        markets: first.markets.map(({ market, offers }) => ({ market, offers })),
+        markets: first.markets.map(({ market, offers, pricing }) => ({
+          market,
+          offers,
+          pricing: pricing!,
+        })),
       });
       if (begun.kind !== "created") throw new Error("expected a created board");
       await expect(

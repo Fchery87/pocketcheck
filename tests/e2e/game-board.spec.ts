@@ -87,7 +87,7 @@ test("a moneyline game board freezes an unvalidated model pick", async ({ page, 
   );
   // The forecasting model chose the side; its identity is shown on the card.
   await expect(card.getByTestId("forecasting-model")).toContainText("a9f3e3e2effc");
-  await expect(card.getByTestId("calculation-version")).toHaveText("model-pick-2026-10-27.1");
+  await expect(card.getByTestId("calculation-version")).toHaveText("model-pick-2026-11-01.1");
 
   // The drafter wrote the explanation from the frozen pick, and its identity is separate.
   await expect(card.getByTestId("explanation-summary")).toContainText(

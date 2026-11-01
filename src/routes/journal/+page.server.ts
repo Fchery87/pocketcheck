@@ -221,7 +221,7 @@ export const actions = {
         id: randomUUID(),
         gameId,
         market: entry.market,
-        offers: entry.offers,
+        offers: entry.pricing.anchor,
         observedAt,
         source,
       });

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Sql, TransactionSql } from "postgres";
 import { parentsFirst } from "../db/order.ts";
 import { completionClock, lockGame } from "../db/repository.ts";
-import type { BoardQuoteResult } from "#lib/domain/board.ts";
+import type { BoardPricing, BoardQuoteResult } from "#lib/domain/board.ts";
 import type { Market, Offer } from "#lib/domain/offer.ts";
 import { requireFinalScores } from "#lib/domain/settlement.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
@@ -15,6 +15,7 @@ import {
   gradeBoardMarkets,
   isTerminalBoard,
   requireBoardRegistration,
+  requireNewMarketPricing,
   requirePickRegistration,
   WITHDRAW_NEEDS_REASON,
   WITHDRAW_UNFINISHED,
@@ -66,6 +67,8 @@ type MarketRow = {
   market: Market;
   offers: [Offer, Offer];
   quotes: BoardQuoteResult[];
+  pricing_format: BoardPricing["format"] | null;
+  anchor: BoardPricing["anchor"] | null;
   no_pick_reason: string | null;
 };
 
@@ -102,7 +105,8 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
     const [board] = await db<BoardRow[]>`SELECT * FROM game_boards WHERE id = ${id}`;
     if (!board) return null;
     const markets = await db<MarketRow[]>`
-      SELECT market, offers, quotes, no_pick_reason FROM board_markets WHERE board_id = ${id}
+      SELECT market, offers, quotes, pricing_format, anchor, no_pick_reason
+      FROM board_markets WHERE board_id = ${id}
     `;
     const picks = await db<PickRow[]>`
       SELECT p.id, p.board_id, p.market, p.parent_pick_id, p.calculation, p.forecasting_model,
@@ -140,6 +144,9 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
           market: row.market,
           offers: row.offers,
           quotes: row.quotes,
+          ...(row.pricing_format && row.anchor
+            ? { pricing: { format: row.pricing_format, anchor: row.anchor } }
+            : {}),
           pick: pick ? toPick(pick) : null,
           noPickReason: row.no_pick_reason,
         };
@@ -223,8 +230,12 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
       if (inserted.length === 0) return null;
       for (const market of input.markets) {
         await tx`
-          INSERT INTO board_markets (id, board_id, market, offers, quotes)
-          VALUES (${randomUUID()}, ${id}, ${market.market}, ${tx.json(market.offers as never)}, ${tx.json((market.quotes ?? []) as never)})
+          INSERT INTO board_markets (id, board_id, market, offers, quotes, pricing_format, anchor)
+          VALUES (
+            ${randomUUID()}, ${id}, ${market.market}, ${tx.json(market.offers as never)},
+            ${tx.json((market.quotes ?? []) as never)}, ${market.pricing.format},
+            ${tx.json(market.pricing.anchor as never)}
+          )
         `;
       }
       return id;
@@ -235,6 +246,7 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
     async beginBoard(input) {
       const found = await existing(input.request.id, input.request.hash);
       if (found) return found;
+      input.markets.forEach(requireNewMarketPricing);
       const id = await insert(input);
       if (id === null) {
         const raced = await existing(input.request.id, input.request.hash);
@@ -600,10 +612,13 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
         for (const market of board.markets) {
           await tx`
             INSERT INTO board_markets (
-              id, board_id, market, offers, quotes, no_pick_reason, frozen_at
+              id, board_id, market, offers, quotes, pricing_format, anchor, no_pick_reason,
+              frozen_at
             ) VALUES (
               ${randomUUID()}, ${board.id}, ${market.market}, ${tx.json(market.offers as never)},
-              ${tx.json(market.quotes as never)}, ${market.noPickReason},
+              ${tx.json(market.quotes as never)}, ${market.pricing?.format ?? null},
+              ${market.pricing ? tx.json(market.pricing.anchor as never) : null},
+              ${market.noPickReason},
               ${market.pick || market.noPickReason !== null ? board.createdAt : null}
             )
           `;

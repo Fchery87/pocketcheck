@@ -149,7 +149,9 @@ export function parseOffer(input: OfferInput): Offer {
         : (input.pointLine ?? null);
     const sameLine = (input.opposing.pointLine ?? null) === expectedLine;
     const opposingObserved = requireTime(input.opposing.observedAt, "opposing observation time");
-    const closeInTime = Math.abs(opposingObserved - observed) <= 15 * 60 * 1000;
+    // A shopped price's opposing side is the anchor's, observed separately at the anchor book.
+    const closeInTime =
+      input.shopped === true || Math.abs(opposingObserved - observed) <= 15 * 60 * 1000;
     if (!sameBook || !sameLine || !closeInTime) {
       throw new OfferError("Opposing price is not comparable");
     }

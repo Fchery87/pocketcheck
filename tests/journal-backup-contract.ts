@@ -9,6 +9,7 @@ import { runAnalysis, type AnalysisRequest, type ThesisDrafter } from "#lib/serv
 import type { JournalStore, ResearchStore } from "#lib/server/analysis/store.ts";
 import { PROSPECTIVE_PROTOCOL } from "#lib/server/models/release.ts";
 import { parseOffer } from "#lib/domain/offer.ts";
+import { anchorPairOf } from "#lib/domain/board.ts";
 import { quiet, scriptedModel } from "./board-fixtures.ts";
 
 const NOW = "2026-10-25T16:00:00.000Z";
@@ -199,6 +200,7 @@ export async function recordMixedJournal(store: JournalStore, scope: string): Pr
       sportsbook: "Board Book",
       observedAt: "2026-10-25T15:30:00.000Z",
       moneyline: { home: -150, away: 130, tieRule: "push" },
+      spread: { homeLine: -3.5, awayLine: 3.5, home: -110, away: -110 },
       extraQuotes: [
         {
           sportsbook: "Shop Book",
@@ -207,6 +209,14 @@ export async function recordMixedJournal(store: JournalStore, scope: string): Pr
           americanOdds: -135,
           pointLine: null,
           observedAt: "2026-10-25T15:20:00.000Z",
+        },
+        {
+          sportsbook: "Shop Book",
+          market: "spread",
+          selection: "away",
+          americanOdds: 100,
+          pointLine: 3.5,
+          observedAt: "2026-10-25T15:25:00.000Z",
         },
       ],
       requestId: `${scope}:board`,
@@ -336,6 +346,33 @@ export function describeJournalBackupContract(
         protocolRegistrations: 1,
         closingMarketSnapshots: 1,
       });
+      const [moneyline, spread] = exported.gameBoards![0]!.markets;
+      expect(
+        [moneyline!, spread!].map((market) =>
+          market.pricing?.anchor.map((side) => [side.sportsbook, side.americanOdds]),
+        ),
+      ).toEqual([
+        [
+          ["Board Book", -150],
+          ["Board Book", 130],
+        ],
+        [
+          ["Board Book", -110],
+          ["Board Book", -110],
+        ],
+      ]);
+      expect(moneyline!.offers[0]).toMatchObject({
+        sportsbook: "Shop Book",
+        americanOdds: -135,
+        observedAt: "2026-10-25T15:20:00.000Z",
+      });
+      expect(spread!.offers[1]).toMatchObject({
+        sportsbook: "Shop Book",
+        selection: "away",
+        pointLine: 3.5,
+        americanOdds: 100,
+      });
+      expect([moneyline!.quotes.length, spread!.quotes.length]).toEqual([1, 1]);
       expect(exported).not.toHaveProperty("runs");
       expect(exported).not.toHaveProperty("actualBets");
       expect(exported).not.toHaveProperty("closingObservations");
@@ -366,6 +403,8 @@ export function describeJournalBackupContract(
       expect(await back.exportJournal()).toEqual(exported);
       const primary = exported.analyses.find((row) => row.assessmentRole === "primary")!;
       expect(await back.getRun(primary.id)).toEqual(await source.getRun(primary.id));
+      const boardId = exported.gameBoards![0]!.id;
+      expect(await back.getBoard(boardId)).toEqual(await source.getBoard(boardId));
       // Bets and closes carry no creation time in the file, so a restored list is in id order.
       const byId = <T extends { id: string }>(rows: T[]) =>
         [...rows].sort((left, right) => (left.id < right.id ? -1 : 1));
@@ -411,7 +450,19 @@ export function describeJournalBackupContract(
       const unknownField = structuredClone(exported);
       Object.assign(unknownField.gameBoards![0]!.markets[0]!, { anchor: { format: 9 } });
       damaged.push(unknownField);
-      const future = { ...structuredClone(exported), boardExplanationEvents: [] };
+      const futurePricing = structuredClone(exported);
+      Object.assign(futurePricing.gameBoards![0]!.markets[0]!.pricing!, {
+        format: "paired-anchor-9",
+      });
+      damaged.push(futurePricing);
+      const otherContract = structuredClone(exported);
+      const spreadAnchor = otherContract.gameBoards![0]!.markets[1]!.pricing!.anchor;
+      spreadAnchor[1] = { ...spreadAnchor[1], pointLine: -3.5 };
+      damaged.push(otherContract);
+      const future = {
+        ...structuredClone(exported),
+        boardExplanationEvents: [],
+      };
       damaged.push(future);
       const mixed = { ...structuredClone(exported), runs: [], actualBets: [], notices: [] };
       damaged.push(mixed);
@@ -424,6 +475,25 @@ export function describeJournalBackupContract(
         await expect(target.restoreJournal(backup)).rejects.toThrow();
         expect(await target.exportJournal()).toEqual(before);
       }
+    });
+
+    it("restores a board market saved before its anchor pair without inventing one", async () => {
+      const source = await makeStore();
+      await recordMixedJournal(source, scope());
+      const older = structuredClone(await source.exportJournal());
+      for (const market of older.gameBoards![0]!.markets) delete market.pricing;
+      const target = await makeStore();
+      await target.restoreJournal(structuredClone(older));
+      const restored = await target.exportJournal();
+      expect(restored.gameBoards).toEqual(older.gameBoards);
+      const board = (await target.getBoard(older.gameBoards![0]!.id))!;
+      for (const market of board.markets) expect(market).not.toHaveProperty("pricing");
+      expect(
+        anchorPairOf(board.markets[0]!)?.map((side) => [side.sportsbook, side.americanOdds]),
+      ).toEqual([
+        ["Board Book", -150],
+        ["Board Book", 130],
+      ]);
     });
 
     it("restores a normalized backup written before boards and later collections", async () => {

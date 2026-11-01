@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   BoardError,
   parseGameBoard,
+  type BoardPricing,
   type BoardMoneylineInput,
   type BoardQuote,
   type BoardSpreadInput,
@@ -20,7 +21,8 @@ import {
 import { noSources, type EvidenceCollector } from "./evidence.ts";
 import { gameHasStarted } from "./games.ts";
 import { gatherEvidence } from "./gather-evidence.ts";
-import { noModel, type ModelSource, type RunModel } from "./model.ts";
+import { noModel, type ForecastRequest, type ModelSource, type RunModel } from "./model.ts";
+import { validateProtocolRegistration, type ProtocolRegistration } from "../models/protocol.ts";
 import { calculateModelPick } from "./model-pick.ts";
 import type { AnchorQuote } from "../models/anchor.ts";
 import { redactText } from "./redact.ts";
@@ -64,25 +66,23 @@ export type GameBoardDependencies = {
   collect?: EvidenceCollector;
   model?: ModelSource;
   forecast?: ForecastSource;
+  registration?: ProtocolRegistration;
   /** Explains the frozen picks. Defaults to the fixture drafter, as for a research run. */
   drafter?: PickDrafter;
 };
 
 export type GameBoardOutcome =
   | { ok: true; board: GameBoard }
-  | { ok: false; error: string; board?: GameBoard };
+  | { ok: false; error: string; field?: "protocolRegistrationId"; board?: GameBoard };
 
 type Computed = Extract<RunModel, { status: "computed" }>;
 
 async function price(
   model: ModelSource,
-  game: ScheduledGame,
-  nowIso: string,
-  offer: Offer,
-  anchor: AnchorQuote | undefined,
+  request: ForecastRequest,
 ): Promise<RunModel> {
   try {
-    return await model(game, nowIso, offer, anchor);
+    return await model(request);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {
@@ -92,21 +92,13 @@ async function price(
   }
 }
 
-/**
- * The anchor sportsbook's own two sides. A shopped price changes what a side pays, never where the
- * forecast starts, and every board offer names the anchor book's other side as its opposing price.
- */
-function anchorOf([first, second]: [Offer, Offer]): AnchorQuote | undefined {
-  const homeQuote = second.opposing;
-  const awayQuote = first.opposing;
-  if (!homeQuote || !awayQuote || homeQuote.sportsbook !== awayQuote.sportsbook) return undefined;
+/** Where the forecast starts: the saved anchor pair. A shopped price never moves it. */
+function anchorQuoteOf({ anchor: [home, away] }: BoardPricing): AnchorQuote {
   return {
-    sportsbook: homeQuote.sportsbook,
-    homeAmerican: homeQuote.americanOdds,
-    awayAmerican: awayQuote.americanOdds,
-    ...(homeQuote.pointLine === null || homeQuote.pointLine === undefined
-      ? {}
-      : { line: homeQuote.pointLine }),
+    sportsbook: home.sportsbook,
+    homeAmerican: home.americanOdds,
+    awayAmerican: away.americanOdds,
+    ...(home.pointLine === null ? {} : { line: home.pointLine }),
   };
 }
 
@@ -124,6 +116,7 @@ function leakReason(model: Computed, game: ScheduledGame, nowIso: string): strin
 
 async function pickMarket(input: {
   market: Market;
+  pricing: BoardPricing;
   offers: [Offer, Offer];
   game: ScheduledGame;
   nowIso: string;
@@ -131,11 +124,13 @@ async function pickMarket(input: {
   model: ModelSource;
   forecast?: ForecastSource;
   evidence: EvidenceItem[];
+  pinned?: RunModel[];
 }): Promise<FrozenMarketResult> {
   const { market, offers, game, nowIso } = input;
-  const anchor = anchorOf(offers);
-  const priced = await Promise.all(
-    offers.map((offer) => price(input.model, game, nowIso, offer, anchor)),
+  const anchor = anchorQuoteOf(input.pricing);
+  const requests = offers.map((offer): ForecastRequest => ({ game, cutoffAt: nowIso, offer, evidence: input.evidence, anchor }));
+  const priced = input.pinned ?? await Promise.all(
+    requests.map((request) => price(input.model, request)),
   );
   const [first, second] = priced;
   if (first!.status !== "computed") return { market, noPickReason: first!.reason };
@@ -150,14 +145,13 @@ async function pickMarket(input: {
   if (leaked) return { market, noPickReason: leaked };
   // Each side is priced by its frozen forecast when one is configured, so the side is chosen with
   // the same starters, injuries, and anchor that are recorded with the pick.
-  const forecasts = input.forecast
-    ? await Promise.all(
-        offers.map((offer, index) =>
-          input.forecast!(game, nowIso, offer, priced[index]!, input.evidence, anchor),
-        ),
-      )
-    : null;
-  if (forecasts && (forecasts[0] === null || forecasts[1] === null)) {
+  const forecasts = await Promise.all(requests.map(async (request, index) => {
+    const result = priced[index]!;
+    return result.status === "computed" && result.forecast
+      ? result.forecast
+      : input.forecast ? input.forecast(request, result) : null;
+  }));
+  if (input.forecast && (forecasts[0] === null || forecasts[1] === null)) {
     return {
       market,
       noPickReason: "The forecasting model could not freeze a forecast for both sides.",
@@ -174,6 +168,7 @@ async function pickMarket(input: {
   };
   const graded = calculateModelPick({
     market,
+    anchor: input.pricing.anchor,
     sides: [pricing(0, first), pricing(1, second)],
     released: first.eligible && second.eligible,
     materialEvidenceMissing: input.materialEvidenceMissing,
@@ -279,6 +274,7 @@ export async function runGameBoard(
     collect = noSources,
     model = noModel,
     forecast,
+    registration,
     drafter = createFixtureDrafter(),
   }: GameBoardDependencies,
 ): Promise<GameBoardOutcome> {
@@ -361,6 +357,43 @@ export async function runGameBoard(
     leanText || leanRationale ? { text: leanText, rationale: leanRationale } : parentLean;
 
   const scheduleRetrievedAt = request.scheduleRetrievedAt ?? request.nowIso;
+  let gatheredBeforeBegin: Awaited<ReturnType<typeof gatherEvidence>> | undefined;
+  const pinned = new Map<Market, RunModel[]>();
+  if (request.protocolRegistrationId) {
+    try {
+      if (!registration || registration.id !== request.protocolRegistrationId) {
+        throw new Error("Choose an existing evaluation registration.");
+      }
+      validateProtocolRegistration(registration);
+      const protocol = registration.protocol;
+      if (cutoff <= Date.parse(registration.registeredAt) || cutoff < Date.parse(protocol.period.start) ||
+          (protocol.period.end !== null && cutoff >= Date.parse(protocol.period.end)) ||
+          markets.some((entry) => !protocol.markets.includes(entry.market))) {
+        throw new Error("The board must be after registration and within the evaluation period for every entered market.");
+      }
+      gatheredBeforeBegin = await gatherEvidence({ game: request.game, nowIso: request.nowIso, scheduleRetrievedAt, collect, carried, manual });
+      for (const entry of markets) {
+        const results = await Promise.all(entry.offers.map((offer) => price(model, {
+          game: request.game, cutoffAt: request.nowIso, offer,
+          evidence: gatheredBeforeBegin!.items, anchor: anchorQuoteOf(entry.pricing),
+        })));
+        for (const result of results) {
+          if (result.status !== "computed") throw new Error(result.reason);
+          const saved = result.forecast;
+          if (result.artifact.checksum !== protocol.artifactChecksum || !saved ||
+              saved.artifact.checksum !== protocol.artifactChecksum ||
+              saved.inputAvailability.version !== protocol.inputAvailability ||
+              saved.decisionCutoff !== request.nowIso || leakReason(result, request.game, request.nowIso)) {
+            throw new Error("This forecasting artifact or input availability does not match the selected evaluation registration.");
+          }
+          result.forecast = { ...saved, protocolRegistrationId: registration.id };
+        }
+        pinned.set(entry.market, results);
+      }
+    } catch (error) {
+      return { ok: false, field: "protocolRegistrationId", error: redactText(error instanceof Error ? error.message : String(error)) };
+    }
+  }
   const identity = {
     manualEvidence: request.manualEvidence ?? [],
     carriedEvidence: carried.map((item) => item.id),
@@ -378,7 +411,9 @@ export async function runGameBoard(
     drafter: { provider: drafter.id, modelId: drafter.modelId },
   };
   const hash = createHash("sha256").update(JSON.stringify(identity)).digest("hex");
-  const begun = await store.beginBoard({
+  let begun;
+  try {
+    begun = await store.beginBoard({
     request: {
       id: request.requestId ?? randomUUID(),
       hash,
@@ -395,7 +430,13 @@ export async function runGameBoard(
     markets,
     lean,
     drafter: { id: drafter.id, modelId: drafter.modelId },
-  });
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "BoardBeginError") {
+      return { ok: false, field: "protocolRegistrationId", error: error.message };
+    }
+    throw error;
+  }
   if (begun.kind === "conflict") return { ok: false, error: begun.error };
   if (begun.kind === "existing") {
     const board = begun.board;
@@ -417,7 +458,7 @@ export async function runGameBoard(
   const boardId = begun.board.id;
   let durableSaved = false;
   try {
-    const gathered = await gatherEvidence({
+    const gathered = gatheredBeforeBegin ?? await gatherEvidence({
       game: request.game,
       nowIso: request.nowIso,
       scheduleRetrievedAt,
@@ -429,6 +470,7 @@ export async function runGameBoard(
     for (const entry of markets) {
       const picked = await pickMarket({
         market: entry.market,
+        pricing: entry.pricing,
         offers: entry.offers,
         game: request.game,
         nowIso: request.nowIso,
@@ -436,6 +478,7 @@ export async function runGameBoard(
         model,
         forecast,
         evidence: gathered.items,
+        pinned: pinned.get(entry.market),
       });
       results.push(
         picked.pick
