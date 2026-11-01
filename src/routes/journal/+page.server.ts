@@ -14,7 +14,6 @@ import { journalSummaries } from "#lib/server/analysis/summary.ts";
 import { parseObservedAt } from "#lib/server/analysis/form.ts";
 import { PROSPECTIVE_PROTOCOL } from "#lib/server/models/release.ts";
 import type { SettlementNoticeKind } from "#lib/server/analysis/store.ts";
-import type { JournalExport } from "#lib/server/analysis/journal-backup.ts";
 import type { Actions, PageServerLoad } from "./$types";
 
 function store() {
@@ -495,9 +494,9 @@ export const actions = {
         error: "Choose a version 1 journal backup to restore.",
       });
     }
-    let backup: JournalExport;
+    let backup: unknown;
     try {
-      backup = JSON.parse(await file.text()) as JournalExport;
+      backup = JSON.parse(await file.text());
     } catch {
       return fail(400, {
         restored: false,

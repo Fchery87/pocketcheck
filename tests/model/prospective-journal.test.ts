@@ -70,10 +70,11 @@ function journal(count: number): JournalExport {
     gameBoards.push({
       id: boardId,
       game: { id: gameId, kickoff },
-      request: { protocolRegistrationId: registration.id },
+      request: { id: `board-${i}`, hash: `board-${i}`, protocolRegistrationId: registration.id },
       parentId: null,
       withdrawal: null,
       status: "completed",
+      createdAt: cutoff,
       cutoffAt: cutoff,
       completedAt: new Date(Date.parse(cutoff) + 60000).toISOString(),
       markets: [{ market: "moneyline", pick, offers }],

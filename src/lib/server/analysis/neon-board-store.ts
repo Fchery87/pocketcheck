@@ -528,13 +528,12 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
       return boards;
     },
     async restoreBoards(tx: TransactionSql, boards: GameBoard[]): Promise<void> {
-      // Backups written before withdrawals or quotes have no field: never withdrawn, no quotes.
-      const normalized = boards.map(({ withdrawal, ...rest }): GameBoard => ({
-        ...rest,
-        markets: rest.markets.map((market) => ({ ...market, quotes: market.quotes ?? [] })),
-        providerRequests: stripBoardSecrets(rest.providerRequests) as GameBoard["providerRequests"],
-        usage: rest.usage ? (stripBoardSecrets(rest.usage) as GameBoard["usage"]) : rest.usage,
-        withdrawal: withdrawal ?? null,
+      const normalized = boards.map((board): GameBoard => ({
+        ...board,
+        providerRequests: stripBoardSecrets(
+          board.providerRequests,
+        ) as GameBoard["providerRequests"],
+        usage: board.usage ? (stripBoardSecrets(board.usage) as GameBoard["usage"]) : board.usage,
       }));
       for (const board of parentsFirst(normalized, (item) => item.parentId)) {
         const existing = await read(tx, board.id);

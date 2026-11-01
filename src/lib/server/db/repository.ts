@@ -13,7 +13,6 @@ import { americanToDecimal } from "#lib/domain/odds.ts";
 import type { Offer } from "#lib/domain/offer.ts";
 import type { Settlement as SettlementResult } from "#lib/domain/settlement.ts";
 import {
-  assertRestorable,
   CREDENTIAL_KEYS,
   sameRecord,
   type AnalysisRecord,
@@ -27,6 +26,7 @@ import {
   type JournalExport,
   type OfferRecord,
   type ReportRecord,
+  type RestorableJournal,
   type SettlementNoticeRecord,
   type SettlementRecord,
   type UserResearchRecord,
@@ -1007,19 +1007,18 @@ export class JournalRepository {
   }
 
   /**
-   * Restore a validated version 1 backup with its original ids, times, and relationships inside
-   * the caller's transaction. An identical record is left alone, so restoring the same backup twice
-   * changes nothing. A conflicting identifier throws and the caller's transaction rolls back.
-   * Games already stored under the same source id keep that row when the schedule fields match.
-   * Pending and ambiguous attempts are stored as records only. Restore does not call a source or a
-   * provider.
+   * Restore a decoded version 1 backup with its original ids, times, and relationships inside
+   * the caller's transaction, each record after the records it references. An identical record is
+   * left alone, so restoring the same backup twice changes nothing. A conflicting identifier
+   * throws and the caller's transaction rolls back. Games already stored under the same source id
+   * keep that row when the schedule fields match. Pending and ambiguous attempts are stored as
+   * records only. Restore does not call a source or a provider.
    */
   async restoreJournal(
     tx: TransactionSql,
-    snapshot: JournalExport,
+    snapshot: RestorableJournal,
     restoreBoards: () => Promise<void>,
   ): Promise<void> {
-    assertRestorable(snapshot);
     await restoreProtocolRegistrations(tx, snapshot.protocolRegistrations ?? []);
     const gameIds = await restoreGames(tx, snapshot.games);
     await restoreOffers(tx, snapshot.offers, gameIds);

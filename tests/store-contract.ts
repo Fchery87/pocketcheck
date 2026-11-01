@@ -1099,11 +1099,7 @@ export function describeStoreContract(
         rules: { period: "full-game", overtime: "included", tie: "push" },
       });
       const backup = await source.exportJournal();
-      const raw =
-        "closingObservations" in backup
-          ? (backup.closingObservations as Array<{ observedAt: string | null }>)
-          : backup.closings;
-      raw[0]!.observedAt = "2026-10-25T15:30:00.000Z";
+      backup.closings[0]!.observedAt = "2026-10-25T15:30:00.000Z";
       const destination = await makeStore();
       await destination.restoreJournal(backup);
       expect(await destination.exportJournal()).toEqual(backup);
@@ -1113,20 +1109,12 @@ export function describeStoreContract(
       });
       const before = await destination.exportJournal();
       const malformed = structuredClone(backup);
-      const malformedRaw =
-        "closingObservations" in malformed
-          ? (malformed.closingObservations as Array<{ observedAt: string | null }>)
-          : malformed.closings;
-      malformedRaw[0]!.observedAt = "not-a-time";
+      malformed.closings[0]!.observedAt = "not-a-time";
       await expect(destination.restoreJournal(malformed)).rejects.toThrow();
       expect(await destination.exportJournal()).toEqual(before);
       const untimestamped = structuredClone(backup);
-      const missingRaw =
-        "closingObservations" in untimestamped
-          ? (untimestamped.closingObservations as Array<{ observedAt: string | null }>)
-          : untimestamped.closings;
-      missingRaw[0]!.observedAt = null;
-      Object.assign(missingRaw[0]!, { provenance: "archived-untimestamped" });
+      untimestamped.closings[0]!.observedAt = null;
+      untimestamped.closings[0]!.provenance = "archived-untimestamped";
       const legacy = await makeStore();
       await legacy.restoreJournal(untimestamped);
       expect(await legacy.exportJournal()).toEqual(untimestamped);
@@ -1693,10 +1681,7 @@ export function describeStoreContract(
       expect(exportedBoard?.markets[0]?.pick?.id).toBe(outcome.board.markets[0]!.pick!.id);
       expect(exportedBoard?.markets[0]?.pick?.role.role).toBe("primary");
       const pickId = outcome.board.markets[0]!.pick!.id;
-      const exportedBets = backup.bets.length
-        ? backup.bets
-        : ((backup as { actualBets?: { modelPickId: string | null }[] }).actualBets ?? []);
-      expect(exportedBets.some((bet) => bet.modelPickId === pickId)).toBe(true);
+      expect(backup.bets.some((bet) => bet.modelPickId === pickId)).toBe(true);
       expect(JSON.stringify(backup)).not.toMatch(/api[_-]?key|authorization/i);
 
       const empty = (await makeStore()) as JournalStore;

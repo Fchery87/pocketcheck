@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { encodeJournalBackup, type JournalExport } from "#lib/server/analysis/journal-backup.ts";
 import { loadFixtureGames } from "#lib/server/analysis/games.ts";
 import { runAnalysis } from "#lib/server/analysis/run.ts";
-import { createMemoryStore, type MemoryJournal } from "#lib/server/analysis/store.ts";
+import { createMemoryStore } from "#lib/server/analysis/store.ts";
 
 const NOW = "2026-10-25T16:00:00.000Z";
 const DUMMY_KEY = "claw_dummy_4b7e1d09aa";
@@ -37,7 +37,7 @@ describe("journal backup encoding", () => {
   it("rejects a record holding a configured secret and names its path without rewriting it", async () => {
     const journal = await journalWith(`pasted by mistake: ${DUMMY_KEY}`);
     const saved = structuredClone(journal);
-    const run = (journal as MemoryJournal).runs[0]!;
+    const research = journal.userResearch[0]!;
     let failure: unknown;
     try {
       encodeJournalBackup(journal, { secrets: [DUMMY_KEY] });
@@ -46,7 +46,7 @@ describe("journal backup encoding", () => {
     }
     expect(failure).toBeInstanceOf(Error);
     const message = (failure as Error).message;
-    expect(message).toContain(`runs[id=${run.id}].lean.rationale`);
+    expect(message).toContain(`userResearch[id=${research.id}].rationale`);
     expect(message).not.toContain(DUMMY_KEY);
     expect(journal).toEqual(saved);
   });
@@ -54,19 +54,27 @@ describe("journal backup encoding", () => {
   it("rejects a recognizable provider key even when it is not configured", async () => {
     const journal = await journalWith("note sk-abcdefghijklmnop1234 from an old run");
     expect(() => encodeJournalBackup(journal, { secrets: [] })).toThrow(
-      /runs\[id=[^\]]+\]\.lean\.rationale/,
+      /userResearch\[id=[^\]]+\]\.rationale/,
     );
   });
 
   it("rejects a saved credential header whatever its value", async () => {
-    const journal = (await journalWith("Home rest edge")) as MemoryJournal;
-    const run = journal.runs[0]!;
+    const journal = await journalWith("Home rest edge");
+    const analysis = journal.analyses[0]!;
     const tampered = {
       ...journal,
-      runs: [{ ...run, providerRequests: [{ response: { Authorization: "Basic dXNlcjpwdw==" } }] }],
+      analyses: [
+        {
+          ...analysis,
+          snapshot: {
+            ...analysis.snapshot,
+            providerRequests: [{ response: { Authorization: "Basic dXNlcjpwdw==" } }],
+          },
+        },
+      ],
     } as JournalExport;
     expect(() => encodeJournalBackup(tampered, { secrets: [] })).toThrow(
-      `runs[id=${run.id}].providerRequests[0].response.Authorization`,
+      `analyses[id=${analysis.id}].snapshot.providerRequests[0].response.Authorization`,
     );
   });
 

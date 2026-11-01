@@ -182,11 +182,7 @@ export function describeGameBoardContract(
       }
       await store.recordClosing(close);
       const backup = await store.exportJournal();
-      const raw =
-        "closingObservations" in backup
-          ? (backup.closingObservations as Array<{ observedAt: string | null }>)
-          : backup.closings;
-      raw[0]!.observedAt = board.observedAt;
+      backup.closings[0]!.observedAt = board.observedAt;
       const restored = await makeStore();
       await restored.restoreJournal(backup);
       expect(await restored.exportJournal()).toEqual(backup);

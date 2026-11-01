@@ -1,89 +1,45 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { Sql } from "postgres";
 import { americanToDecimal } from "#lib/domain/odds.ts";
 import { parseOffer } from "#lib/domain/offer.ts";
 import { requireFinalScores } from "#lib/domain/settlement.ts";
-import type { ThesisReport } from "../providers/contracts.ts";
-import type { EvidenceFacts, EvidenceItem } from "../sources/contracts.ts";
 import {
   BetSubmissionConflict,
   JournalRepository,
   readJournalRecords,
   type SaveAnalysisInput,
 } from "../db/repository.ts";
-import type { BetContract, EvidenceRecord, GameRecord, JournalExport } from "./journal-backup.ts";
-import type { RunModel } from "./model.ts";
-import type { SavedForecast } from "./forecast-record.ts";
-import type { PolicyDecision } from "./policy.ts";
+import {
+  canonicalOrder,
+  decodeJournalBackup,
+  type BetContract,
+  type JournalExport,
+} from "./journal-backup.ts";
+import {
+  betFingerprint,
+  betFromRecord,
+  evidenceFields,
+  runFromRecords,
+} from "./journal-records.ts";
 import { compareClosing } from "./closing.ts";
 import { createNeonBoardStore } from "./neon-board-store.ts";
 import type { GameBoardStore } from "./board-store.ts";
 import {
   gradeFromNotices,
   settlementPayloadKey,
-  type ActualBet,
-  type AssessmentRole,
   type ClosingObservation,
   type ClosingProvenance,
   type NewClosing,
   type NewRun,
-  type ProgressStage,
   type RecordSettlementInput,
   type RecordSettlementResult,
   type ResearchRun,
   type JournalStore,
   type ResearchStore,
-  type RunGame,
   type RunStatus,
-  type RunUsage,
   type SettlementGrade,
   type StoredNotice,
 } from "./store.ts";
-
-/** What an evidence row's body holds, so the packet item comes back unchanged. */
-type EvidenceBody = {
-  facts: EvidenceFacts;
-  excerpt: string | null;
-  factKey: string | null;
-  checksum: string | null;
-};
-
-function evidenceRow(item: EvidenceItem) {
-  const body: EvidenceBody = {
-    facts: item.facts,
-    excerpt: item.excerpt,
-    factKey: item.factKey,
-    checksum: item.checksum,
-  };
-  return {
-    packetItemId: item.id,
-    sourceId: item.sourceId,
-    sourceUrl: item.url,
-    retrievedAt: item.retrievedAt,
-    publishedAt: item.publishedAt === "unknown" ? null : item.publishedAt,
-    effectiveAt: null,
-    checksum: item.checksum ?? createHash("sha256").update(JSON.stringify(body)).digest("hex"),
-    body,
-    origin: item.origin,
-    completeness: "packet",
-  };
-}
-
-function evidenceItem(record: EvidenceRecord): EvidenceItem {
-  const body = record.body as EvidenceBody;
-  return {
-    id: record.packetItemId ?? record.id,
-    sourceId: record.sourceId,
-    url: record.sourceUrl,
-    retrievedAt: record.retrievedAt,
-    publishedAt: record.publishedAt ?? "unknown",
-    origin: record.origin,
-    facts: body.facts ?? {},
-    excerpt: body.excerpt ?? null,
-    checksum: body.checksum === undefined ? record.checksum : body.checksum,
-    factKey: body.factKey ?? null,
-  };
-}
 
 function runStatus(status: string): RunStatus {
   if (status === "completed" || status === "failed") return status;
@@ -97,63 +53,19 @@ export function createNeonStore(sql: Sql): JournalStore {
 
   /** Research records and boards read under one snapshot, so a concurrent write cannot split them. */
   async function exportJournal(): Promise<JournalExport> {
-    return sql.begin("ISOLATION LEVEL REPEATABLE READ READ ONLY", async (tx) => ({
-      ...(await readJournalRecords(tx)),
-      gameBoards: await boardStore.readBoards(tx),
-    }));
+    return sql.begin("ISOLATION LEVEL REPEATABLE READ READ ONLY", async (tx) =>
+      canonicalOrder({
+        ...(await readJournalRecords(tx)),
+        gameBoards: await boardStore.readBoards(tx),
+      }),
+    );
   }
 
   async function getRun(id: string): Promise<ResearchRun | null> {
     const saved = await journal.findRun(id);
     if (!saved) return null;
-    const { game, offer, analysis, report, userResearch, evidence } = saved;
-    return {
-      id: analysis.id,
-      request: analysis.snapshot.request ?? null,
-      parentId: analysis.parentId,
-      snapshotVersion: analysis.snapshot.version,
-      snapshotProvenance: analysis.snapshot.provenance,
-      cutoffAt: analysis.cutoffAt,
-      status: runStatus(analysis.status),
-      stages: (analysis.stages as ProgressStage[] | null) ?? [],
-      game: toRunGame(game),
-      offer: {
-        gameId: game.sourceGameId,
-        sportsbook: offer.sportsbook,
-        market: offer.market,
-        selection: offer.selection,
-        pointLine: offer.pointLine,
-        americanOdds: offer.americanOdds,
-        decimalOdds: offer.decimalOdds,
-        observedAt: isoTimestamp(offer.observedAt),
-        kickoffAt: isoTimestamp(offer.kickoffAt),
-        rules: offer.rules,
-        opposing: offer.opposing,
-      },
-      lean: userResearch
-        ? {
-            text: userResearch.lean ?? "",
-            rationale: userResearch.rationale ?? "",
-          }
-        : null,
-      evidence: evidence.map(evidenceItem),
-      evidencePacketHash: analysis.evidencePacketHash ?? "",
-      gaps: Array.isArray(analysis.gaps) ? (analysis.gaps as string[]) : [],
-      usage: (analysis.usage as RunUsage | null) ?? null,
-      providerRequests: analysis.snapshot.providerRequests ?? [],
-      providerOutcomeAmbiguous: analysis.snapshot.providerOutcomeAmbiguous ?? false,
-      probabilityModel: (analysis.probabilityModel as RunModel | null) ?? null,
-      forecast: (analysis.snapshot.forecast as SavedForecast | null | undefined) ?? null,
-      report: (report?.body as ThesisReport | null | undefined) ?? null,
-      renderedText: report?.renderedText ?? "",
-      failureReason: analysis.failureReason,
-      policy: (analysis.policy as PolicyDecision | null) ?? null,
-      provider: analysis.provider ?? "unknown",
-      model: analysis.model ?? "unknown",
-      createdAt: analysis.createdAt,
-      completedAt: analysis.completedAt,
-      assessmentRole: storedAssessmentRole(analysis),
-    };
+    const run = runFromRecords(saved);
+    return { ...run, status: runStatus(run.status) };
   }
 
   const research: ResearchStore = {
@@ -253,7 +165,7 @@ export function createNeonStore(sql: Sql): JournalStore {
           stakeUnits: bet.stakeUnits,
           sportsbook: contract.sportsbook,
         });
-        return { kind: prior ? "existing" : "created", bet: toBet(record) };
+        return { kind: prior ? "existing" : "created", bet: betFromRecord(record) };
       } catch (error) {
         if (error instanceof BetSubmissionConflict) {
           return { kind: "conflict", error: error.message };
@@ -265,7 +177,7 @@ export function createNeonStore(sql: Sql): JournalStore {
       const records = await journal.listBets();
       return records
         .filter((record) => record.analysisId !== null || record.modelPickId)
-        .map(toBet);
+        .map(betFromRecord);
     },
     async recordSettlement(input) {
       requireFinalScores(input);
@@ -309,7 +221,8 @@ export function createNeonStore(sql: Sql): JournalStore {
       );
     },
     exportJournal,
-    async restoreJournal(backup) {
+    async restoreJournal(input) {
+      const backup = decodeJournalBackup(input);
       await sql.begin((tx) =>
         journal.restoreJournal(tx, backup, () =>
           boardStore.restoreBoards(tx, backup.gameBoards ?? []),
@@ -319,42 +232,6 @@ export function createNeonStore(sql: Sql): JournalStore {
     },
   };
   return { ...research, ...boardStore };
-}
-
-function storedAssessmentRole(analysis: {
-  assessmentRole: "primary" | "refresh" | "ineligible" | null;
-  assessmentRoleReason: string | null;
-  primaryAnalysisId: string | null;
-  completedAt: string | null;
-}): AssessmentRole | null {
-  if (!analysis.assessmentRole || !analysis.completedAt) return null;
-  if (analysis.assessmentRole === "refresh" && analysis.primaryAnalysisId) {
-    return {
-      role: "refresh",
-      primaryId: analysis.primaryAnalysisId,
-      reason: analysis.assessmentRoleReason ?? "",
-    };
-  }
-  if (analysis.assessmentRole === "ineligible") {
-    return { role: "ineligible", reason: analysis.assessmentRoleReason ?? "" };
-  }
-  return { role: "primary", reason: analysis.assessmentRoleReason ?? "" };
-}
-
-function toRunGame(game: GameRecord): RunGame {
-  return {
-    id: game.sourceGameId,
-    season: game.season,
-    week: game.week,
-    home: game.homeTeam,
-    away: game.awayTeam,
-    kickoff: isoTimestamp(game.kickoffAt),
-    venue: game.venue,
-  };
-}
-
-function isoTimestamp(value: string): string {
-  return new Date(value).toISOString();
 }
 
 function journalInput(run: NewRun, includeUserResearch: boolean): SaveAnalysisInput {
@@ -383,7 +260,7 @@ function journalInput(run: NewRun, includeUserResearch: boolean): SaveAnalysisIn
       rules: run.offer.rules,
       opposing: run.offer.opposing,
     },
-    evidence: run.evidence.map(evidenceRow),
+    evidence: run.evidence.map(evidenceFields),
     analysis: {
       id: run.id,
       parentId: run.parentId,
@@ -418,56 +295,6 @@ function journalInput(run: NewRun, includeUserResearch: boolean): SaveAnalysisIn
       ? { userResearch: { lean: run.lean.text, rationale: run.lean.rationale } }
       : {}),
   };
-}
-
-function toBet(record: Awaited<ReturnType<JournalRepository["listBets"]>>[number]): ActualBet {
-  return {
-    id: record.id,
-    analysisId: record.analysisId,
-    modelPickId: record.modelPickId ?? null,
-    submissionId: record.submissionId,
-    contractProvenance: record.contract ? "captured" : "legacy-unknown",
-    sportsbook: record.sportsbook ?? "",
-    market: record.contract?.market ?? null,
-    selection: record.contract?.selection ?? null,
-    pointLine: record.contract?.pointLine ?? null,
-    rules: record.contract?.rules ?? null,
-    americanOdds: record.americanOdds,
-    stakeUnits: record.stakeUnits,
-    placedAt: record.placedAt,
-  };
-}
-
-function betFingerprint(
-  analysisId: string | undefined,
-  modelPickId: string | undefined,
-  contract: {
-    sportsbook: string;
-    market: string;
-    selection: string;
-    pointLine: number | null;
-    americanOdds: number;
-    rules: BetContract["rules"];
-  },
-  stakeUnits: number,
-  placedAt: string,
-): string {
-  return createHash("sha256")
-    .update(
-      JSON.stringify({
-        analysisId,
-        modelPickId,
-        sportsbook: contract.sportsbook,
-        market: contract.market,
-        selection: contract.selection,
-        pointLine: contract.pointLine,
-        americanOdds: contract.americanOdds,
-        rules: contract.rules,
-        stakeUnits,
-        placedAt,
-      }),
-    )
-    .digest("hex");
 }
 
 async function persistClosing(

@@ -11,7 +11,8 @@ import type { AttemptRequest } from "./attempt.ts";
 import type { GameBoard } from "./board-store.ts";
 import { containsSecret } from "./redact.ts";
 import type { SavedForecast } from "./forecast-record.ts";
-import type { MemoryJournal, StoredNotice } from "./store.ts";
+import type { StoredNotice } from "./store.ts";
+import { decodeMemoryV1, MEMORY_V1_FIELDS } from "./journal-backup-legacy.ts";
 
 export type GameRecord = {
   id: string;
@@ -209,6 +210,546 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 /** Supported journal backup format. Version 1 is the only importable backup. */
 export const SUPPORTED_JOURNAL_BACKUP_VERSION = 1;
 
+declare const restorable: unique symbol;
+
+/** A backup whose every record and relationship was checked. Only a decoded file is written. */
+export type RestorableJournal = JournalExport & { readonly [restorable]: true };
+
+/**
+ * Field kinds. `?` allows null. `=` also allows the field to be absent from a file written before
+ * the field existed, which means null, the field's established legacy default.
+ */
+type FieldSpec = `${FieldKind}${"" | "?" | "?="}`;
+type FieldKind =
+  | "uuid"
+  | "text"
+  | "integer"
+  | "number"
+  | "instant"
+  | "boolean"
+  | "object"
+  | "array"
+  | "json";
+
+type RecordCollection = Exclude<
+  keyof JournalExport,
+  "version" | "gameBoards" | "protocolRegistrations" | "closingMarketSnapshots"
+>;
+
+const GAME_FIELDS = {
+  id: "uuid",
+  sourceGameId: "text",
+  season: "integer",
+  week: "integer?",
+  awayTeam: "text",
+  homeTeam: "text",
+  kickoffAt: "instant",
+  venue: "text?",
+  status: "text",
+} satisfies Record<keyof GameRecord, FieldSpec>;
+
+const NOTICE_FIELDS = {
+  id: "uuid",
+  eventId: "text",
+  analysisId: "uuid?",
+  betId: "uuid?",
+  kind: "text",
+  homeScore: "integer?",
+  awayScore: "integer?",
+  source: "text",
+  reason: "text?",
+  correctsId: "uuid?",
+  recordedAt: "instant",
+  payloadKey: "text",
+} satisfies Record<keyof SettlementNoticeRecord, FieldSpec>;
+
+/** Every field a version 1 record may hold. A field outside this table is a newer format. */
+const RECORD_FIELDS: { [Collection in RecordCollection]: Record<string, FieldSpec> } = {
+  games: GAME_FIELDS,
+  offers: {
+    id: "uuid",
+    gameId: "uuid",
+    sportsbook: "text",
+    market: "text",
+    selection: "text",
+    pointLine: "number?",
+    americanOdds: "integer",
+    decimalOdds: "number",
+    observedAt: "instant",
+    enteredAt: "instant",
+    kickoffAt: "instant",
+    rules: "object",
+    opposing: "object?=",
+    completedAt: "instant?",
+  } satisfies Record<keyof OfferRecord, FieldSpec>,
+  evidence: {
+    id: "uuid",
+    sourceId: "text",
+    sourceUrl: "text?",
+    retrievedAt: "instant",
+    publishedAt: "instant?",
+    effectiveAt: "instant?",
+    checksum: "text",
+    body: "json",
+    origin: "text",
+    completeness: "text",
+    completedAt: "instant?",
+    packetItemId: "text?=",
+  } satisfies Record<keyof EvidenceRecord, FieldSpec>,
+  analyses: {
+    id: "uuid",
+    offerId: "uuid",
+    parentId: "uuid?",
+    snapshot: "object",
+    cutoffAt: "instant",
+    status: "text",
+    conclusion: "text?",
+    methodVersion: "text?",
+    policyVersion: "text?",
+    schemaVersion: "text?",
+    promptVersion: "text?",
+    evidencePacketHash: "text?",
+    provider: "text?",
+    model: "text?",
+    failureReason: "text?",
+    idempotencyKey: "text?",
+    completedAt: "instant?",
+    createdAt: "instant",
+    policy: "json?",
+    stages: "json?",
+    gaps: "json?=",
+    usage: "json?",
+    probabilityModel: "json?=",
+    evidenceIds: "array",
+    assessmentRole: "text?=",
+    assessmentRoleReason: "text?=",
+    primaryAnalysisId: "uuid?=",
+  } satisfies Record<keyof AnalysisRecord, FieldSpec>,
+  reports: {
+    id: "uuid",
+    analysisId: "uuid",
+    claims: "json",
+    thesis: "text",
+    usage: "json?",
+    renderedText: "text",
+    completedAt: "instant",
+    body: "json?=",
+  } satisfies Record<keyof ReportRecord, FieldSpec>,
+  userResearch: {
+    id: "uuid",
+    analysisId: "uuid",
+    lean: "text?",
+    rationale: "text?",
+  } satisfies Record<keyof UserResearchRecord, FieldSpec>,
+  bets: {
+    id: "uuid",
+    offerId: "uuid",
+    analysisId: "uuid?",
+    modelPickId: "uuid?=",
+    submissionId: "text?=",
+    contract: "object?=",
+    contractFingerprint: "text?=",
+    americanOdds: "integer",
+    decimalOdds: "number",
+    placedAt: "instant",
+    stakeUnits: "number",
+    sportsbook: "text?=",
+  } satisfies Record<keyof BetRecord, FieldSpec>,
+  settlements: {
+    id: "uuid",
+    betId: "uuid?",
+    offerId: "uuid?",
+    result: "text",
+    rules: "text",
+    source: "text",
+    reason: "text?",
+    settledAt: "instant",
+    correctsId: "uuid?",
+  } satisfies Record<keyof SettlementRecord, FieldSpec>,
+  closings: {
+    id: "uuid",
+    analysisId: "uuid?",
+    betId: "uuid?",
+    modelPickId: "uuid?=",
+    provenance: "text",
+    sportsbook: "text",
+    market: "text",
+    selection: "text",
+    pointLine: "number?",
+    rules: "object",
+    americanOdds: "integer",
+    decimalOdds: "number",
+    observedAt: "instant?",
+    source: "text",
+  } satisfies Record<keyof ClosingRecord, FieldSpec>,
+  settlementNotices: NOTICE_FIELDS,
+  gameSettlementNotices: { ...NOTICE_FIELDS, gameId: "text?" } satisfies Record<
+    keyof StoredNotice,
+    FieldSpec
+  >,
+};
+
+/**
+ * Board fields, and the versions of each versioned board format this reader accepts. A later
+ * board format adds its field here together with the versions it accepts, so an older reader
+ * rejects that file instead of dropping the field on restore.
+ */
+const BOARD_FIELDS = new Set<string>([
+  "id",
+  "request",
+  "parentId",
+  "status",
+  "game",
+  "sportsbook",
+  "observedAt",
+  "cutoffAt",
+  "markets",
+  "evidence",
+  "gaps",
+  "failureReason",
+  "lean",
+  "drafter",
+  "providerRequests",
+  "providerOutcomeAmbiguous",
+  "usage",
+  "explanation",
+  "withdrawal",
+  "createdAt",
+  "completedAt",
+] satisfies (keyof GameBoard)[]);
+const BOARD_REQUEST_FIELDS = new Set<string>([
+  "id",
+  "hash",
+  "protocolRegistrationId",
+  "explanationFormatVersion",
+] satisfies (keyof GameBoard["request"])[]);
+const BOARD_MARKET_FIELDS = new Set<string>([
+  "market",
+  "offers",
+  "quotes",
+  "pick",
+  "noPickReason",
+] satisfies (keyof GameBoard["markets"][number])[]);
+const MODEL_PICK_FIELDS = new Set<string>([
+  "id",
+  "boardId",
+  "market",
+  "parentPickId",
+  "forecastingModel",
+  "calculation",
+  "forecast",
+  "role",
+  "createdAt",
+] satisfies (keyof NonNullable<GameBoard["markets"][number]["pick"]>)[]);
+const EXPLANATION_FORMAT_VERSIONS: readonly unknown[] = [undefined, 2];
+
+const BACKUP_COLLECTIONS = [
+  "games",
+  "offers",
+  "evidence",
+  "analyses",
+  "reports",
+  "userResearch",
+  "bets",
+  "settlements",
+  "closings",
+  "settlementNotices",
+  "gameBoards",
+  "protocolRegistrations",
+  "closingMarketSnapshots",
+  "gameSettlementNotices",
+] as const satisfies Exclude<keyof JournalExport, "version">[];
+
+const REQUIRED_COLLECTIONS: ReadonlySet<string> = new Set([
+  "games",
+  "offers",
+  "evidence",
+  "analyses",
+  "reports",
+  "userResearch",
+  "bets",
+  "settlements",
+  "closings",
+]);
+
+/**
+ * Parse a backup file. Recognized older memory layouts are converted to version 1 records first.
+ * A missing optional list or field means its legacy default. An unknown version, list, or field,
+ * a malformed record, or a broken relationship is rejected before any write.
+ */
+export function decodeJournalBackup(input: unknown): RestorableJournal {
+  if (
+    !isObject(input) ||
+    Array.isArray(input) ||
+    input.version !== SUPPORTED_JOURNAL_BACKUP_VERSION
+  ) {
+    throw new Error(
+      `Unsupported journal backup version. Version ${SUPPORTED_JOURNAL_BACKUP_VERSION} is the only supported backup.`,
+    );
+  }
+  for (const key of Object.keys(input)) {
+    if (
+      key !== "version" &&
+      !(BACKUP_COLLECTIONS as readonly string[]).includes(key) &&
+      !(MEMORY_V1_FIELDS as readonly string[]).includes(key)
+    ) {
+      throw new Error(
+        `Journal backup has an unsupported list "${key}". A newer PocketCheck may have written it.`,
+      );
+    }
+  }
+  const file = MEMORY_V1_FIELDS.some((key) => key in input) ? fromMemoryV1(input) : input;
+  const parsed: Record<string, unknown> = { version: SUPPORTED_JOURNAL_BACKUP_VERSION };
+  for (const collection of BACKUP_COLLECTIONS) {
+    const rows = file[collection];
+    if (rows === undefined && !REQUIRED_COLLECTIONS.has(collection)) {
+      parsed[collection] = [];
+      continue;
+    }
+    if (!Array.isArray(rows)) {
+      throw new Error(`Journal backup list "${collection}" is missing or is not a list.`);
+    }
+    parsed[collection] =
+      collection === "gameBoards"
+        ? rows.map(parseBoard)
+        : collection === "protocolRegistrations" || collection === "closingMarketSnapshots"
+          ? rows.map((row) => structuredClone(row))
+          : rows.map((row) => parseRecord(collection, row));
+  }
+  const backup = parsed as JournalExport;
+  assertRestorable(backup);
+  assertStorableIdentities(backup);
+  return canonicalOrder(backup) as RestorableJournal;
+}
+
+/**
+ * A memory backup written before both journals shared version 1 records. When a file also holds
+ * normalized records, both representations must describe the same records.
+ */
+function fromMemoryV1(file: Record<string, unknown>): Record<string, unknown> {
+  const decoded = decodeMemoryV1(file);
+  const lists = (source: Record<string, unknown>) =>
+    canonicalOrder(
+      Object.fromEntries(
+        Object.entries(source).filter(([, rows]) => Array.isArray(rows)),
+      ) as unknown as JournalExport,
+    ) as unknown as Record<string, unknown[] | undefined>;
+  const own = lists(file);
+  const converted = lists(decoded);
+  for (const key of Object.keys(decoded)) {
+    if (key === "gameSettlementNotices" || !own[key]?.length) continue;
+    if (!sameRecord(own[key], converted[key])) {
+      throw new Error(
+        `Journal backup mixes memory records and version 1 "${key}" records that disagree.`,
+      );
+    }
+  }
+  const rest = Object.fromEntries(
+    Object.entries(file).filter(([key]) => !(MEMORY_V1_FIELDS as readonly string[]).includes(key)),
+  );
+  return { ...rest, ...decoded };
+}
+
+function parseRecord(collection: RecordCollection, value: unknown): Record<string, unknown> {
+  const label = COLLECTION_LABELS[collection];
+  if (!isObject(value) || Array.isArray(value)) {
+    throw new Error(`Journal backup has a malformed ${label} record.`);
+  }
+  const fields = RECORD_FIELDS[collection];
+  const name = typeof value.id === "string" ? `${label} ${value.id}` : label;
+  for (const key of Object.keys(value)) {
+    if (!(key in fields) && value[key] !== undefined) {
+      throw new Error(`Journal backup ${name} has an unsupported field "${key}".`);
+    }
+  }
+  const record: Record<string, unknown> = {};
+  for (const [key, spec] of Object.entries(fields)) {
+    const nullable = spec.includes("?");
+    const kind = spec.replace(/[?=]/g, "") as FieldKind;
+    let field = value[key];
+    if (field === undefined && spec.endsWith("=")) field = null;
+    if (field === undefined) {
+      throw new Error(`Journal backup ${name} is missing "${key}".`);
+    }
+    if (field === null ? !nullable : !fieldMatches(kind, field)) {
+      if (kind === "uuid" && key === "id") {
+        throw new Error(`Journal backup has a malformed ${label} identifier.`);
+      }
+      throw new Error(`Journal backup ${name} has an invalid "${key}".`);
+    }
+    record[key] = structuredClone(field);
+  }
+  return record;
+}
+
+function fieldMatches(kind: FieldKind, value: unknown): boolean {
+  switch (kind) {
+    case "uuid":
+      return typeof value === "string" && UUID.test(value);
+    case "text":
+      return typeof value === "string";
+    case "integer":
+      return Number.isInteger(value);
+    case "number":
+      return typeof value === "number" && Number.isFinite(value);
+    case "instant":
+      return typeof value === "string" && Number.isFinite(Date.parse(value));
+    case "boolean":
+      return typeof value === "boolean";
+    case "object":
+      return isObject(value) && !Array.isArray(value);
+    case "array":
+      return Array.isArray(value);
+    case "json":
+      return true;
+  }
+}
+
+const COLLECTION_LABELS: Record<RecordCollection, string> = {
+  games: "game",
+  offers: "offer",
+  evidence: "evidence",
+  analyses: "analysis",
+  reports: "report",
+  userResearch: "user research",
+  bets: "bet",
+  settlements: "settlement",
+  closings: "closing observation",
+  settlementNotices: "settlement notice",
+  gameSettlementNotices: "game settlement notice",
+};
+
+function parseBoard(value: unknown): GameBoard {
+  if (!isObject(value) || Array.isArray(value)) {
+    throw new Error("Journal backup has a malformed game board record.");
+  }
+  const id = typeof value.id === "string" && UUID.test(value.id) ? value.id : null;
+  if (!id) throw new Error("Journal backup has a malformed game board identifier.");
+  requireKnownFields(value, BOARD_FIELDS, `Game board ${id}`);
+  const request = value.request;
+  if (!isObject(request) || typeof request.id !== "string" || typeof request.hash !== "string") {
+    throw new Error(`Game board ${id} has a malformed request.`);
+  }
+  requireKnownFields(request, BOARD_REQUEST_FIELDS, `Game board ${id} request`);
+  if (!EXPLANATION_FORMAT_VERSIONS.includes(request.explanationFormatVersion)) {
+    throw new Error(`Game board ${id} has an unsupported explanation format.`);
+  }
+  if (!Array.isArray(value.markets) || !isObject(value.game) || typeof value.game.id !== "string") {
+    throw new Error(`Game board ${id} is missing its game or markets.`);
+  }
+  if (
+    !["pending", "running", "completed", "failed", "interrupted"].includes(String(value.status))
+  ) {
+    throw new Error(`Game board ${id} has an unknown status.`);
+  }
+  if (
+    value.parentId !== null &&
+    !(typeof value.parentId === "string" && UUID.test(value.parentId))
+  ) {
+    throw new Error(`Game board ${id} has a malformed parent relationship.`);
+  }
+  if (
+    !fieldMatches("instant", value.createdAt) ||
+    (value.completedAt !== null && !fieldMatches("instant", value.completedAt))
+  ) {
+    throw new Error(`Game board ${id} has an invalid timestamp.`);
+  }
+  for (const market of value.markets) {
+    if (!isObject(market)) throw new Error(`Game board ${id} has a malformed market.`);
+    requireKnownFields(market, BOARD_MARKET_FIELDS, `Game board ${id} market`);
+    if (market.pick !== null && market.pick !== undefined) {
+      if (!isObject(market.pick)) throw new Error(`Game board ${id} has a malformed model pick.`);
+      requireKnownFields(market.pick, MODEL_PICK_FIELDS, `Game board ${id} model pick`);
+      if (typeof market.pick.id !== "string" || !UUID.test(market.pick.id)) {
+        throw new Error(`Game board ${id} has a malformed model pick identifier.`);
+      }
+    }
+  }
+  const board = structuredClone(value) as unknown as GameBoard;
+  // Boards written before withdrawals or extra quotes: never withdrawn, no extra quotes.
+  return {
+    ...board,
+    markets: board.markets.map((market) => ({ ...market, quotes: market.quotes ?? [] })),
+    withdrawal: board.withdrawal ?? null,
+  };
+}
+
+function requireKnownFields(
+  value: Record<string, unknown>,
+  known: ReadonlySet<string>,
+  name: string,
+) {
+  for (const key of Object.keys(value)) {
+    if (!known.has(key) && value[key] !== undefined) {
+      throw new Error(
+        `${name} has an unsupported field "${key}". A newer PocketCheck may have written it.`,
+      );
+    }
+  }
+}
+
+function byId(left: { id: string }, right: { id: string }): number {
+  return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+}
+
+function byTimeThenId(time: (row: never) => string) {
+  return (left: { id: string }, right: { id: string }): number => {
+    const a = time(left as never);
+    const b = time(right as never);
+    return a < b ? -1 : a > b ? 1 : byId(left, right);
+  };
+}
+
+/**
+ * The same journal always lists its records in the same order: by identifier, or by the time
+ * the record was made and then identifier. Order inside a saved record is never changed.
+ */
+export function canonicalOrder(backup: JournalExport): JournalExport {
+  const sorted = <T extends { id: string }>(
+    rows: T[] | undefined,
+    order: (left: T, right: T) => number = byId,
+  ) => (rows === undefined ? undefined : [...rows].sort(order));
+  const result: JournalExport = {
+    ...backup,
+    games: sorted(backup.games)!,
+    offers: sorted(backup.offers)!,
+    evidence: sorted(backup.evidence)!,
+    analyses: sorted(
+      backup.analyses,
+      byTimeThenId((row: AnalysisRecord) => row.createdAt),
+    )!,
+    reports: sorted(backup.reports)!,
+    userResearch: sorted(backup.userResearch)!,
+    bets: sorted(backup.bets)!,
+    settlements: sorted(backup.settlements)!,
+    closings: sorted(backup.closings)!,
+    settlementNotices: sorted(
+      backup.settlementNotices,
+      byTimeThenId((row: SettlementNoticeRecord) => row.recordedAt),
+    ),
+    gameBoards: sorted(
+      backup.gameBoards,
+      byTimeThenId((row: GameBoard) => row.createdAt),
+    ),
+    protocolRegistrations: sorted(
+      backup.protocolRegistrations,
+      byTimeThenId((row: ProtocolRegistration) => row.registeredAt),
+    ),
+    closingMarketSnapshots: sorted(
+      backup.closingMarketSnapshots,
+      byTimeThenId((row: ClosingMarketSnapshot) => row.recordedAt),
+    ),
+    gameSettlementNotices: sorted(
+      backup.gameSettlementNotices,
+      byTimeThenId((row: StoredNotice) => row.recordedAt),
+    ),
+  };
+  for (const key of Object.keys(result) as (keyof JournalExport)[]) {
+    if (result[key] === undefined) delete result[key];
+  }
+  return result;
+}
+
 /**
  * Reject a backup before any write. Callers can restore version 1 only when every
  * identifier, snapshot, and relationship is present and internally consistent.
@@ -258,21 +799,12 @@ export function assertRestorable(snapshot: JournalExport): void {
   const sourceGames = new Set([
     ...snapshot.games.map((game) => game.sourceGameId),
     ...(snapshot.gameBoards ?? []).map((board) => board.game.id),
-    ...("runs" in snapshot && Array.isArray(snapshot.runs)
-      ? snapshot.runs.map((run: { game: { id: string } }) => run.game.id)
-      : []),
   ]);
   for (const row of snapshot.closingMarketSnapshots ?? []) {
     if (!sourceGames.has(row.gameId))
       throw new Error(`Closing market snapshot ${row.id} is missing its game.`);
   }
   for (const board of snapshot.gameBoards ?? []) {
-    if (
-      board.request.explanationFormatVersion !== undefined &&
-      board.request.explanationFormatVersion !== 2
-    ) {
-      throw new Error(`Game board ${board.id} has an unsupported explanation format.`);
-    }
     const registrationId = board.request.protocolRegistrationId;
     if (registrationId && !registrationIds.has(registrationId)) {
       throw new Error(`Game board ${board.id} references a missing protocol registration.`);
@@ -390,6 +922,7 @@ export function assertRestorable(snapshot: JournalExport): void {
   if (hasCycle(snapshot.analyses)) {
     throw new Error("Analysis parent relationships contain a cycle.");
   }
+
   for (const report of snapshot.reports) {
     requireReference(analyses, report.analysisId, `Report ${report.id} is missing its analysis.`);
   }
@@ -504,6 +1037,94 @@ export function assertRestorable(snapshot: JournalExport): void {
   }
 }
 
+/**
+ * The identities a journal stores once: one row per identifier, game, request, submission, and
+ * analysis report, and one primary per game (and per game and market for model picks). A file
+ * that repeats one could not be written to either journal.
+ */
+function assertStorableIdentities(snapshot: JournalExport): void {
+  assertAssessmentRoles(snapshot.analyses);
+  requireUnique(snapshot.games, (row) => row.sourceGameId, "game source identifier");
+  requireUnique(snapshot.analyses, (row) => row.idempotencyKey, "analysis request identifier");
+  requireUnique(snapshot.reports, (row) => row.analysisId, "report analysis");
+  requireUnique(snapshot.userResearch, (row) => row.analysisId, "user research analysis");
+  requireUnique(snapshot.bets, (row) => row.submissionId, "bet submission identifier");
+  assertBoardGraph(snapshot.gameBoards ?? []);
+}
+
+function requireUnique<T>(rows: T[], key: (row: T) => string | null, label: string): void {
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const value = key(row);
+    if (value === null) continue;
+    if (seen.has(value)) throw new Error(`Journal backup repeats ${label} ${value}.`);
+    seen.add(value);
+  }
+}
+
+/** Frozen roles keep their stored shape, and one game has one primary assessment. */
+function assertAssessmentRoles(analyses: AnalysisRecord[]): void {
+  const primaries = new Set<string>();
+  for (const analysis of analyses) {
+    const role = analysis.assessmentRole;
+    if (role === null) continue;
+    if (
+      !["primary", "refresh", "ineligible"].includes(role) ||
+      (role === "refresh") !== (analysis.primaryAnalysisId !== null)
+    ) {
+      throw new Error(`Analysis ${analysis.id} has a malformed assessment role.`);
+    }
+    if (role !== "primary") continue;
+    const game = analysis.snapshot.game?.sourceGameId;
+    if (primaries.has(game)) {
+      throw new Error(`Journal backup has more than one primary assessment for game ${game}.`);
+    }
+    primaries.add(game);
+  }
+}
+
+/**
+ * Board and pick identifiers are unique, a refresh names a board in the file without a cycle, and
+ * one game and market has one primary model pick.
+ */
+function assertBoardGraph(boards: GameBoard[]): void {
+  const boardIds = new Set<string>();
+  const pickIds = new Set<string>();
+  const primaries = new Set<string>();
+  for (const board of boards) {
+    if (boardIds.has(board.id)) throw new Error(`Journal backup repeats game board ${board.id}.`);
+    boardIds.add(board.id);
+    for (const market of board.markets) {
+      const pick = market.pick;
+      if (!pick) continue;
+      if (pickIds.has(pick.id)) throw new Error(`Journal backup repeats model pick ${pick.id}.`);
+      pickIds.add(pick.id);
+      if (pick.boardId !== board.id || pick.market !== market.market) {
+        throw new Error(`Model pick ${pick.id} does not belong to its board market.`);
+      }
+      if (pick.role?.role !== "primary") continue;
+      const key = `${board.game.id}/${market.market}`;
+      if (primaries.has(key)) {
+        throw new Error(`Journal backup has more than one primary model pick for ${key}.`);
+      }
+      primaries.add(key);
+    }
+  }
+  requireUnique(boards, (board) => board.request.id, "game board submission identifier");
+  for (const board of boards) {
+    if (board.parentId && !boardIds.has(board.parentId)) {
+      throw new Error(`Game board ${board.id} is missing its parent board.`);
+    }
+    for (const market of board.markets) {
+      const parentPick = market.pick?.parentPickId;
+      if (parentPick && !pickIds.has(parentPick)) {
+        throw new Error(`Model pick ${market.pick!.id} is missing its parent pick.`);
+      }
+    }
+  }
+  if (hasCycle(boards)) throw new Error("Game board parent relationships contain a cycle.");
+}
+
 /** What a research settlement notice grades. A game notice travels in its own list. */
 export type SettlementNoticeSubject =
   | { kind: "analysis"; id: string }
@@ -606,45 +1227,23 @@ function definedKeys(value: Record<string, unknown>): string[] {
   return Object.keys(value).filter((key) => value[key] !== undefined);
 }
 
-// Every backup field, named here so a field added to a journal must be listed to be written. The
-// memory journal used by fixture mode keeps its records in four lists of its own. Settings and
-// credentials have no entry, so they cannot reach a file.
-const BACKUP_FIELDS: { [Field in keyof Required<MemoryJournal>]: true } = {
-  version: true,
-  games: true,
-  offers: true,
-  evidence: true,
-  analyses: true,
-  reports: true,
-  userResearch: true,
-  bets: true,
-  settlements: true,
-  closings: true,
-  settlementNotices: true,
-  gameBoards: true,
-  protocolRegistrations: true,
-  closingMarketSnapshots: true,
-  gameSettlementNotices: true,
-  runs: true,
-  actualBets: true,
-  closingObservations: true,
-  notices: true,
-};
-
 /**
- * The bytes of a backup file. The whole graph is checked first, so a file is always restorable.
- * Saved records are immutable, so a record holding a secret rejects the export with its path
- * rather than being rewritten into a backup that no longer matches the journal.
+ * The bytes of a backup file. The whole graph is decoded first, so a file is always restorable
+ * and the same journal always writes the same bytes. Only version 1 record lists are written:
+ * settings and credentials have no list. Saved records are immutable, so a record holding a
+ * secret rejects the export with its path rather than being rewritten into a backup that no
+ * longer matches the journal.
  */
 export function encodeJournalBackup(
   backup: JournalExport,
   options: { secrets: readonly string[] },
 ): string {
-  assertRestorable(backup);
-  const file = Object.fromEntries(
-    (Object.keys(BACKUP_FIELDS) as (keyof MemoryJournal)[])
-      .filter((field) => (backup as Partial<MemoryJournal>)[field] !== undefined)
-      .map((field) => [field, (backup as Partial<MemoryJournal>)[field]]),
+  const file = decodeJournalBackup(
+    Object.fromEntries(
+      ["version", ...BACKUP_COLLECTIONS]
+        .filter((field) => (backup as Record<string, unknown>)[field] !== undefined)
+        .map((field) => [field, (backup as Record<string, unknown>)[field]]),
+    ),
   );
   const exposed = secretPaths(file, "", options.secrets);
   if (exposed.length > 0) {

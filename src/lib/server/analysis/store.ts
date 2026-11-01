@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   validateClosingMarketSnapshot,
   validateProtocolRegistration,
@@ -21,8 +21,40 @@ import type { SavedForecast } from "./forecast-record.ts";
 import type { PolicyDecision } from "./policy.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
 import type { AttemptRequest } from "./attempt.ts";
-import { assertRestorable, type JournalExport } from "./journal-backup.ts";
-import { parentsFirst } from "../db/order.ts";
+import {
+  canonicalOrder,
+  decodeJournalBackup,
+  sameRecord,
+  type AnalysisRecord,
+  type BetContract,
+  type BetRecord,
+  type ClosingRecord,
+  type EvidenceRecord,
+  type GameRecord,
+  type JournalExport,
+  type OfferRecord,
+  type ReportRecord,
+  type RestorableJournal,
+  type SettlementRecord,
+  type UserResearchRecord,
+} from "./journal-backup.ts";
+import {
+  betFingerprint,
+  betFromRecord,
+  closingSubject,
+  closingSubjectColumns,
+  evidenceRecord,
+  gameRecord,
+  instant,
+  instantOrNull,
+  mutableAnalysisColumns,
+  pickBetOffer,
+  recordsFromRun,
+  reportRecord,
+  roleColumns,
+  runFromRecords,
+  type AnalysisRecords,
+} from "./journal-records.ts";
 import { classifyPregameRuns, type PregameRun } from "./primary.ts";
 import {
   createMemoryBoardStore,
@@ -256,8 +288,6 @@ export type ActualBet = {
   americanOdds: number;
   stakeUnits: number;
   placedAt: string;
-  /** Game of the analysis or model pick. Memory only, so a close can be timed. Not exported. */
-  game?: { id: string; kickoff: string };
 };
 
 /** A bet belongs to an analysis or starts from a model pick, never both. */
@@ -419,33 +449,113 @@ export type ResearchStore = {
   /** Version 1 journal backup. Credentials and bulk caches are not included. */
   exportJournal: () => Promise<JournalExport>;
   /**
-   * Restore a validated backup. Identical records are kept once. A bad backup
-   * or a conflicting identifier changes nothing. Pending attempts stay records
-   * and are not sent to a source or provider.
+   * Restore a version 1 backup file, including a recognized older memory layout. The whole file
+   * is decoded and checked first. Identical records are kept once. A bad backup or a conflicting
+   * identifier changes nothing. Pending attempts stay records and are not sent to a source or
+   * provider.
    */
-  restoreJournal: (backup: JournalExport) => Promise<JournalExport>;
+  restoreJournal: (backup: unknown) => Promise<JournalExport>;
 };
 
 /** The whole journal: research analyses, actual bets, and game boards. */
 export type JournalStore = ResearchStore & GameBoardStore;
 
+/** The memory journal's records: the same version 1 records the Neon journal stores. */
+type MemoryRecords = {
+  games: Map<string, GameRecord>;
+  offers: Map<string, OfferRecord>;
+  evidence: Map<string, EvidenceRecord>;
+  analyses: Map<string, AnalysisRecord>;
+  reports: Map<string, ReportRecord>;
+  userResearch: Map<string, UserResearchRecord>;
+  bets: Map<string, BetRecord>;
+  settlements: Map<string, SettlementRecord>;
+  closings: Map<string, ClosingRecord>;
+};
+
+const RECORD_MAPS = [
+  "games",
+  "offers",
+  "evidence",
+  "analyses",
+  "reports",
+  "userResearch",
+  "bets",
+  "settlements",
+  "closings",
+] as const satisfies (keyof MemoryRecords)[];
+
+function emptyRecords(): MemoryRecords {
+  return Object.fromEntries(RECORD_MAPS.map((key) => [key, new Map()])) as MemoryRecords;
+}
+
+/** What the memory journal's free functions read: its records and derived views. */
+type MemoryState = {
+  records: MemoryRecords;
+  notices: StoredNotice[];
+  run: (id: string) => ResearchRun | null;
+  pickBoard: (pickId: string) => GameBoard | null;
+  pickOpen?: (pickId: string) => OpenPick | null;
+};
+
 export function createMemoryStore(options: { now?: () => string } = {}): JournalStore {
   const now = options.now ?? (() => new Date().toISOString());
-  const runs = new Map<string, ResearchRun>();
-  const requests = new Map<string, string>();
-  const bets: ActualBet[] = [];
-  const closings: ClosingObservation[] = [];
+  const records = emptyRecords();
   const notices: StoredNotice[] = [];
   const registrations: ProtocolRegistration[] = [];
   const marketSnapshots: ClosingMarketSnapshot[] = [];
   const boardStore = createMemoryBoardStore(notices, registrations);
-  const submissions = new Map<string, string>();
-  const fingerprints = new Map<string, string>();
   let betWrites: Promise<unknown> = Promise.resolve();
+
+  function analysisRecords(analysis: AnalysisRecord): AnalysisRecords {
+    return {
+      analysis,
+      evidence: analysis.evidenceIds.map((id) => records.evidence.get(id)!),
+      report: [...records.reports.values()].find((row) => row.analysisId === analysis.id) ?? null,
+      userResearch:
+        [...records.userResearch.values()].find((row) => row.analysisId === analysis.id) ?? null,
+    };
+  }
+
+  function runOf(id: string): ResearchRun | null {
+    const analysis = records.analyses.get(id);
+    return analysis ? structuredClone(runFromRecords(analysisRecords(analysis))) : null;
+  }
+
+  function allRuns(): ResearchRun[] {
+    return [...records.analyses.values()].map((analysis) =>
+      runFromRecords(analysisRecords(analysis)),
+    );
+  }
+
+  function pickBoard(pickId: string): GameBoard | null {
+    for (const board of boardStore.boards.values()) {
+      if (board.markets.some((market) => market.pick?.id === pickId)) return board;
+    }
+    return null;
+  }
+
+  const state: MemoryState = {
+    records,
+    notices,
+    run: runOf,
+    pickBoard,
+    pickOpen: (pickId) => boardStore.pickContract(pickId),
+  };
+
+  /** The game's record identifier, created once from the first record that names the game. */
+  function gameIdFor(game: RunGame): string {
+    for (const record of records.games.values()) {
+      if (record.sourceGameId === game.id) return record.id;
+    }
+    const record = gameRecord(randomUUID(), game);
+    records.games.set(record.id, record);
+    return record.id;
+  }
 
   function freezeRole(saved: ResearchRun): AssessmentRole {
     const completedAt = saved.completedAt ?? saved.createdAt;
-    const sameGame = [...runs.values()].filter((run) => run.game.id === saved.game.id);
+    const sameGame = allRuns().filter((run) => run.game.id === saved.game.id);
     const existingPrimary = sameGame.find((run) => run.assessmentRole?.role === "primary");
     if (saved.status !== "completed" || completedAt === null) {
       return assessmentRoleFor({ ...saved, completedAt: null }, [{ ...saved, completedAt: null }]);
@@ -464,6 +574,65 @@ export function createMemoryStore(options: { now?: () => string } = {}): Journal
       primaryId: existingPrimary.id,
       reason: "Later completed analysis. The primary assessment is unchanged.",
     };
+  }
+
+  /** A later save of an unfinished attempt. The snapshot, game, offer, and lean stay as begun. */
+  function saveProgress(existing: AnalysisRecord, run: ResearchRun): void {
+    const finished = run.status === "completed" ? instantOrNull(run.completedAt) : null;
+    let evidenceIds = existing.evidenceIds;
+    if (evidenceIds.length === 0) {
+      evidenceIds = run.evidence.map((item) => {
+        const saved = evidenceRecord(item, randomUUID(), finished);
+        records.evidence.set(saved.id, saved);
+        return saved.id;
+      });
+    }
+    if (finished) {
+      for (const id of evidenceIds) {
+        const item = records.evidence.get(id)!;
+        if (item.completedAt === null) records.evidence.set(id, { ...item, completedAt: finished });
+      }
+      const offer = records.offers.get(existing.offerId)!;
+      if (offer.completedAt === null) {
+        records.offers.set(offer.id, { ...offer, completedAt: finished });
+      }
+      const hasReport = [...records.reports.values()].some((row) => row.analysisId === run.id);
+      if (run.report && !hasReport) {
+        const report = reportRecord(randomUUID(), run.id, run.report, run.renderedText, finished);
+        records.reports.set(report.id, report);
+      }
+    }
+    records.analyses.set(existing.id, {
+      ...existing,
+      ...mutableAnalysisColumns(run),
+      completedAt: instantOrNull(run.completedAt),
+      ...roleColumns(run.assessmentRole),
+      evidenceIds,
+      snapshot: {
+        ...existing.snapshot,
+        providerRequests: run.providerRequests,
+        providerOutcomeAmbiguous: run.providerOutcomeAmbiguous,
+        ...(run.forecast ? { forecast: run.forecast } : {}),
+      },
+    });
+  }
+
+  function exportState(): JournalExport {
+    return canonicalOrder(
+      structuredClone({
+        version: 1,
+        ...(Object.fromEntries(RECORD_MAPS.map((key) => [key, [...records[key].values()]])) as {
+          [Key in keyof MemoryRecords]: JournalExport[Key];
+        }),
+        settlementNotices: notices
+          .filter((notice) => notice.gameId === null)
+          .map(({ gameId: _gameId, ...notice }) => notice),
+        gameBoards: [...boardStore.boards.values()],
+        protocolRegistrations: registrations,
+        closingMarketSnapshots: marketSnapshots,
+        gameSettlementNotices: notices.filter((notice) => notice.gameId !== null),
+      }),
+    );
   }
 
   const research: ResearchStore = {
@@ -486,7 +655,7 @@ export function createMemoryStore(options: { now?: () => string } = {}): Journal
     },
     async recordClosingMarketSnapshot(input) {
       if (
-        ![...runs.values()].some((run) => run.game.id === input.gameId) &&
+        !allRuns().some((run) => run.game.id === input.gameId) &&
         ![...boardStore.boards.values()].some((board) => board.game.id === input.gameId)
       )
         throw new Error(`Game not found: ${input.gameId}`);
@@ -514,17 +683,17 @@ export function createMemoryStore(options: { now?: () => string } = {}): Journal
           error: "An attempt requires a request identifier and input hash.",
         };
       }
-      const existingId = requests.get(requestId);
-      if (existingId) {
-        const existing = runs.get(existingId);
-        if (!existing) throw new Error(`Attempt index is inconsistent: ${requestId}`);
-        if (existing.request?.hash !== requestHash) {
+      const existing = [...records.analyses.values()].find(
+        (row) => row.idempotencyKey === requestId,
+      );
+      if (existing) {
+        if (existing.snapshot.request?.hash !== requestHash) {
           return {
             kind: "conflict",
             error: "This request identifier was already used with different inputs.",
           };
         }
-        return { kind: "existing", run: structuredClone(existing) };
+        return { kind: "existing", run: runOf(existing.id)! };
       }
       const id = input.id ?? randomUUID();
       const createdAt = new Date().toISOString();
@@ -541,46 +710,55 @@ export function createMemoryStore(options: { now?: () => string } = {}): Journal
         assessmentRole: null,
       });
       draft.assessmentRole = terminal ? freezeRole(draft) : null;
-      runs.set(id, draft);
-      requests.set(requestId, id);
-      return { kind: "created", run: structuredClone(draft) };
+      const graph = recordsFromRun(draft, {
+        game: gameIdFor(draft.game),
+        offer: randomUUID(),
+        evidence: () => randomUUID(),
+        report: randomUUID(),
+        userResearch: randomUUID(),
+      });
+      records.games.set(graph.game.id, graph.game);
+      records.offers.set(graph.offer.id, graph.offer);
+      for (const item of graph.evidence) records.evidence.set(item.id, item);
+      records.analyses.set(graph.analysis.id, graph.analysis);
+      if (graph.report) records.reports.set(graph.report.id, graph.report);
+      if (graph.userResearch) records.userResearch.set(graph.userResearch.id, graph.userResearch);
+      return { kind: "created", run: runOf(id)! };
     },
     async updateAttempt(input) {
       if (!input.id) throw new Error("An attempt update requires an analysis id.");
-      const existing = runs.get(input.id);
+      const existing = records.analyses.get(input.id);
       if (!existing) throw new Error(`Analysis not found: ${input.id}`);
-      if (existing.status === "completed") return structuredClone(existing);
-      if (
-        existing.request?.id !== input.request?.id ||
-        existing.request?.hash !== input.request?.hash
-      ) {
+      const saved = runOf(input.id)!;
+      if (existing.status === "completed") return saved;
+      if (saved.request?.id !== input.request?.id || saved.request?.hash !== input.request?.hash) {
         throw new Error("An attempt update cannot change its request identity or inputs.");
       }
       const terminal =
         input.status === "completed" || input.status === "failed" || input.status === "interrupted";
-      const completedAt = existing.completedAt ?? (terminal ? new Date().toISOString() : null);
+      const completedAt = saved.completedAt ?? (terminal ? new Date().toISOString() : null);
       const updated: ResearchRun = structuredClone({
         ...input,
         id: input.id,
-        forecast: input.forecast === undefined ? existing.forecast : input.forecast,
-        createdAt: existing.createdAt,
+        forecast: input.forecast === undefined ? saved.forecast : input.forecast,
+        createdAt: saved.createdAt,
         completedAt,
-        snapshotVersion: existing.snapshotVersion,
-        snapshotProvenance: existing.snapshotProvenance,
-        assessmentRole: existing.assessmentRole,
+        snapshotVersion: saved.snapshotVersion,
+        snapshotProvenance: saved.snapshotProvenance,
+        assessmentRole: saved.assessmentRole,
       });
       if (terminal && !updated.assessmentRole) updated.assessmentRole = freezeRole(updated);
-      runs.set(updated.id, updated);
-      return structuredClone(updated);
+      saveProgress(existing, updated);
+      return runOf(input.id)!;
     },
     async saveRun(input) {
       return this.updateAttempt(input);
     },
     async getRun(id) {
-      return runs.get(id) ?? null;
+      return runOf(id);
     },
     async listCompleted() {
-      return [...runs.values()]
+      return allRuns()
         .filter((run) => run.status === "completed")
         .reverse()
         .map((run) => ({
@@ -593,27 +771,25 @@ export function createMemoryStore(options: { now?: () => string } = {}): Journal
         }));
     },
     async markInterrupted(id) {
-      const run = runs.get(id);
-      if (!run || run.status === "completed") return run ? structuredClone(run) : null;
+      const existing = records.analyses.get(id);
+      const run = runOf(id);
+      if (!existing || !run || run.status === "completed") return run;
       const interrupted: ResearchRun = {
         ...run,
         status: "interrupted",
         completedAt: run.completedAt ?? new Date().toISOString(),
-        assessmentRole: run.assessmentRole,
       };
       if (!interrupted.assessmentRole) interrupted.assessmentRole = freezeRole(interrupted);
-      runs.set(id, interrupted);
-      return structuredClone(interrupted);
+      records.analyses.set(id, {
+        ...existing,
+        status: "interrupted",
+        completedAt: instantOrNull(interrupted.completedAt),
+        ...roleColumns(interrupted.assessmentRole),
+      });
+      return runOf(id);
     },
     async recordBet(bet) {
-      const write = betWrites.then(async () => {
-        const board = bet.modelPickId ? await boardStore.getBoardForPick(bet.modelPickId) : null;
-        return recordMemoryBet(
-          { runs, bets, submissions, fingerprints },
-          bet,
-          board ? { id: board.game.id, kickoff: board.game.kickoff } : null,
-        );
-      });
+      const write = betWrites.then(() => recordMemoryBet(state, bet, gameIdFor));
       betWrites = write.then(
         () => undefined,
         () => undefined,
@@ -621,35 +797,25 @@ export function createMemoryStore(options: { now?: () => string } = {}): Journal
       return write;
     },
     async listBets() {
-      return [...bets];
+      return [...records.bets.values()]
+        .filter((record) => record.analysisId !== null || record.modelPickId)
+        .map(betFromRecord);
     },
     async recordClosing(input) {
-      const saved = recordMemoryClosing(
-        {
-          runs,
-          bets,
-          closings,
-          pickOpen: (pickId) => boardStore.pickContract(pickId),
-        },
-        input,
-      );
-      return { kind: "created", closing: structuredClone(saved) };
+      return { kind: "created", closing: recordMemoryClosing(state, input) };
     },
     async listClosings() {
-      return closings.map((item) => {
-        const saved = structuredClone(item);
-        if (saved.provenance === "archived-untimestamped") {
-          saved.comparison = { available: false, reason: "archived-untimestamped" };
-          return saved;
-        }
+      return [...records.closings.values()].map((record) => {
+        const saved = closingObservation(record, {
+          available: false,
+          reason: "archived-untimestamped",
+        });
+        if (saved.provenance === "archived-untimestamped") return saved;
         try {
-          const open = openSide(
-            { runs, bets, pickOpen: (id) => boardStore.pickContract(id) },
-            saved.subject,
-          );
+          const open = openSide(state, saved.subject);
           saved.comparison = compareClosing(
             { ...open, decimalOdds: americanToDecimal(open.americanOdds) },
-            { ...saved, decimalOdds: americanToDecimal(saved.americanOdds) },
+            { ...saved, decimalOdds: record.decimalOdds },
             { entryAt: open.observedAt, observedAt: saved.observedAt, kickoffAt: open.kickoffAt },
           );
         } catch {
@@ -660,7 +826,7 @@ export function createMemoryStore(options: { now?: () => string } = {}): Journal
     },
     async recordSettlement(input) {
       requireFinalScores(input);
-      const write = betWrites.then(() => recordMemorySettlement({ runs, bets, notices }, input));
+      const write = betWrites.then(() => recordMemorySettlement(state, input));
       betWrites = write.then(
         () => undefined,
         () => undefined,
@@ -668,22 +834,16 @@ export function createMemoryStore(options: { now?: () => string } = {}): Journal
       return write;
     },
     async readSettlement(input) {
-      return readMemorySettlement({ runs, bets, notices }, input);
+      return readMemorySettlement(state, input);
     },
     async recordUnclassifiedCompleted(run) {
-      runs.set(
-        run.id,
-        structuredClone({
-          ...run,
-          status: "completed",
-          assessmentRole: null,
-          completedAt: null,
-        }),
-      );
+      const existing = records.analyses.get(run.id);
+      if (!existing) throw new Error(`Analysis not found: ${run.id}`);
+      records.analyses.set(run.id, { ...existing, ...roleColumns(null) });
     },
     async recordArchivedClosing(input) {
-      const saved = recordMemoryClosing(
-        { runs, bets, closings },
+      return recordMemoryClosing(
+        state,
         {
           ...input,
           rules: { period: "full-game", overtime: "included" },
@@ -692,122 +852,188 @@ export function createMemoryStore(options: { now?: () => string } = {}): Journal
         },
         "archived-untimestamped",
       );
-      return structuredClone(saved);
     },
     async exportJournal() {
-      return {
-        ...memoryBackup(runs, bets, closings, notices, boardStore.boards),
-        protocolRegistrations: structuredClone(registrations),
-        closingMarketSnapshots: structuredClone(marketSnapshots),
-      };
+      return exportState();
     },
-    async restoreJournal(backup) {
-      assertRestorable(backup);
-      for (const incoming of backup.protocolRegistrations ?? []) {
-        const prior = registrations.find((row) => row.id === incoming.id);
-        if (prior && JSON.stringify(prior) !== JSON.stringify(incoming))
-          throw new Error(`Conflicting protocol registration identifier ${incoming.id}.`);
-      }
-      for (const incoming of backup.closingMarketSnapshots ?? []) {
-        const prior = marketSnapshots.find((row) => row.id === incoming.id);
-        if (prior && JSON.stringify(prior) !== JSON.stringify(incoming))
-          throw new Error(`Conflicting closing market snapshot identifier ${incoming.id}.`);
-      }
-      const incoming = memoryFromBackup(backup);
-      for (const [id, run] of incoming.runs) {
-        const existing = runs.get(id);
-        if (existing && JSON.stringify(existing) !== JSON.stringify(run)) {
-          throw new Error(`Conflicting analysis identifier ${id} does not match the saved record.`);
-        }
-      }
-      for (const bet of incoming.bets) {
-        const existing = bets.find((item) => item.id === bet.id);
-        if (existing && JSON.stringify(existing) !== JSON.stringify(bet)) {
-          throw new Error(`Conflicting bet identifier ${bet.id} does not match the saved record.`);
-        }
-      }
-      for (const board of incoming.boards) {
-        const existing = boardStore.boards.get(board.id);
-        if (existing && JSON.stringify(existing) !== JSON.stringify(board)) {
-          throw new Error(
-            `Conflicting game board identifier ${board.id} does not match the saved record.`,
-          );
-        }
-      }
-      for (const notice of incoming.notices) {
-        const prior = notices.find(
-          (item) => item.id === notice.id || item.eventId === notice.eventId,
+    async restoreJournal(input) {
+      const backup = decodeJournalBackup(input);
+      const staged = stageRestore(
+        {
+          records,
+          notices,
+          registrations,
+          marketSnapshots,
+          boards: boardStore.boards,
+        },
+        backup,
+      );
+      // Everything was checked against copies. Replacing the live lists cannot fail part way.
+      for (const key of RECORD_MAPS) {
+        replaceMap(
+          records[key] as Map<string, unknown>,
+          staged.records[key] as Map<string, unknown>,
         );
-        if (prior && JSON.stringify(prior) !== JSON.stringify(notice)) {
-          throw new Error(`Conflicting settlement notice identifier ${notice.id}.`);
-        }
       }
-      for (const closing of incoming.closings) {
-        const prior = closings.find((item) => item.id === closing.id);
-        if (prior && JSON.stringify(prior) !== JSON.stringify(closing)) {
-          throw new Error(`Conflicting closing observation identifier ${closing.id}.`);
-        }
+      replaceMap(boardStore.boards, staged.boards);
+      boardStore.submissions.clear();
+      for (const board of staged.boards.values()) {
+        boardStore.submissions.set(board.request.id, board.id);
       }
-      // Boards and picks land before bets, which may reference a model pick.
-      for (const board of parentsFirst(incoming.boards, (board) => board.parentId)) {
-        if (!boardStore.boards.has(board.id)) {
-          boardStore.boards.set(board.id, board);
-          boardStore.submissions.set(board.request.id, board.id);
-        }
-      }
-      for (const [id, run] of incoming.runs) {
-        if (!runs.has(id)) runs.set(id, run);
-        if (run.request?.id) requests.set(run.request.id, id);
-      }
-      for (const bet of incoming.bets) {
-        if (!bets.some((item) => item.id === bet.id)) {
-          bets.push({ ...bet, modelPickId: bet.modelPickId ?? null });
-          if (bet.submissionId) submissions.set(bet.submissionId, bet.id);
-        }
-      }
-      for (const closing of incoming.closings) {
-        if (!closings.some((item) => item.id === closing.id)) closings.push(closing);
-      }
-      for (const notice of incoming.notices) {
-        if (!notices.some((item) => item.id === notice.id)) notices.push(notice);
-      }
-      for (const row of backup.protocolRegistrations ?? [])
-        if (!registrations.some((prior) => prior.id === row.id))
-          registrations.push(structuredClone(row));
-      for (const row of backup.closingMarketSnapshots ?? [])
-        if (!marketSnapshots.some((prior) => prior.id === row.id))
-          marketSnapshots.push(structuredClone(row));
-      return {
-        ...memoryBackup(runs, bets, closings, notices, boardStore.boards),
-        protocolRegistrations: structuredClone(registrations),
-        closingMarketSnapshots: structuredClone(marketSnapshots),
-      };
+      notices.splice(0, notices.length, ...staged.notices);
+      registrations.splice(0, registrations.length, ...staged.registrations);
+      marketSnapshots.splice(0, marketSnapshots.length, ...staged.marketSnapshots);
+      return exportState();
     },
   };
   return { ...research, ...boardStore };
 }
 
+function replaceMap<K, V>(live: Map<K, V>, next: Map<K, V>): void {
+  live.clear();
+  for (const [key, value] of next) live.set(key, value);
+}
+
+type MemoryJournalState = {
+  records: MemoryRecords;
+  notices: StoredNotice[];
+  registrations: ProtocolRegistration[];
+  marketSnapshots: ClosingMarketSnapshot[];
+  boards: Map<string, GameBoard>;
+};
+
+function conflict(label: string, id: string): never {
+  throw new Error(`Conflicting ${label} identifier ${id} does not match the saved record.`);
+}
+
+/**
+ * The journal after a decoded backup is merged into copies of the current records. Identical
+ * records are kept once. A conflicting identifier, or a record that would break a uniqueness
+ * rule the Neon journal enforces, throws before anything live changes.
+ */
+function stageRestore(live: MemoryJournalState, backup: RestorableJournal): MemoryJournalState {
+  const records = Object.fromEntries(
+    RECORD_MAPS.map((key) => [
+      key,
+      new Map(structuredClone([...(live.records[key] as Map<string, unknown>)])),
+    ]),
+  ) as unknown as MemoryRecords;
+  const boards = new Map(structuredClone([...live.boards]));
+  const notices = structuredClone(live.notices);
+  const registrations = structuredClone(live.registrations);
+  const marketSnapshots = structuredClone(live.marketSnapshots);
+
+  const merge = <T extends { id: string }>(
+    target: Map<string, T>,
+    rows: T[],
+    label: string,
+    uniqueKey?: (row: T) => string | null,
+  ) => {
+    for (const row of rows) {
+      const stored = target.get(row.id);
+      if (stored) {
+        if (!sameRecord(stored, row)) conflict(label, row.id);
+        continue;
+      }
+      const key = uniqueKey?.(row);
+      if (key != null && [...target.values()].some((other) => uniqueKey!(other) === key)) {
+        conflict(label, row.id);
+      }
+      target.set(row.id, structuredClone(row));
+    }
+  };
+  const mergeList = <T extends { id: string }>(
+    target: T[],
+    rows: T[],
+    label: string,
+    matches: (stored: T, row: T) => boolean = (stored, row) => stored.id === row.id,
+  ) => {
+    for (const row of rows) {
+      const stored = target.find((item) => matches(item, row));
+      if (stored) {
+        if (stored.id !== row.id || !sameRecord(stored, row)) conflict(label, row.id);
+        continue;
+      }
+      target.push(structuredClone(row));
+    }
+  };
+
+  mergeList(registrations, backup.protocolRegistrations ?? [], "protocol registration");
+  const gameIds = new Map<string, string>();
+  for (const game of backup.games) {
+    const stored =
+      records.games.get(game.id) ??
+      [...records.games.values()].find((row) => row.sourceGameId === game.sourceGameId);
+    if (stored) {
+      if (!sameRecord({ ...stored, id: game.id }, game)) conflict("game", game.id);
+      gameIds.set(game.id, stored.id);
+      continue;
+    }
+    records.games.set(game.id, structuredClone(game));
+    gameIds.set(game.id, game.id);
+  }
+  merge(
+    records.offers,
+    backup.offers.map((offer) => ({ ...offer, gameId: gameIds.get(offer.gameId) ?? offer.gameId })),
+    "offer",
+  );
+  merge(records.evidence, backup.evidence, "evidence");
+  merge(records.analyses, backup.analyses, "analysis", (row) => row.idempotencyKey);
+  merge(records.reports, backup.reports, "report", (row) => row.analysisId);
+  merge(records.userResearch, backup.userResearch, "user research", (row) => row.analysisId);
+  merge(boards, backup.gameBoards ?? [], "game board", (row) => row.request.id);
+  merge(records.bets, backup.bets, "bet", (row) => row.submissionId);
+  merge(records.settlements, backup.settlements, "settlement");
+  merge(records.closings, backup.closings, "closing observation");
+  const sameEvent = (stored: StoredNotice, row: StoredNotice) =>
+    stored.id === row.id || stored.eventId === row.eventId;
+  mergeList(
+    notices,
+    (backup.settlementNotices ?? []).map((notice) => ({ ...notice, gameId: null })),
+    "settlement notice",
+    sameEvent,
+  );
+  mergeList(notices, backup.gameSettlementNotices ?? [], "game settlement notice", sameEvent);
+  mergeList(marketSnapshots, backup.closingMarketSnapshots ?? [], "closing market snapshot");
+
+  const primaries = new Map<string, string>();
+  for (const analysis of records.analyses.values()) {
+    if (analysis.assessmentRole !== "primary") continue;
+    const game = analysis.snapshot.game.sourceGameId;
+    if (primaries.has(game)) conflict("primary assessment", analysis.id);
+    primaries.set(game, analysis.id);
+  }
+  const primaryPicks = new Set<string>();
+  for (const board of boards.values()) {
+    for (const market of board.markets) {
+      if (market.pick?.role.role !== "primary") continue;
+      const key = `${board.game.id}/${market.market}`;
+      if (primaryPicks.has(key)) conflict("primary model pick", market.pick.id);
+      primaryPicks.add(key);
+    }
+  }
+  return { records, notices, registrations, marketSnapshots, boards };
+}
+
 function recordMemoryBet(
-  state: {
-    runs: Map<string, ResearchRun>;
-    bets: ActualBet[];
-    submissions: Map<string, string>;
-    fingerprints: Map<string, string>;
-  },
+  state: MemoryState,
   input: NewActualBet,
-  pickGame: { id: string; kickoff: string } | null,
+  gameIdFor: (game: RunGame) => string,
 ): RecordBetResult {
   if (!input.analysisId === !input.modelPickId) {
     throw new Error("An actual bet belongs to one analysis or one model pick.");
   }
-  let game: { id: string; kickoff: string };
+  let game: RunGame;
+  let offerId: string | null = null;
   if (input.modelPickId) {
-    if (!pickGame) throw new Error(`Model pick not found: ${input.modelPickId}`);
-    game = pickGame;
+    const board = state.pickBoard(input.modelPickId);
+    if (!board) throw new Error(`Model pick not found: ${input.modelPickId}`);
+    game = board.game;
   } else {
-    const run = state.runs.get(input.analysisId!);
-    if (!run) throw new Error(`Analysis not found: ${input.analysisId}`);
-    game = { id: run.game.id, kickoff: run.game.kickoff };
+    const analysis = state.records.analyses.get(input.analysisId!);
+    if (!analysis) throw new Error(`Analysis not found: ${input.analysisId}`);
+    game = state.run(analysis.id)!.game;
+    offerId = analysis.offerId;
   }
   if (!input.submissionId) throw new Error("An actual bet requires a submission identifier.");
   if (!Number.isFinite(input.stakeUnits) || input.stakeUnits <= 0) {
@@ -824,58 +1050,66 @@ function recordMemoryBet(
     kickoffAt: game.kickoff,
     rules: input.rules,
   });
-  const fingerprint = createHash("sha256")
-    .update(
-      JSON.stringify({
-        analysisId: input.analysisId,
-        modelPickId: input.modelPickId,
-        sportsbook: contract.sportsbook,
-        market: contract.market,
-        selection: contract.selection,
-        pointLine: contract.pointLine,
-        americanOdds: contract.americanOdds,
-        rules: contract.rules,
-        stakeUnits: input.stakeUnits,
-        placedAt: input.placedAt,
-      }),
-    )
-    .digest("hex");
-  const existingId = state.submissions.get(input.submissionId);
-  if (existingId) {
-    const existing = state.bets.find((item) => item.id === existingId);
-    if (!existing) throw new Error(`Bet submission index is inconsistent: ${input.submissionId}`);
-    if (state.fingerprints.get(existing.id) !== fingerprint) {
+  const fingerprint = betFingerprint(
+    input.analysisId,
+    input.modelPickId,
+    contract,
+    input.stakeUnits,
+    input.placedAt,
+  );
+  const existing = [...state.records.bets.values()].find(
+    (item) => item.submissionId === input.submissionId,
+  );
+  if (existing) {
+    if (existing.contractFingerprint !== fingerprint) {
       return {
         kind: "conflict",
         error: "This submission identifier was already used with different inputs.",
       };
     }
-    return { kind: "existing", bet: structuredClone(existing) };
+    return { kind: "existing", bet: betFromRecord(structuredClone(existing)) };
   }
-  const saved: ActualBet = {
-    id: randomUUID(),
-    analysisId: input.analysisId ?? null,
-    modelPickId: input.modelPickId ?? null,
-    submissionId: input.submissionId,
-    contractProvenance: "captured",
-    sportsbook: contract.sportsbook,
+  const placed: BetContract = {
     market: contract.market,
     selection: contract.selection,
     pointLine: contract.pointLine,
     rules: contract.rules,
-    americanOdds: contract.americanOdds,
-    stakeUnits: input.stakeUnits,
-    placedAt: input.placedAt,
-    game: { id: game.id, kickoff: game.kickoff },
   };
-  state.bets.push(saved);
-  state.submissions.set(input.submissionId, saved.id);
-  state.fingerprints.set(saved.id, fingerprint);
-  return { kind: "created", bet: structuredClone(saved) };
+  if (!offerId) {
+    const offer = pickBetOffer({
+      id: randomUUID(),
+      gameId: gameIdFor(game),
+      kickoffAt: game.kickoff,
+      sportsbook: contract.sportsbook,
+      contract: placed,
+      americanOdds: contract.americanOdds,
+      placedAt: input.placedAt,
+    });
+    state.records.offers.set(offer.id, offer);
+    offerId = offer.id;
+  }
+  const saved: BetRecord = {
+    id: randomUUID(),
+    offerId,
+    analysisId: input.analysisId ?? null,
+    modelPickId: input.modelPickId ?? null,
+    submissionId: input.submissionId,
+    contract: placed,
+    contractFingerprint: fingerprint,
+    americanOdds: contract.americanOdds,
+    decimalOdds: americanToDecimal(contract.americanOdds),
+    placedAt: instant(input.placedAt),
+    stakeUnits: input.stakeUnits,
+    sportsbook: contract.sportsbook,
+  };
+  state.records.bets.set(saved.id, saved);
+  return { kind: "created", bet: betFromRecord(structuredClone(saved)) };
 }
 
-function gameOfRun(run: ResearchRun | undefined): { id: string; kickoff: string } | undefined {
-  return run ? { id: run.game.id, kickoff: run.game.kickoff } : undefined;
+/** The game of a bet: its analysis's game, or the game of the board its model pick is on. */
+function betGame(state: MemoryState, bet: BetRecord): RunGame | null {
+  if (bet.analysisId) return state.run(bet.analysisId)?.game ?? null;
+  return bet.modelPickId ? (state.pickBoard(bet.modelPickId)?.game ?? null) : null;
 }
 
 type OpenSide = {
@@ -890,16 +1124,9 @@ type OpenSide = {
   rules: Offer["rules"];
 };
 
-function openSide(
-  state: {
-    runs: Map<string, ResearchRun>;
-    bets: ActualBet[];
-    pickOpen?: (pickId: string) => OpenPick | null;
-  },
-  subject: ClosingSubject,
-): OpenSide {
+function openSide(state: MemoryState, subject: ClosingSubject): OpenSide {
   if (subject.kind === "analysis") {
-    const run = state.runs.get(subject.id);
+    const run = state.run(subject.id);
     if (!run) throw new Error(`Analysis not found: ${subject.id}`);
     return {
       gameId: run.game.id,
@@ -918,12 +1145,10 @@ function openSide(
     if (!open) throw new Error(`Model pick not found: ${subject.id}`);
     return open;
   }
-  const bet = state.bets.find((item) => item.id === subject.id);
+  const bet = state.records.bets.get(subject.id);
   if (!bet) throw new Error(`Bet not found: ${subject.id}`);
-  if (!bet.market || !bet.selection || !bet.rules) {
-    throw new Error("This bet has no recorded contract to compare.");
-  }
-  const game = bet.game ?? (bet.analysisId ? gameOfRun(state.runs.get(bet.analysisId)) : undefined);
+  if (!bet.contract) throw new Error("This bet has no recorded contract to compare.");
+  const game = betGame(state, bet);
   if (!game) {
     throw new Error(
       bet.modelPickId
@@ -935,31 +1160,46 @@ function openSide(
     gameId: game.id,
     observedAt: bet.placedAt ?? null,
     kickoffAt: game.kickoff,
-    market: bet.market,
-    selection: bet.selection,
-    pointLine: bet.pointLine,
-    sportsbook: bet.sportsbook,
+    market: bet.contract.market,
+    selection: bet.contract.selection,
+    pointLine: bet.contract.pointLine,
+    sportsbook: bet.sportsbook ?? "",
     americanOdds: bet.americanOdds,
-    rules: bet.rules,
+    rules: bet.contract.rules,
+  };
+}
+
+function closingObservation(
+  record: ClosingRecord,
+  comparison: ClosingComparison,
+): ClosingObservation {
+  return {
+    id: record.id,
+    subject: closingSubject(record),
+    provenance: record.provenance,
+    sportsbook: record.sportsbook,
+    market: record.market,
+    selection: record.selection,
+    pointLine: record.pointLine,
+    rules: structuredClone(record.rules),
+    americanOdds: record.americanOdds,
+    observedAt: record.observedAt,
+    source: record.source,
+    comparison,
   };
 }
 
 function recordMemoryClosing(
-  state: {
-    runs: Map<string, ResearchRun>;
-    bets: ActualBet[];
-    closings: ClosingObservation[];
-    pickOpen?: (pickId: string) => OpenPick | null;
-  },
+  state: MemoryState,
   input: NewClosing,
   provenance: ClosingProvenance = "observed",
 ): ClosingObservation {
   if (!input.source.trim()) throw new Error("A closing observation requires a source.");
   const open = openSide(state, input.subject);
   if (provenance === "archived-untimestamped") {
-    const saved: ClosingObservation = {
+    const record: ClosingRecord = {
       id: randomUUID(),
-      subject: input.subject,
+      ...closingSubjectColumns(input.subject),
       provenance,
       sportsbook: input.sportsbook.trim(),
       market: input.market,
@@ -971,12 +1211,12 @@ function recordMemoryClosing(
         tie: input.rules.tie ?? null,
       },
       americanOdds: input.americanOdds,
+      decimalOdds: americanToDecimal(input.americanOdds),
       observedAt: null,
       source: input.source.trim(),
-      comparison: { available: false, reason: "archived-untimestamped" },
     };
-    state.closings.push(saved);
-    return saved;
+    state.records.closings.set(record.id, record);
+    return closingObservation(record, { available: false, reason: "archived-untimestamped" });
   }
   const contract = parseOffer({
     gameId: open.gameId,
@@ -1015,9 +1255,9 @@ function recordMemoryClosing(
     },
     { entryAt: open.observedAt, observedAt: input.observedAt, kickoffAt: open.kickoffAt },
   );
-  const saved: ClosingObservation = {
+  const record: ClosingRecord = {
     id: randomUUID(),
-    subject: input.subject,
+    ...closingSubjectColumns(input.subject),
     provenance: "observed",
     sportsbook: contract.sportsbook,
     market: contract.market,
@@ -1025,12 +1265,12 @@ function recordMemoryClosing(
     pointLine: contract.pointLine,
     rules: contract.rules,
     americanOdds: contract.americanOdds,
-    observedAt: input.observedAt,
+    decimalOdds: americanToDecimal(contract.americanOdds),
+    observedAt: instant(input.observedAt),
     source: input.source.trim(),
-    comparison,
   };
-  state.closings.push(saved);
-  return saved;
+  state.records.closings.set(record.id, record);
+  return { ...closingObservation(record, comparison), observedAt: input.observedAt };
 }
 
 export function settlementPayloadKey(input: RecordSettlementInput): string {
@@ -1048,20 +1288,15 @@ export function settlementPayloadKey(input: RecordSettlementInput): string {
 }
 
 function recordMemorySettlement(
-  state: {
-    runs: Map<string, ResearchRun>;
-    bets: ActualBet[];
-    notices: StoredNotice[];
-  },
+  state: MemoryState,
   input: RecordSettlementInput,
 ): RecordSettlementResult {
   const analysisId = input.analysisId || null;
   const betId = input.betId || null;
-  if (analysisId) {
-    const run = state.runs.get(analysisId);
-    if (!run) throw new Error(`Analysis not found: ${analysisId}`);
+  if (analysisId && !state.records.analyses.has(analysisId)) {
+    throw new Error(`Analysis not found: ${analysisId}`);
   }
-  const bet = betId ? state.bets.find((item) => item.id === betId) : undefined;
+  const bet = betId ? state.records.bets.get(betId) : undefined;
   if (betId && (!bet || (analysisId ? bet.analysisId !== analysisId : !bet.modelPickId))) {
     throw new Error(`Bet not found: ${betId}`);
   }
@@ -1135,125 +1370,44 @@ function gradeNotice(offer: Offer, notice: StoredNotice): Settlement {
 }
 
 function readMemorySettlement(
-  state: {
-    runs: Map<string, ResearchRun>;
-    bets: ActualBet[];
-    notices: StoredNotice[];
-  },
+  state: MemoryState,
   input: { analysisId?: string | null; betId?: string | null },
 ): { assessment: SettlementGrade | null; bet: SettlementGrade | null } {
   const analysisId = input.analysisId || null;
   if (!analysisId) {
-    const bet = input.betId ? state.bets.find((item) => item.id === input.betId) : undefined;
-    if (!bet?.modelPickId || !bet.market || !bet.selection || !bet.rules || !bet.game) {
+    const bet = input.betId ? state.records.bets.get(input.betId) : undefined;
+    const game = bet ? betGame(state, bet) : null;
+    if (!bet?.modelPickId || !bet.contract || !game) {
       throw new Error(`Bet not found: ${input.betId ?? ""}`);
     }
-    const contract = parseOffer({
-      gameId: bet.game.id,
-      sportsbook: bet.sportsbook,
-      market: bet.market,
-      selection: bet.selection,
-      pointLine: bet.pointLine ?? undefined,
-      americanOdds: bet.americanOdds,
-      observedAt: bet.placedAt,
-      kickoffAt: bet.game.kickoff,
-      rules: bet.rules,
-    });
+    const contract = placedOffer(bet, bet.contract, game);
     const notices = state.notices.filter(
       (item) => item.betId === bet.id && item.analysisId === null,
     );
     return { assessment: null, bet: gradeFromNotices(contract, notices) };
   }
-  const run = state.runs.get(analysisId);
+  const run = state.run(analysisId);
   if (!run) throw new Error(`Analysis not found: ${analysisId}`);
   const forRun = state.notices.filter((item) => item.analysisId === analysisId);
   const assessment = gradeFromNotices(run.offer, forRun);
   if (!input.betId) return { assessment, bet: null };
-  const bet = state.bets.find((item) => item.id === input.betId);
-  if (!bet || bet.analysisId !== analysisId || !bet.market || !bet.selection || !bet.rules) {
+  const bet = state.records.bets.get(input.betId);
+  if (!bet || bet.analysisId !== analysisId || !bet.contract) {
     return { assessment, bet: null };
   }
-  const contract = parseOffer({
-    gameId: run.game.id,
-    sportsbook: bet.sportsbook,
-    market: bet.market,
-    selection: bet.selection,
-    pointLine: bet.pointLine ?? undefined,
+  return { assessment, bet: gradeFromNotices(placedOffer(bet, bet.contract, run.game), forRun) };
+}
+
+function placedOffer(bet: BetRecord, contract: BetContract, game: RunGame): Offer {
+  return parseOffer({
+    gameId: game.id,
+    sportsbook: bet.sportsbook ?? "",
+    market: contract.market,
+    selection: contract.selection,
+    pointLine: contract.pointLine ?? undefined,
     americanOdds: bet.americanOdds,
     observedAt: bet.placedAt,
-    kickoffAt: run.game.kickoff,
-    rules: bet.rules,
+    kickoffAt: game.kickoff,
+    rules: contract.rules,
   });
-  return { assessment, bet: gradeFromNotices(contract, forRun) };
-}
-
-export type MemoryJournal = JournalExport & {
-  runs: ResearchRun[];
-  actualBets: ActualBet[];
-  closingObservations: ClosingObservation[];
-  notices: StoredNotice[];
-};
-
-function memoryBackup(
-  runs: Map<string, ResearchRun>,
-  bets: ActualBet[],
-  closings: ClosingObservation[],
-  notices: StoredNotice[],
-  boards: Map<string, GameBoard>,
-): MemoryJournal {
-  return {
-    version: 1,
-    games: [],
-    offers: [],
-    evidence: [],
-    analyses: [],
-    reports: [],
-    userResearch: [],
-    bets: [],
-    settlements: [],
-    closings: [],
-    gameBoards: [...boards.values()].map((board) => structuredClone(board)),
-    gameSettlementNotices: notices
-      .filter((notice) => notice.gameId !== null)
-      .map((notice) => structuredClone(notice)),
-    runs: [...runs.values()].map((run) => structuredClone(run)),
-    actualBets: bets.map((bet) => structuredClone(bet)),
-    closingObservations: closings.map((closing) => structuredClone(closing)),
-    notices: notices.map((notice) => structuredClone(notice)),
-  };
-}
-
-function memoryFromBackup(backup: JournalExport): {
-  runs: Map<string, ResearchRun>;
-  bets: ActualBet[];
-  closings: ClosingObservation[];
-  notices: StoredNotice[];
-  boards: GameBoard[];
-} {
-  const body = backup as MemoryJournal;
-  if (!Array.isArray(body.runs)) {
-    throw new Error("Journal backup is missing its analysis records.");
-  }
-  for (const closing of body.closingObservations ?? []) {
-    if (
-      (closing.provenance === "observed" && closing.observedAt === null) ||
-      (closing.provenance === "archived-untimestamped" && closing.observedAt !== null)
-    ) {
-      throw new Error(`Closing observation ${closing.id} has invalid timestamp provenance.`);
-    }
-    if (closing.observedAt !== null && !Number.isFinite(Date.parse(closing.observedAt))) {
-      throw new Error(`Closing observation ${closing.id} has an invalid timestamp.`);
-    }
-  }
-  return {
-    runs: new Map(body.runs.map((run) => [run.id, structuredClone(run)])),
-    bets: (body.actualBets ?? []).map((bet) => structuredClone(bet)),
-    closings: (body.closingObservations ?? []).map((closing) => structuredClone(closing)),
-    notices: (body.notices ?? []).map((notice) => structuredClone(notice)),
-    // Backups written before withdrawals have no field; those boards were never withdrawn.
-    boards: (body.gameBoards ?? []).map((board) => ({
-      ...structuredClone(board),
-      withdrawal: board.withdrawal ?? null,
-    })),
-  };
 }

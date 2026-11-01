@@ -1,0 +1,1300 @@
+{
+  "version": 1,
+  "games": [],
+  "offers": [],
+  "evidence": [],
+  "analyses": [],
+  "reports": [],
+  "userResearch": [],
+  "bets": [],
+  "settlements": [],
+  "closings": [],
+  "gameBoards": [
+    {
+      "request": {
+        "id": "memory-v1:board",
+        "hash": "92e37d33fba22dafc89e3a0d15ed04b3ab881ca72c4d1c159055936ba093348b",
+        "explanationFormatVersion": 2
+      },
+      "parentId": null,
+      "game": {
+        "id": "2026_07_DAL_PHI",
+        "season": 2026,
+        "week": 7,
+        "home": "PHI",
+        "away": "DAL",
+        "kickoff": "2026-10-27T00:15:00.000Z",
+        "venue": "Lincoln Financial Field"
+      },
+      "sportsbook": "Board Book",
+      "observedAt": "2026-10-25T15:30:00.000Z",
+      "cutoffAt": "2026-10-25T16:00:00.000Z",
+      "markets": [
+        {
+          "market": "moneyline",
+          "offers": [
+            {
+              "gameId": "2026_07_DAL_PHI",
+              "sportsbook": "Shop Book",
+              "market": "moneyline",
+              "selection": "home",
+              "pointLine": null,
+              "americanOdds": -135,
+              "decimalOdds": 1.7407407407407407,
+              "observedAt": "2026-10-25T15:30:00.000Z",
+              "kickoffAt": "2026-10-27T00:15:00.000Z",
+              "rules": {
+                "period": "full-game",
+                "overtime": "included",
+                "tie": "push"
+              },
+              "opposing": {
+                "sportsbook": "Board Book",
+                "americanOdds": 130,
+                "observedAt": "2026-10-25T15:30:00.000Z"
+              }
+            },
+            {
+              "gameId": "2026_07_DAL_PHI",
+              "sportsbook": "Board Book",
+              "market": "moneyline",
+              "selection": "away",
+              "pointLine": null,
+              "americanOdds": 130,
+              "decimalOdds": 2.3,
+              "observedAt": "2026-10-25T15:30:00.000Z",
+              "kickoffAt": "2026-10-27T00:15:00.000Z",
+              "rules": {
+                "period": "full-game",
+                "overtime": "included",
+                "tie": "push"
+              },
+              "opposing": {
+                "sportsbook": "Board Book",
+                "americanOdds": -150,
+                "observedAt": "2026-10-25T15:30:00.000Z"
+              }
+            }
+          ],
+          "quotes": [
+            {
+              "sportsbook": "Shop Book",
+              "market": "moneyline",
+              "selection": "home",
+              "americanOdds": -135,
+              "pointLine": null,
+              "observedAt": "2026-10-25T15:20:00.000Z",
+              "sameLine": true,
+              "best": true
+            }
+          ],
+          "pick": {
+            "parentPickId": null,
+            "forecastingModel": {
+              "checksum": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "version": 4,
+              "trainingCutoff": "2026-03-01T00:00:00.000Z",
+              "releaseStatus": "unreleased",
+              "releasedMarkets": []
+            },
+            "calculation": {
+              "version": "model-pick-2026-10-27.1",
+              "market": "moneyline",
+              "pickedSelection": "home",
+              "grade": "lean",
+              "release": "unvalidated",
+              "tieBreak": "expected value",
+              "threshold": {
+                "version": "threshold-2026-10-25",
+                "conservativeExpectedValue": 0
+              },
+              "materialEvidenceMissing": false,
+              "margin": 0.009250693802035137,
+              "sides": [
+                {
+                  "selection": "home",
+                  "pointLine": null,
+                  "americanOdds": -135,
+                  "decimalOdds": 1.7407407407407407,
+                  "probabilities": {
+                    "win": 0.64,
+                    "loss": 0.36,
+                    "push": 0
+                  },
+                  "conservativeProbabilities": null,
+                  "noVigProbability": 0.5692025664527957,
+                  "expectedValue": 0.11407407407407405,
+                  "conservativeExpectedValue": null
+                },
+                {
+                  "selection": "away",
+                  "pointLine": null,
+                  "americanOdds": 130,
+                  "decimalOdds": 2.3,
+                  "probabilities": {
+                    "win": 0.36,
+                    "loss": 0.64,
+                    "push": 0
+                  },
+                  "conservativeProbabilities": null,
+                  "noVigProbability": 0.43079743354720446,
+                  "expectedValue": -0.1720000000000001,
+                  "conservativeExpectedValue": null
+                }
+              ],
+              "priceCutoff": {
+                "available": true,
+                "grade": "lean",
+                "keeps": true,
+                "decimalOdds": 1.5625,
+                "americanOdds": -178
+              }
+            },
+            "forecast": null,
+            "id": "ab97d1b7-e699-446d-ae93-083085604ceb",
+            "boardId": "68caca67-ecdb-403f-b2c0-f24125b1d6e7",
+            "market": "moneyline",
+            "role": {
+              "role": "primary",
+              "reason": "Earliest completed model pick before kickoff",
+              "protocolId": "prospective-2026-10-26"
+            },
+            "createdAt": "2026-11-01T10:29:21.156Z"
+          },
+          "noPickReason": null
+        }
+      ],
+      "lean": null,
+      "drafter": {
+        "id": "fixture",
+        "modelId": "fixture-drafter"
+      },
+      "id": "68caca67-ecdb-403f-b2c0-f24125b1d6e7",
+      "status": "completed",
+      "evidence": [
+        {
+          "id": "schedule:2026_07_DAL_PHI",
+          "sourceId": "nflverse-schedule",
+          "url": null,
+          "retrievedAt": "2026-10-25T12:00:00.000Z",
+          "publishedAt": "unknown",
+          "origin": "automatic",
+          "facts": {
+            "home": "PHI",
+            "away": "DAL",
+            "kickoff": "2026-10-27T00:15:00.000Z",
+            "venue": "Lincoln Financial Field"
+          },
+          "excerpt": "DAL at PHI, Lincoln Financial Field",
+          "checksum": null,
+          "factKey": "schedule:2026_07_DAL_PHI"
+        }
+      ],
+      "gaps": ["At least one evidence item has an unknown publication time."],
+      "failureReason": null,
+      "providerRequests": [],
+      "providerOutcomeAmbiguous": false,
+      "usage": null,
+      "explanation": {
+        "picks": [
+          {
+            "market": "moneyline",
+            "side": "home",
+            "grade": "lean",
+            "americanOdds": -135,
+            "pointLine": null,
+            "summary": "The forecasting model chose PHI in the moneyline market. The fixture drafter only explains this model pick and cites the supplied schedule evidence.",
+            "otherSideCase": "DAL is the opposing side, and the schedule evidence says nothing that shows the forecasting model is right about this game.",
+            "claims": [
+              {
+                "text": "The schedule evidence identifies the matchup and kickoff the forecasting model priced.",
+                "stance": "supporting",
+                "evidenceIds": ["schedule:2026_07_DAL_PHI"]
+              },
+              {
+                "text": "The schedule evidence says nothing about injuries, form, or weather, so it cannot show the entered price is wrong.",
+                "stance": "opposing",
+                "evidenceIds": ["schedule:2026_07_DAL_PHI"]
+              }
+            ],
+            "missingInputs": ["At least one evidence item has an unknown publication time."]
+          }
+        ],
+        "formatVersion": 2,
+        "rendererVersion": 1
+      },
+      "withdrawal": null,
+      "createdAt": "2026-11-01T10:29:21.153Z",
+      "completedAt": "2026-11-01T10:29:21.165Z"
+    }
+  ],
+  "gameSettlementNotices": [
+    {
+      "id": "9a9357f8-a4b1-418e-abfe-0a6c491426e8",
+      "eventId": "memory-v1:game-final",
+      "analysisId": null,
+      "gameId": "2026_07_DAL_PHI",
+      "betId": null,
+      "kind": "final",
+      "homeScore": 24,
+      "awayScore": 21,
+      "source": "box score",
+      "reason": null,
+      "correctsId": null,
+      "recordedAt": "2026-10-26T04:30:00.000Z",
+      "payloadKey": "{\"eventId\":\"memory-v1:game-final\",\"gameId\":\"2026_07_DAL_PHI\",\"kind\":\"final\",\"homeScore\":24,\"awayScore\":21,\"source\":\"box score\",\"reason\":null,\"correctsNoticeId\":null}"
+    }
+  ],
+  "runs": [
+    {
+      "request": {
+        "id": "memory-v1:primary",
+        "hash": "8f0dd898affc50b92b858cab4c933b1d8237d8cdaf908162ea7c36bbfbdf1f36",
+        "inputs": {
+          "scheduleRetrievedAt": "2026-10-25T12:00:00.000Z",
+          "manualEvidence": [],
+          "carriedEvidence": [],
+          "drafter": {
+            "provider": "fixture",
+            "modelId": "fixture-drafter"
+          }
+        }
+      },
+      "parentId": null,
+      "cutoffAt": "2026-10-25T16:00:00.000Z",
+      "game": {
+        "id": "2026_07_DAL_PHI",
+        "season": 2026,
+        "week": 7,
+        "home": "PHI",
+        "away": "DAL",
+        "kickoff": "2026-10-27T00:15:00.000Z",
+        "venue": "Lincoln Financial Field"
+      },
+      "offer": {
+        "gameId": "2026_07_DAL_PHI",
+        "sportsbook": "Example Book",
+        "market": "moneyline",
+        "selection": "home",
+        "pointLine": null,
+        "americanOdds": -110,
+        "decimalOdds": 1.9090909090909092,
+        "observedAt": "2026-10-25T15:30:00.000Z",
+        "kickoffAt": "2026-10-27T00:15:00.000Z",
+        "rules": {
+          "period": "full-game",
+          "overtime": "included",
+          "tie": "push"
+        },
+        "opposing": null
+      },
+      "lean": {
+        "text": "PHI",
+        "rationale": "Home rest edge"
+      },
+      "evidence": [
+        {
+          "id": "schedule:2026_07_DAL_PHI",
+          "sourceId": "nflverse-schedule",
+          "url": null,
+          "retrievedAt": "2026-10-25T12:00:00.000Z",
+          "publishedAt": "unknown",
+          "origin": "automatic",
+          "facts": {
+            "home": "PHI",
+            "away": "DAL",
+            "kickoff": "2026-10-27T00:15:00.000Z",
+            "venue": "Lincoln Financial Field"
+          },
+          "excerpt": "DAL at PHI, Lincoln Financial Field",
+          "checksum": null,
+          "factKey": "schedule:2026_07_DAL_PHI"
+        }
+      ],
+      "evidencePacketHash": "261c5e5e0c1ef418c7c37a3b896b655ac45eb0fe52d70f8f1db63d27ae9c63c7",
+      "gaps": [
+        "Injury report was not collected.",
+        "Weather was not collected.",
+        "At least one evidence item has an unknown publication time."
+      ],
+      "policy": {
+        "policyVersion": "policy-2026-10-25.2",
+        "experimental": true,
+        "conservativeExpectedValuePerUnit": null,
+        "threshold": {
+          "version": "threshold-2026-10-25",
+          "conservativeExpectedValue": 0
+        },
+        "uncertainty": {
+          "available": false,
+          "reason": "Not assessed."
+        },
+        "manualCoverage": [],
+        "reliesOnManualEvidence": false,
+        "priceCutoff": {
+          "available": false,
+          "reason": "Price cutoff is unavailable: Not assessed."
+        },
+        "label": "Experimental estimate. Not proof of an edge. Thresholds in this policy are versioned and are not scientifically established.",
+        "conclusion": "insufficient evidence",
+        "blockingReason": "Material evidence is missing.",
+        "expectedValuePerUnit": null
+      },
+      "probabilityModel": {
+        "status": "unavailable",
+        "reason": "No model artifact is configured."
+      },
+      "forecast": null,
+      "provider": "fixture",
+      "model": "fixture-drafter",
+      "usage": {
+        "promptTokens": 900,
+        "completionTokens": null,
+        "totalTokens": null,
+        "costUsd": null,
+        "partial": true
+      },
+      "providerRequests": [
+        {
+          "requestId": "legacy-draft",
+          "role": "draft",
+          "outcome": "completed",
+          "response": {
+            "conclusion": "insufficient evidence",
+            "summary": "The policy result is insufficient evidence. Material evidence is missing. The fixture drafter cites only the supplied schedule evidence.",
+            "claims": [
+              {
+                "text": "The schedule evidence identifies the matchup used for this offer.",
+                "stance": "supporting",
+                "evidenceIds": ["schedule:2026_07_DAL_PHI"]
+              },
+              {
+                "text": "The schedule evidence says nothing about either side's chances, so it cannot show the price is wrong.",
+                "stance": "opposing",
+                "evidenceIds": ["schedule:2026_07_DAL_PHI"]
+              }
+            ],
+            "assumptions": ["Full-game rules, including overtime, match the entered offer."],
+            "uncertainty": "Evidence is incomplete; the gaps are listed with this report.",
+            "missingInputs": [
+              "Injury report was not collected.",
+              "Weather was not collected.",
+              "At least one evidence item has an unknown publication time."
+            ],
+            "changeConditions": ["A different American price requires a new report."],
+            "decimalOdds": 1.9090909090909092,
+            "decisiveBreakEven": 0.5238095238095238
+          },
+          "promptTokens": 900,
+          "completionTokens": null,
+          "totalTokens": null,
+          "costUsd": null,
+          "costKnown": false
+        }
+      ],
+      "providerOutcomeAmbiguous": false,
+      "report": {
+        "conclusion": "insufficient evidence",
+        "summary": "The policy result is insufficient evidence. Material evidence is missing. The fixture drafter cites only the supplied schedule evidence.",
+        "claims": [
+          {
+            "text": "The schedule evidence identifies the matchup used for this offer.",
+            "stance": "supporting",
+            "evidenceIds": ["schedule:2026_07_DAL_PHI"]
+          },
+          {
+            "text": "The schedule evidence says nothing about either side's chances, so it cannot show the price is wrong.",
+            "stance": "opposing",
+            "evidenceIds": ["schedule:2026_07_DAL_PHI"]
+          }
+        ],
+        "assumptions": ["Full-game rules, including overtime, match the entered offer."],
+        "uncertainty": "Evidence is incomplete; the gaps are listed with this report.",
+        "missingInputs": [
+          "Injury report was not collected.",
+          "Weather was not collected.",
+          "At least one evidence item has an unknown publication time."
+        ],
+        "changeConditions": ["A different American price requires a new report."],
+        "decimalOdds": 1.9090909090909092,
+        "decisiveBreakEven": 0.5238095238095238
+      },
+      "renderedText": "insufficient evidence\nThe policy result is insufficient evidence. Material evidence is missing. The fixture drafter cites only the supplied schedule evidence.\nschedule:2026_07_DAL_PHI: The schedule evidence identifies the matchup used for this offer.\nschedule:2026_07_DAL_PHI: The schedule evidence says nothing about either side's chances, so it cannot show the price is wrong.\nInjury report was not collected.\nWeather was not collected.\nAt least one evidence item has an unknown publication time.\nAmerican odds -110",
+      "failureReason": null,
+      "status": "completed",
+      "stages": [
+        "checking inputs",
+        "collecting evidence",
+        "computing",
+        "drafting",
+        "checking report"
+      ],
+      "id": "eb5a05d7-2558-4018-83c1-40fa30413b4c",
+      "snapshotVersion": 1,
+      "snapshotProvenance": "captured",
+      "createdAt": "2026-11-01T10:29:21.129Z",
+      "completedAt": "2026-11-01T10:29:21.136Z",
+      "assessmentRole": {
+        "role": "primary",
+        "reason": "Earliest completed analysis before kickoff"
+      }
+    },
+    {
+      "request": {
+        "id": "memory-v1:refresh",
+        "hash": "70d24443c08a186f71a0b6c3f58412dafec593320f2d510229d7468fe3cba888",
+        "inputs": {
+          "scheduleRetrievedAt": "2026-10-25T12:00:00.000Z",
+          "manualEvidence": [],
+          "carriedEvidence": [],
+          "drafter": {
+            "provider": "fixture",
+            "modelId": "fixture-drafter"
+          }
+        }
+      },
+      "parentId": "eb5a05d7-2558-4018-83c1-40fa30413b4c",
+      "cutoffAt": "2026-10-25T16:00:00.000Z",
+      "game": {
+        "id": "2026_07_DAL_PHI",
+        "season": 2026,
+        "week": 7,
+        "home": "PHI",
+        "away": "DAL",
+        "kickoff": "2026-10-27T00:15:00.000Z",
+        "venue": "Lincoln Financial Field"
+      },
+      "offer": {
+        "gameId": "2026_07_DAL_PHI",
+        "sportsbook": "Example Book",
+        "market": "moneyline",
+        "selection": "home",
+        "pointLine": null,
+        "americanOdds": -105,
+        "decimalOdds": 1.9523809523809523,
+        "observedAt": "2026-10-25T15:50:00.000Z",
+        "kickoffAt": "2026-10-27T00:15:00.000Z",
+        "rules": {
+          "period": "full-game",
+          "overtime": "included",
+          "tie": "push"
+        },
+        "opposing": null
+      },
+      "lean": {
+        "text": "PHI",
+        "rationale": "Home rest edge"
+      },
+      "evidence": [
+        {
+          "id": "schedule:2026_07_DAL_PHI",
+          "sourceId": "nflverse-schedule",
+          "url": null,
+          "retrievedAt": "2026-10-25T12:00:00.000Z",
+          "publishedAt": "unknown",
+          "origin": "automatic",
+          "facts": {
+            "home": "PHI",
+            "away": "DAL",
+            "kickoff": "2026-10-27T00:15:00.000Z",
+            "venue": "Lincoln Financial Field"
+          },
+          "excerpt": "DAL at PHI, Lincoln Financial Field",
+          "checksum": null,
+          "factKey": "schedule:2026_07_DAL_PHI"
+        }
+      ],
+      "evidencePacketHash": "aac074eefd96700e5a488f2812a1eccf8bc089f7c4c3c9e3884282f651ce9212",
+      "gaps": [
+        "Injury report was not collected.",
+        "Weather was not collected.",
+        "At least one evidence item has an unknown publication time."
+      ],
+      "policy": {
+        "policyVersion": "policy-2026-10-25.2",
+        "experimental": true,
+        "conservativeExpectedValuePerUnit": null,
+        "threshold": {
+          "version": "threshold-2026-10-25",
+          "conservativeExpectedValue": 0
+        },
+        "uncertainty": {
+          "available": false,
+          "reason": "Not assessed."
+        },
+        "manualCoverage": [],
+        "reliesOnManualEvidence": false,
+        "priceCutoff": {
+          "available": false,
+          "reason": "Price cutoff is unavailable: Not assessed."
+        },
+        "label": "Experimental estimate. Not proof of an edge. Thresholds in this policy are versioned and are not scientifically established.",
+        "conclusion": "insufficient evidence",
+        "blockingReason": "Material evidence is missing.",
+        "expectedValuePerUnit": null
+      },
+      "probabilityModel": {
+        "status": "unavailable",
+        "reason": "No model artifact is configured."
+      },
+      "forecast": null,
+      "provider": "fixture",
+      "model": "fixture-drafter",
+      "usage": null,
+      "providerRequests": [],
+      "providerOutcomeAmbiguous": false,
+      "report": {
+        "conclusion": "insufficient evidence",
+        "summary": "The policy result is insufficient evidence. Material evidence is missing. The fixture drafter cites only the supplied schedule evidence.",
+        "claims": [
+          {
+            "text": "The schedule evidence identifies the matchup used for this offer.",
+            "stance": "supporting",
+            "evidenceIds": ["schedule:2026_07_DAL_PHI"]
+          },
+          {
+            "text": "The schedule evidence says nothing about either side's chances, so it cannot show the price is wrong.",
+            "stance": "opposing",
+            "evidenceIds": ["schedule:2026_07_DAL_PHI"]
+          }
+        ],
+        "assumptions": ["Full-game rules, including overtime, match the entered offer."],
+        "uncertainty": "Evidence is incomplete; the gaps are listed with this report.",
+        "missingInputs": [
+          "Injury report was not collected.",
+          "Weather was not collected.",
+          "At least one evidence item has an unknown publication time."
+        ],
+        "changeConditions": ["A different American price requires a new report."],
+        "decimalOdds": 1.9523809523809523,
+        "decisiveBreakEven": 0.5121951219512195
+      },
+      "renderedText": "insufficient evidence\nThe policy result is insufficient evidence. Material evidence is missing. The fixture drafter cites only the supplied schedule evidence.\nschedule:2026_07_DAL_PHI: The schedule evidence identifies the matchup used for this offer.\nschedule:2026_07_DAL_PHI: The schedule evidence says nothing about either side's chances, so it cannot show the price is wrong.\nInjury report was not collected.\nWeather was not collected.\nAt least one evidence item has an unknown publication time.\nAmerican odds -105",
+      "failureReason": null,
+      "status": "completed",
+      "stages": [
+        "checking inputs",
+        "collecting evidence",
+        "computing",
+        "drafting",
+        "checking report"
+      ],
+      "id": "4d8a9d0c-dca0-4f29-adb0-4f4a9575ba98",
+      "snapshotVersion": 1,
+      "snapshotProvenance": "captured",
+      "createdAt": "2026-11-01T10:29:21.136Z",
+      "completedAt": "2026-11-01T10:29:21.138Z",
+      "assessmentRole": {
+        "role": "refresh",
+        "primaryId": "eb5a05d7-2558-4018-83c1-40fa30413b4c",
+        "reason": "Later completed analysis. The primary assessment is unchanged."
+      }
+    },
+    {
+      "request": {
+        "id": "memory-v1:failed",
+        "hash": "4f36e317c71eaf66cb0a60e618f67de610410eb25e4ed0ccfe8eda9463955a8f",
+        "inputs": {
+          "scheduleRetrievedAt": "2026-10-25T12:00:00.000Z",
+          "manualEvidence": [],
+          "carriedEvidence": [],
+          "drafter": {
+            "provider": "fixture",
+            "modelId": "fixture-drafter"
+          }
+        }
+      },
+      "parentId": null,
+      "cutoffAt": "2026-10-25T16:00:00.000Z",
+      "game": {
+        "id": "2026_07_DAL_PHI",
+        "season": 2026,
+        "week": 7,
+        "home": "PHI",
+        "away": "DAL",
+        "kickoff": "2026-10-27T00:15:00.000Z",
+        "venue": "Lincoln Financial Field"
+      },
+      "offer": {
+        "gameId": "2026_07_DAL_PHI",
+        "sportsbook": "Example Book",
+        "market": "moneyline",
+        "selection": "home",
+        "pointLine": null,
+        "americanOdds": -110,
+        "decimalOdds": 1.9090909090909092,
+        "observedAt": "2026-10-25T15:30:00.000Z",
+        "kickoffAt": "2026-10-27T00:15:00.000Z",
+        "rules": {
+          "period": "full-game",
+          "overtime": "included",
+          "tie": "push"
+        },
+        "opposing": null
+      },
+      "lean": null,
+      "evidence": [],
+      "evidencePacketHash": "",
+      "gaps": [],
+      "policy": null,
+      "probabilityModel": null,
+      "forecast": null,
+      "provider": "fixture",
+      "model": "fixture-drafter",
+      "usage": null,
+      "providerRequests": [],
+      "providerOutcomeAmbiguous": false,
+      "report": null,
+      "renderedText": "",
+      "failureReason": "connection closed while waiting for source response",
+      "status": "failed",
+      "stages": ["checking inputs", "collecting evidence"],
+      "id": "13711d0b-4c21-45d4-adc4-f4c147f5a034",
+      "snapshotVersion": 1,
+      "snapshotProvenance": "captured",
+      "createdAt": "2026-11-01T10:29:21.138Z",
+      "completedAt": "2026-11-01T10:29:21.140Z",
+      "assessmentRole": {
+        "role": "ineligible",
+        "reason": "This analysis did not complete before kickoff."
+      }
+    },
+    {
+      "request": {
+        "id": "memory-v1:ambiguous",
+        "hash": "8f0dd898affc50b92b858cab4c933b1d8237d8cdaf908162ea7c36bbfbdf1f36",
+        "inputs": {
+          "scheduleRetrievedAt": "2026-10-25T12:00:00.000Z",
+          "manualEvidence": [],
+          "carriedEvidence": [],
+          "drafter": {
+            "provider": "fixture",
+            "modelId": "fixture-drafter"
+          }
+        }
+      },
+      "parentId": null,
+      "cutoffAt": "2026-10-25T16:00:00.000Z",
+      "game": {
+        "id": "2026_07_DAL_PHI",
+        "season": 2026,
+        "week": 7,
+        "home": "PHI",
+        "away": "DAL",
+        "kickoff": "2026-10-27T00:15:00.000Z",
+        "venue": "Lincoln Financial Field"
+      },
+      "offer": {
+        "gameId": "2026_07_DAL_PHI",
+        "sportsbook": "Example Book",
+        "market": "moneyline",
+        "selection": "home",
+        "pointLine": null,
+        "americanOdds": -110,
+        "decimalOdds": 1.9090909090909092,
+        "observedAt": "2026-10-25T15:30:00.000Z",
+        "kickoffAt": "2026-10-27T00:15:00.000Z",
+        "rules": {
+          "period": "full-game",
+          "overtime": "included",
+          "tie": "push"
+        },
+        "opposing": null
+      },
+      "lean": {
+        "text": "PHI",
+        "rationale": "Home rest edge"
+      },
+      "evidence": [
+        {
+          "id": "schedule:2026_07_DAL_PHI",
+          "sourceId": "nflverse-schedule",
+          "url": null,
+          "retrievedAt": "2026-10-25T12:00:00.000Z",
+          "publishedAt": "unknown",
+          "origin": "automatic",
+          "facts": {
+            "home": "PHI",
+            "away": "DAL",
+            "kickoff": "2026-10-27T00:15:00.000Z",
+            "venue": "Lincoln Financial Field"
+          },
+          "excerpt": "DAL at PHI, Lincoln Financial Field",
+          "checksum": null,
+          "factKey": "schedule:2026_07_DAL_PHI"
+        }
+      ],
+      "evidencePacketHash": "261c5e5e0c1ef418c7c37a3b896b655ac45eb0fe52d70f8f1db63d27ae9c63c7",
+      "gaps": [
+        "Injury report was not collected.",
+        "Weather was not collected.",
+        "At least one evidence item has an unknown publication time."
+      ],
+      "policy": {
+        "policyVersion": "policy-2026-10-25.2",
+        "experimental": true,
+        "conservativeExpectedValuePerUnit": null,
+        "threshold": {
+          "version": "threshold-2026-10-25",
+          "conservativeExpectedValue": 0
+        },
+        "uncertainty": {
+          "available": false,
+          "reason": "Not assessed."
+        },
+        "manualCoverage": [],
+        "reliesOnManualEvidence": false,
+        "priceCutoff": {
+          "available": false,
+          "reason": "Price cutoff is unavailable: Not assessed."
+        },
+        "label": "Experimental estimate. Not proof of an edge. Thresholds in this policy are versioned and are not scientifically established.",
+        "conclusion": "insufficient evidence",
+        "blockingReason": "Material evidence is missing.",
+        "expectedValuePerUnit": null
+      },
+      "probabilityModel": {
+        "status": "unavailable",
+        "reason": "No model artifact is configured."
+      },
+      "forecast": null,
+      "provider": "fixture",
+      "model": "fixture-drafter",
+      "usage": {
+        "promptTokens": null,
+        "completionTokens": null,
+        "totalTokens": null,
+        "costUsd": null,
+        "partial": true
+      },
+      "providerRequests": [
+        {
+          "requestId": "maybe-charged",
+          "role": "draft",
+          "outcome": "ambiguous",
+          "response": null,
+          "promptTokens": null,
+          "completionTokens": null,
+          "totalTokens": null,
+          "costUsd": null,
+          "costKnown": false
+        }
+      ],
+      "providerOutcomeAmbiguous": true,
+      "report": null,
+      "renderedText": "",
+      "failureReason": "Provider completion is ambiguous. This request may already have been charged. Start a new attempt before sending another provider request. Completion is not exactly once.",
+      "status": "failed",
+      "stages": [
+        "checking inputs",
+        "collecting evidence",
+        "computing",
+        "drafting",
+        "checking report"
+      ],
+      "id": "8ae5e924-5128-48d0-8ae3-c35b9932fd04",
+      "snapshotVersion": 1,
+      "snapshotProvenance": "captured",
+      "createdAt": "2026-11-01T10:29:21.141Z",
+      "completedAt": "2026-11-01T10:29:21.143Z",
+      "assessmentRole": {
+        "role": "ineligible",
+        "reason": "This analysis did not complete before kickoff."
+      }
+    },
+    {
+      "request": {
+        "id": "memory-v1:unfinished",
+        "hash": "8f0dd898affc50b92b858cab4c933b1d8237d8cdaf908162ea7c36bbfbdf1f36",
+        "inputs": {
+          "scheduleRetrievedAt": "2026-10-25T12:00:00.000Z",
+          "manualEvidence": [],
+          "carriedEvidence": [],
+          "drafter": {
+            "provider": "fixture",
+            "modelId": "fixture-drafter"
+          }
+        }
+      },
+      "parentId": null,
+      "cutoffAt": "2026-10-25T16:00:00.000Z",
+      "game": {
+        "id": "2026_07_DAL_PHI",
+        "season": 2026,
+        "week": 7,
+        "home": "PHI",
+        "away": "DAL",
+        "kickoff": "2026-10-27T00:15:00.000Z",
+        "venue": "Lincoln Financial Field"
+      },
+      "offer": {
+        "gameId": "2026_07_DAL_PHI",
+        "sportsbook": "Example Book",
+        "market": "moneyline",
+        "selection": "home",
+        "pointLine": null,
+        "americanOdds": -110,
+        "decimalOdds": 1.9090909090909092,
+        "observedAt": "2026-10-25T15:30:00.000Z",
+        "kickoffAt": "2026-10-27T00:15:00.000Z",
+        "rules": {
+          "period": "full-game",
+          "overtime": "included",
+          "tie": "push"
+        },
+        "opposing": null
+      },
+      "lean": {
+        "text": "PHI",
+        "rationale": "Home rest edge"
+      },
+      "evidence": [
+        {
+          "id": "schedule:2026_07_DAL_PHI",
+          "sourceId": "nflverse-schedule",
+          "url": null,
+          "retrievedAt": "2026-10-25T12:00:00.000Z",
+          "publishedAt": "unknown",
+          "origin": "automatic",
+          "facts": {
+            "home": "PHI",
+            "away": "DAL",
+            "kickoff": "2026-10-27T00:15:00.000Z",
+            "venue": "Lincoln Financial Field"
+          },
+          "excerpt": "DAL at PHI, Lincoln Financial Field",
+          "checksum": null,
+          "factKey": "schedule:2026_07_DAL_PHI"
+        }
+      ],
+      "evidencePacketHash": "261c5e5e0c1ef418c7c37a3b896b655ac45eb0fe52d70f8f1db63d27ae9c63c7",
+      "gaps": [
+        "Injury report was not collected.",
+        "Weather was not collected.",
+        "At least one evidence item has an unknown publication time."
+      ],
+      "policy": {
+        "policyVersion": "policy-2026-10-25.2",
+        "experimental": true,
+        "conservativeExpectedValuePerUnit": null,
+        "threshold": {
+          "version": "threshold-2026-10-25",
+          "conservativeExpectedValue": 0
+        },
+        "uncertainty": {
+          "available": false,
+          "reason": "Not assessed."
+        },
+        "manualCoverage": [],
+        "reliesOnManualEvidence": false,
+        "priceCutoff": {
+          "available": false,
+          "reason": "Price cutoff is unavailable: Not assessed."
+        },
+        "label": "Experimental estimate. Not proof of an edge. Thresholds in this policy are versioned and are not scientifically established.",
+        "conclusion": "insufficient evidence",
+        "blockingReason": "Material evidence is missing.",
+        "expectedValuePerUnit": null
+      },
+      "probabilityModel": {
+        "status": "unavailable",
+        "reason": "No model artifact is configured."
+      },
+      "forecast": null,
+      "provider": "fixture",
+      "model": "fixture-drafter",
+      "usage": null,
+      "providerRequests": [],
+      "providerOutcomeAmbiguous": false,
+      "report": null,
+      "renderedText": "",
+      "failureReason": null,
+      "status": "running",
+      "stages": [
+        "checking inputs",
+        "collecting evidence",
+        "computing",
+        "drafting",
+        "checking report"
+      ],
+      "id": "fc48c655-1663-4e3a-89d3-3bd1ce243759",
+      "snapshotVersion": 1,
+      "snapshotProvenance": "captured",
+      "createdAt": "2026-11-01T10:29:21.144Z",
+      "completedAt": null,
+      "assessmentRole": null
+    },
+    {
+      "request": {
+        "id": "memory-v1:interrupted",
+        "hash": "8f0dd898affc50b92b858cab4c933b1d8237d8cdaf908162ea7c36bbfbdf1f36",
+        "inputs": {
+          "scheduleRetrievedAt": "2026-10-25T12:00:00.000Z",
+          "manualEvidence": [],
+          "carriedEvidence": [],
+          "drafter": {
+            "provider": "fixture",
+            "modelId": "fixture-drafter"
+          }
+        }
+      },
+      "parentId": null,
+      "cutoffAt": "2026-10-25T16:00:00.000Z",
+      "game": {
+        "id": "2026_07_DAL_PHI",
+        "season": 2026,
+        "week": 7,
+        "home": "PHI",
+        "away": "DAL",
+        "kickoff": "2026-10-27T00:15:00.000Z",
+        "venue": "Lincoln Financial Field"
+      },
+      "offer": {
+        "gameId": "2026_07_DAL_PHI",
+        "sportsbook": "Example Book",
+        "market": "moneyline",
+        "selection": "home",
+        "pointLine": null,
+        "americanOdds": -110,
+        "decimalOdds": 1.9090909090909092,
+        "observedAt": "2026-10-25T15:30:00.000Z",
+        "kickoffAt": "2026-10-27T00:15:00.000Z",
+        "rules": {
+          "period": "full-game",
+          "overtime": "included",
+          "tie": "push"
+        },
+        "opposing": null
+      },
+      "lean": {
+        "text": "PHI",
+        "rationale": "Home rest edge"
+      },
+      "evidence": [
+        {
+          "id": "schedule:2026_07_DAL_PHI",
+          "sourceId": "nflverse-schedule",
+          "url": null,
+          "retrievedAt": "2026-10-25T12:00:00.000Z",
+          "publishedAt": "unknown",
+          "origin": "automatic",
+          "facts": {
+            "home": "PHI",
+            "away": "DAL",
+            "kickoff": "2026-10-27T00:15:00.000Z",
+            "venue": "Lincoln Financial Field"
+          },
+          "excerpt": "DAL at PHI, Lincoln Financial Field",
+          "checksum": null,
+          "factKey": "schedule:2026_07_DAL_PHI"
+        }
+      ],
+      "evidencePacketHash": "261c5e5e0c1ef418c7c37a3b896b655ac45eb0fe52d70f8f1db63d27ae9c63c7",
+      "gaps": [
+        "Injury report was not collected.",
+        "Weather was not collected.",
+        "At least one evidence item has an unknown publication time."
+      ],
+      "policy": {
+        "policyVersion": "policy-2026-10-25.2",
+        "experimental": true,
+        "conservativeExpectedValuePerUnit": null,
+        "threshold": {
+          "version": "threshold-2026-10-25",
+          "conservativeExpectedValue": 0
+        },
+        "uncertainty": {
+          "available": false,
+          "reason": "Not assessed."
+        },
+        "manualCoverage": [],
+        "reliesOnManualEvidence": false,
+        "priceCutoff": {
+          "available": false,
+          "reason": "Price cutoff is unavailable: Not assessed."
+        },
+        "label": "Experimental estimate. Not proof of an edge. Thresholds in this policy are versioned and are not scientifically established.",
+        "conclusion": "insufficient evidence",
+        "blockingReason": "Material evidence is missing.",
+        "expectedValuePerUnit": null
+      },
+      "probabilityModel": {
+        "status": "unavailable",
+        "reason": "No model artifact is configured."
+      },
+      "forecast": null,
+      "provider": "fixture",
+      "model": "fixture-drafter",
+      "usage": null,
+      "providerRequests": [],
+      "providerOutcomeAmbiguous": false,
+      "report": null,
+      "renderedText": "",
+      "failureReason": null,
+      "status": "interrupted",
+      "stages": [
+        "checking inputs",
+        "collecting evidence",
+        "computing",
+        "drafting",
+        "checking report"
+      ],
+      "id": "8ab475f1-a7f2-4ecb-9f06-fdedcc6e1d1f",
+      "snapshotVersion": 1,
+      "snapshotProvenance": "captured",
+      "createdAt": "2026-11-01T10:29:21.147Z",
+      "completedAt": "2026-11-01T10:29:21.148Z",
+      "assessmentRole": {
+        "role": "ineligible",
+        "reason": "This analysis did not complete before kickoff."
+      }
+    }
+  ],
+  "actualBets": [
+    {
+      "id": "3f05dbdb-4f6b-419f-bd81-7f633fd5bc93",
+      "analysisId": "eb5a05d7-2558-4018-83c1-40fa30413b4c",
+      "modelPickId": null,
+      "submissionId": "memory-v1:analysis-bet",
+      "contractProvenance": "captured",
+      "sportsbook": "Placed Book",
+      "market": "spread",
+      "selection": "home",
+      "pointLine": -2.5,
+      "rules": {
+        "period": "full-game",
+        "overtime": "included",
+        "tie": "push"
+      },
+      "americanOdds": -108,
+      "stakeUnits": 1.5,
+      "placedAt": "2026-10-25T15:40:00.000Z",
+      "game": {
+        "id": "2026_07_DAL_PHI",
+        "kickoff": "2026-10-27T00:15:00.000Z"
+      }
+    },
+    {
+      "id": "511fd7e2-3d9b-4553-a874-e3fd567c5220",
+      "analysisId": null,
+      "modelPickId": "ab97d1b7-e699-446d-ae93-083085604ceb",
+      "submissionId": "memory-v1:pick-bet",
+      "contractProvenance": "captured",
+      "sportsbook": "Shop Book",
+      "market": "moneyline",
+      "selection": "home",
+      "pointLine": null,
+      "rules": {
+        "period": "full-game",
+        "overtime": "included",
+        "tie": "push"
+      },
+      "americanOdds": -135,
+      "stakeUnits": 1,
+      "placedAt": "2026-10-25T15:45:00.000Z",
+      "game": {
+        "id": "2026_07_DAL_PHI",
+        "kickoff": "2026-10-27T00:15:00.000Z"
+      }
+    }
+  ],
+  "closingObservations": [
+    {
+      "id": "e4ebb47c-bb83-4561-be82-a874d7b7f950",
+      "subject": {
+        "kind": "analysis",
+        "id": "eb5a05d7-2558-4018-83c1-40fa30413b4c"
+      },
+      "provenance": "observed",
+      "sportsbook": "Example Book",
+      "market": "moneyline",
+      "selection": "home",
+      "pointLine": null,
+      "rules": {
+        "period": "full-game",
+        "overtime": "included",
+        "tie": "push"
+      },
+      "americanOdds": -125,
+      "observedAt": "2026-10-25T23:50:00.000Z",
+      "source": "closing screen",
+      "comparison": {
+        "available": true,
+        "openDecimal": 1.9090909090909092,
+        "closeDecimal": 1.8,
+        "difference": -0.10909090909090913
+      }
+    },
+    {
+      "id": "3e78f217-5894-400f-beb9-64263992e48f",
+      "subject": {
+        "kind": "bet",
+        "id": "511fd7e2-3d9b-4553-a874-e3fd567c5220"
+      },
+      "provenance": "observed",
+      "sportsbook": "Shop Book",
+      "market": "moneyline",
+      "selection": "home",
+      "pointLine": null,
+      "rules": {
+        "period": "full-game",
+        "overtime": "included",
+        "tie": "push"
+      },
+      "americanOdds": -150,
+      "observedAt": "2026-10-25T20:00:00.000Z",
+      "source": "closing screen",
+      "comparison": {
+        "available": true,
+        "openDecimal": 1.7407407407407407,
+        "closeDecimal": 1.6666666666666665,
+        "difference": -0.07407407407407418
+      }
+    }
+  ],
+  "notices": [
+    {
+      "id": "22de605d-1548-494b-994b-bbc120156b11",
+      "eventId": "memory-v1:analysis-final",
+      "analysisId": "eb5a05d7-2558-4018-83c1-40fa30413b4c",
+      "gameId": null,
+      "betId": "3f05dbdb-4f6b-419f-bd81-7f633fd5bc93",
+      "kind": "final",
+      "homeScore": 27,
+      "awayScore": 20,
+      "source": "box score",
+      "reason": null,
+      "correctsId": null,
+      "recordedAt": "2026-10-26T03:00:00.000Z",
+      "payloadKey": "{\"eventId\":\"memory-v1:analysis-final\",\"analysisId\":\"eb5a05d7-2558-4018-83c1-40fa30413b4c\",\"betId\":\"3f05dbdb-4f6b-419f-bd81-7f633fd5bc93\",\"kind\":\"final\",\"homeScore\":27,\"awayScore\":20,\"source\":\"box score\",\"reason\":null,\"correctsNoticeId\":null}"
+    },
+    {
+      "id": "33f7e609-a09b-4f06-8b34-acc5c1719824",
+      "eventId": "memory-v1:analysis-correction",
+      "analysisId": "eb5a05d7-2558-4018-83c1-40fa30413b4c",
+      "gameId": null,
+      "betId": "3f05dbdb-4f6b-419f-bd81-7f633fd5bc93",
+      "kind": "final",
+      "homeScore": 20,
+      "awayScore": 27,
+      "source": "league",
+      "reason": "The first score was reversed.",
+      "correctsId": "22de605d-1548-494b-994b-bbc120156b11",
+      "recordedAt": "2026-10-26T04:00:00.000Z",
+      "payloadKey": "{\"eventId\":\"memory-v1:analysis-correction\",\"analysisId\":\"eb5a05d7-2558-4018-83c1-40fa30413b4c\",\"betId\":\"3f05dbdb-4f6b-419f-bd81-7f633fd5bc93\",\"kind\":\"final\",\"homeScore\":20,\"awayScore\":27,\"source\":\"league\",\"reason\":\"The first score was reversed.\",\"correctsNoticeId\":\"22de605d-1548-494b-994b-bbc120156b11\"}"
+    },
+    {
+      "id": "22af967a-26f9-460a-b4b8-71aa54d9d2e3",
+      "eventId": "memory-v1:bet-final",
+      "analysisId": null,
+      "gameId": null,
+      "betId": "511fd7e2-3d9b-4553-a874-e3fd567c5220",
+      "kind": "final",
+      "homeScore": 24,
+      "awayScore": 21,
+      "source": "box score",
+      "reason": null,
+      "correctsId": null,
+      "recordedAt": "2026-10-26T04:00:00.000Z",
+      "payloadKey": "{\"eventId\":\"memory-v1:bet-final\",\"betId\":\"511fd7e2-3d9b-4553-a874-e3fd567c5220\",\"kind\":\"final\",\"homeScore\":24,\"awayScore\":21,\"source\":\"box score\",\"reason\":null,\"correctsNoticeId\":null}"
+    },
+    {
+      "id": "aa78647f-ca4c-4248-ad97-25121c7b6295",
+      "eventId": "memory-v1:bet-correction",
+      "analysisId": null,
+      "gameId": null,
+      "betId": "511fd7e2-3d9b-4553-a874-e3fd567c5220",
+      "kind": "final",
+      "homeScore": 21,
+      "awayScore": 24,
+      "source": "league",
+      "reason": "The first score was reversed.",
+      "correctsId": "22af967a-26f9-460a-b4b8-71aa54d9d2e3",
+      "recordedAt": "2026-10-26T05:00:00.000Z",
+      "payloadKey": "{\"eventId\":\"memory-v1:bet-correction\",\"betId\":\"511fd7e2-3d9b-4553-a874-e3fd567c5220\",\"kind\":\"final\",\"homeScore\":21,\"awayScore\":24,\"source\":\"league\",\"reason\":\"The first score was reversed.\",\"correctsNoticeId\":\"22af967a-26f9-460a-b4b8-71aa54d9d2e3\"}"
+    },
+    {
+      "id": "9a9357f8-a4b1-418e-abfe-0a6c491426e8",
+      "eventId": "memory-v1:game-final",
+      "analysisId": null,
+      "gameId": "2026_07_DAL_PHI",
+      "betId": null,
+      "kind": "final",
+      "homeScore": 24,
+      "awayScore": 21,
+      "source": "box score",
+      "reason": null,
+      "correctsId": null,
+      "recordedAt": "2026-10-26T04:30:00.000Z",
+      "payloadKey": "{\"eventId\":\"memory-v1:game-final\",\"gameId\":\"2026_07_DAL_PHI\",\"kind\":\"final\",\"homeScore\":24,\"awayScore\":21,\"source\":\"box score\",\"reason\":null,\"correctsNoticeId\":null}"
+    }
+  ],
+  "protocolRegistrations": [
+    {
+      "id": "memory-v1:registration",
+      "cohort": "primary-model-picks",
+      "protocol": {
+        "id": "prospective-2026-10-26",
+        "role": "independent",
+        "inputAvailability": "decision-time-starters-v1",
+        "markets": ["moneyline", "spread", "total"],
+        "period": {
+          "start": "2026-10-26T00:00:00Z",
+          "end": null
+        },
+        "minimumPricedGames": 500,
+        "uncertainty": "slate-clustered-90-log-loss-difference",
+        "criteria": "no-worse-brier-and-log-loss-and-interval-upper-at-most-zero",
+        "frozenBeforeOutcomes": true,
+        "artifactChecksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "registeredAt": "2026-11-01T10:29:21.151Z"
+    }
+  ],
+  "closingMarketSnapshots": [
+    {
+      "id": "4ef1b138-afdd-4554-95b0-d1876ea216e2",
+      "gameId": "2026_07_DAL_PHI",
+      "market": "moneyline",
+      "offers": [
+        {
+          "gameId": "2026_07_DAL_PHI",
+          "sportsbook": "Board Book",
+          "market": "moneyline",
+          "selection": "home",
+          "pointLine": null,
+          "americanOdds": -160,
+          "decimalOdds": 1.625,
+          "observedAt": "2026-10-25T20:05:00.000Z",
+          "kickoffAt": "2026-10-27T00:15:00.000Z",
+          "rules": {
+            "period": "full-game",
+            "overtime": "included",
+            "tie": "push"
+          },
+          "opposing": null
+        },
+        {
+          "gameId": "2026_07_DAL_PHI",
+          "sportsbook": "Board Book",
+          "market": "moneyline",
+          "selection": "away",
+          "pointLine": null,
+          "americanOdds": 140,
+          "decimalOdds": 2.4,
+          "observedAt": "2026-10-25T20:05:00.000Z",
+          "kickoffAt": "2026-10-27T00:15:00.000Z",
+          "rules": {
+            "period": "full-game",
+            "overtime": "included",
+            "tie": "push"
+          },
+          "opposing": null
+        }
+      ],
+      "observedAt": "2026-10-25T20:05:00.000Z",
+      "source": "book",
+      "recordedAt": "2026-11-01T10:29:21.167Z"
+    }
+  ]
+}
