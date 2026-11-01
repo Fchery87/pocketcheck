@@ -38,6 +38,8 @@ The database command gives each test and hook 30 seconds instead of the unit def
 
 Each test creates a random `it_` schema, applies every SQL migration there, and runs the shared storage contracts and journal recovery checks. Cleanup drops only the schema that test created, including after a migration failure. The public schema is untouched.
 
+A schema normally has one connection, so its transactions run one after another. The completion concurrency tests open several connections to one schema and hold a table lock until two completions are both inside their transactions. That proves the game-row lock serializes them in PostgreSQL itself, not only in the memory journal.
+
 CI's separate `database` job provisions a PostgreSQL 16 service with a disposable database, explicitly sets `TEST_DATABASE_URL`, and invokes `npm run verify:database`. Both jobs must pass before the change is considered verified. Repository maintainers must require both jobs in branch protection.
 
 ## Journal backup

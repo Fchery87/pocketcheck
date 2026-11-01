@@ -632,6 +632,18 @@ export function describeGameBoardContract(
           kind: "conflict",
           error: expect.stringMatching(/reason/i),
         });
+        const sameInstant = await store.recordGameSettlement(
+          final("fix-same-instant", 24, 20, {
+            correctsNoticeId: first.noticeId,
+            reason: "Official score changed",
+          }),
+        );
+        expect(sameInstant).toEqual({
+          kind: "conflict",
+          error: "A correction must be recorded later than the notice it corrects.",
+        });
+        const history = (await store.readBoardSettlement(board.id)).markets[1]?.grade?.history;
+        expect(history).toHaveLength(1);
         const fixed = await store.recordGameSettlement(
           final("fix", 24, 20, {
             correctsNoticeId: first.noticeId,

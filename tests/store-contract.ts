@@ -4,7 +4,11 @@ import { createFixtureDrafter } from "#lib/server/analysis/fixture-drafter.ts";
 import { runGameBoard } from "#lib/server/analysis/board-run.ts";
 import { runAnalysis, type AnalysisRequest, type ThesisDrafter } from "#lib/server/analysis/run.ts";
 import type { ModelSource } from "#lib/server/analysis/model.ts";
-import type { JournalStore, ResearchStore } from "#lib/server/analysis/store.ts";
+import {
+  createMemoryStore,
+  type JournalStore,
+  type ResearchStore,
+} from "#lib/server/analysis/store.ts";
 import { quiet, scriptedModel } from "./board-fixtures.ts";
 import { randomUUID } from "node:crypto";
 import { parseOffer } from "#lib/domain/offer.ts";
@@ -944,6 +948,39 @@ export function describeStoreContract(
         reason:
           "Completion time was not recorded, so this analysis was not classified before outcomes.",
       });
+    });
+
+    it("never makes a refresh of an unclassified parent the primary", async () => {
+      const source = createMemoryStore();
+      const parent = (
+        await runAnalysis(ask({ requestId: "unclassified-parent" }), { store: source })
+      ).run!;
+      await source.recordUnclassifiedCompleted!(parent);
+      const store = await makeStore();
+      await store.restoreJournal(await source.exportJournal());
+      const refresh = (
+        await runAnalysis(
+          ask({
+            requestId: "unclassified-refresh",
+            parentId: parent.id,
+            americanOdds: -105,
+            observedAt: "2026-10-25T15:40:00.000Z",
+          }),
+          { store },
+        )
+      ).run!;
+      const listed = await store.listCompleted();
+      expect(listed.find((item) => item.id === parent.id)?.assessmentRole.role).toBe(
+        "unclassified",
+      );
+      expect(listed.find((item) => item.id === refresh.id)?.assessmentRole).toEqual({
+        role: "ineligible",
+        reason:
+          "A refresh is never the primary assessment, and this game has no primary assessment.",
+      });
+
+      const later = (await runAnalysis(ask({ requestId: "after-refresh" }), { store })).run!;
+      expect(later.assessmentRole?.role).toBe("primary");
     });
 
     it("stores the placed contract independently of the researched offer", async () => {

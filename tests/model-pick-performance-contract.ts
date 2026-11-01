@@ -385,6 +385,7 @@ export function describeModelPickPerformanceContract(
           final("corrected", 17, 20, {
             correctsNoticeId: notice.noticeId,
             reason: "Official score changed",
+            recordedAt: "2026-10-27T05:00:00.000Z",
           }),
         );
         const listed = await store.listModelPicks();

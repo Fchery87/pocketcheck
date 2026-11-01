@@ -1,60 +1,39 @@
-export type PregameRun = {
-  id: string;
-  gameId: string;
-  completedAt: string | null;
-  cutoffAt: string;
-  kickoffAt: string;
-  status: "pending" | "running" | "completed" | "failed" | "interrupted";
-};
+export type AssessmentRoleChoice =
+  | { role: "primary"; reason: string }
+  | { role: "refresh"; primaryId: string; reason: string }
+  | { role: "ineligible"; reason: string };
 
-export type PrimaryChoice =
-  | { role: "primary"; id: string }
-  | { role: "refresh"; id: string; primaryId: string }
-  | { role: "ineligible"; id: string; reason: "not-completed" | "after-kickoff" | "no-primary" };
+export const PRIMARY_REASON = "Earliest completed analysis before kickoff";
+export const REFRESH_REASON = "Later completed analysis. The primary assessment is unchanged.";
+export const NOT_COMPLETED_REASON = "This analysis did not complete before kickoff.";
+export const AFTER_KICKOFF_REASON =
+  "Decision cutoff is not before kickoff, so this analysis is not an eligible pregame assessment.";
+export const REFRESH_WITHOUT_PRIMARY_REASON =
+  "A refresh is never the primary assessment, and this game has no primary assessment.";
 
 /**
- * The primary eligible assessment is the earliest completed run whose cutoff
- * is strictly before kickoff. Later completed pregame runs are refreshes.
- * The final score is not an input.
+ * The frozen role of an analysis, chosen once when it reaches a terminal status. The primary is the
+ * earliest completed analysis whose cutoff is strictly before kickoff. The caller serializes
+ * completions per game, so `primaryId` is the primary already frozen for the game, if any. A
+ * refresh is never primary, even when its parent was never classified. The final score is not an
+ * input.
  */
-export function classifyPregameRuns(runs: PregameRun[]): PrimaryChoice[] {
-  const completedPregame = runs
-    .filter(
-      (run) =>
-        run.status === "completed" &&
-        run.completedAt !== null &&
-        Date.parse(run.cutoffAt) < Date.parse(run.kickoffAt),
-    )
-    .slice()
-    .sort((left, right) => {
-      const byComplete = Date.parse(left.completedAt!) - Date.parse(right.completedAt!);
-      if (byComplete !== 0) return byComplete;
-      return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
-    });
-
-  const primaryByGame = new Map<string, string>();
-  for (const run of completedPregame) {
-    if (!primaryByGame.has(run.gameId)) primaryByGame.set(run.gameId, run.id);
+export function chooseAssessmentRole(input: {
+  status: "completed" | "failed" | "interrupted";
+  cutoffAt: string;
+  kickoffAt: string;
+  parentId: string | null;
+  primaryId: string | null;
+}): AssessmentRoleChoice {
+  if (input.status !== "completed") return { role: "ineligible", reason: NOT_COMPLETED_REASON };
+  if (!(Date.parse(input.cutoffAt) < Date.parse(input.kickoffAt))) {
+    return { role: "ineligible", reason: AFTER_KICKOFF_REASON };
   }
-
-  return runs.map((run) => {
-    const primaryId = primaryByGame.get(run.gameId);
-    if (run.status !== "completed" || run.completedAt === null) {
-      return { role: "ineligible", id: run.id, reason: "not-completed" };
-    }
-    if (!(Date.parse(run.cutoffAt) < Date.parse(run.kickoffAt))) {
-      return { role: "ineligible", id: run.id, reason: "after-kickoff" };
-    }
-    if (!primaryId) {
-      return { role: "ineligible", id: run.id, reason: "no-primary" };
-    }
-    if (run.id === primaryId) return { role: "primary", id: run.id };
-    return { role: "refresh", id: run.id, primaryId };
-  });
-}
-
-export function primaryRun(runs: PregameRun[]): PregameRun | null {
-  const choice = classifyPregameRuns(runs).find((item) => item.role === "primary");
-  if (!choice) return null;
-  return runs.find((run) => run.id === choice.id) ?? null;
+  if (input.primaryId !== null) {
+    return { role: "refresh", primaryId: input.primaryId, reason: REFRESH_REASON };
+  }
+  if (input.parentId !== null) {
+    return { role: "ineligible", reason: REFRESH_WITHOUT_PRIMARY_REASON };
+  }
+  return { role: "primary", reason: PRIMARY_REASON };
 }

@@ -55,7 +55,7 @@ import {
   runFromRecords,
   type AnalysisRecords,
 } from "./journal-records.ts";
-import { classifyPregameRuns, type PregameRun } from "./primary.ts";
+import { chooseAssessmentRole } from "./primary.ts";
 import {
   createMemoryBoardStore,
   type GameBoard,
@@ -218,50 +218,6 @@ export function summarize(run: ResearchRun): Omit<RunSummary, "assessmentRole"> 
       americanOdds: run.offer.americanOdds,
     },
     reliesOnManualEvidence: run.policy?.reliesOnManualEvidence ?? false,
-  };
-}
-
-const PRIMARY_REASON = "Earliest completed analysis before kickoff";
-const REFRESH_REASON = "Later completed analysis. The primary assessment is unchanged.";
-const AFTER_KICKOFF_REASON =
-  "Decision cutoff is not before kickoff, so this analysis is not an eligible pregame assessment.";
-const UNCLASSIFIED_REASON =
-  "Completion time was not recorded, so this analysis was not classified before outcomes.";
-
-export function assessmentRoleFor(
-  run: Pick<ResearchRun, "id" | "status" | "cutoffAt" | "game" | "createdAt"> & {
-    completedAt: string | null;
-  },
-  siblings: Array<
-    Pick<ResearchRun, "id" | "status" | "cutoffAt" | "game" | "createdAt"> & {
-      completedAt: string | null;
-    }
-  >,
-): AssessmentRole {
-  if (run.status === "completed" && run.completedAt === null) {
-    return { role: "unclassified", reason: UNCLASSIFIED_REASON };
-  }
-  const pregame: PregameRun[] = siblings.map((item) => ({
-    id: item.id,
-    gameId: item.game.id,
-    completedAt: item.status === "completed" ? item.completedAt : null,
-    cutoffAt: item.cutoffAt,
-    kickoffAt: item.game.kickoff,
-    status: item.status === "interrupted" ? "interrupted" : item.status,
-  }));
-  const choice = classifyPregameRuns(pregame).find((item) => item.id === run.id);
-  if (!choice || choice.role === "ineligible") {
-    const reason =
-      choice?.reason === "after-kickoff"
-        ? AFTER_KICKOFF_REASON
-        : "This analysis did not complete before kickoff.";
-    return { role: "ineligible", reason };
-  }
-  if (choice.role === "primary") return { role: "primary", reason: PRIMARY_REASON };
-  return {
-    role: "refresh",
-    primaryId: choice.primaryId,
-    reason: REFRESH_REASON,
   };
 }
 
@@ -553,27 +509,22 @@ export function createMemoryStore(options: { now?: () => string } = {}): Journal
     return record.id;
   }
 
+  /** Runs without an awaited step, so the primary it reads is the game's frozen primary. */
   function freezeRole(saved: ResearchRun): AssessmentRole {
-    const completedAt = saved.completedAt ?? saved.createdAt;
-    const sameGame = allRuns().filter((run) => run.game.id === saved.game.id);
-    const existingPrimary = sameGame.find((run) => run.assessmentRole?.role === "primary");
-    if (saved.status !== "completed" || completedAt === null) {
-      return assessmentRoleFor({ ...saved, completedAt: null }, [{ ...saved, completedAt: null }]);
-    }
-    if (!(Date.parse(saved.cutoffAt) < Date.parse(saved.game.kickoff))) {
-      return assessmentRoleFor({ ...saved, completedAt }, [{ ...saved, completedAt }]);
-    }
-    if (!existingPrimary || existingPrimary.id === saved.id) {
-      return {
-        role: "primary",
-        reason: "Earliest completed analysis before kickoff",
-      };
-    }
-    return {
-      role: "refresh",
-      primaryId: existingPrimary.id,
-      reason: "Later completed analysis. The primary assessment is unchanged.",
-    };
+    const primary = allRuns().find(
+      (run) =>
+        run.game.id === saved.game.id &&
+        run.id !== saved.id &&
+        run.assessmentRole?.role === "primary",
+    );
+    return chooseAssessmentRole({
+      status:
+        saved.status === "completed" || saved.status === "failed" ? saved.status : "interrupted",
+      cutoffAt: saved.cutoffAt,
+      kickoffAt: saved.game.kickoff,
+      parentId: saved.parentId,
+      primaryId: primary?.id ?? null,
+    });
   }
 
   /** A later save of an unfinished attempt. The snapshot, game, offer, and lean stay as begun. */

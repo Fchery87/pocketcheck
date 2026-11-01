@@ -1,51 +1,46 @@
 import { describe, expect, it } from "vite-plus/test";
-import { classifyPregameRuns, primaryRun, type PregameRun } from "./primary.ts";
+import { chooseAssessmentRole } from "./primary.ts";
 
-const kickoff = "2026-10-26T17:00:00.000Z";
-
-function run(partial: Partial<PregameRun> & Pick<PregameRun, "id" | "completedAt">): PregameRun {
-  return {
-    gameId: "game-1",
-    cutoffAt: "2026-10-26T16:00:00.000Z",
-    kickoffAt: kickoff,
-    status: "completed",
-    ...partial,
-  };
-}
+const pregame = {
+  status: "completed" as const,
+  cutoffAt: "2026-10-26T16:00:00.000Z",
+  kickoffAt: "2026-10-26T17:00:00.000Z",
+  parentId: null,
+  primaryId: null,
+};
 
 describe("primary pregame assessment", () => {
-  it("picks the earliest completed pregame run and marks later refreshes", () => {
-    const runs = [
-      run({ id: "refresh", completedAt: "2026-10-26T15:00:00.000Z" }),
-      run({ id: "primary", completedAt: "2026-10-26T12:00:00.000Z" }),
-      run({ id: "failed", completedAt: null, status: "failed" }),
-    ];
-    expect(primaryRun(runs)?.id).toBe("primary");
-    expect(classifyPregameRuns(runs)).toEqual([
-      { role: "refresh", id: "refresh", primaryId: "primary" },
-      { role: "primary", id: "primary" },
-      { role: "ineligible", id: "failed", reason: "not-completed" },
-    ]);
-  });
-
-  it("does not use a post-kickoff run as primary even if it finished first", () => {
-    const runs = [
-      run({
-        id: "live",
-        completedAt: "2026-10-26T11:00:00.000Z",
-        cutoffAt: "2026-10-26T17:05:00.000Z",
-      }),
-      run({ id: "pregame", completedAt: "2026-10-26T16:30:00.000Z" }),
-    ];
-    expect(primaryRun(runs)?.id).toBe("pregame");
-    expect(classifyPregameRuns(runs)[0]).toEqual({
-      role: "ineligible",
-      id: "live",
-      reason: "after-kickoff",
+  it("makes the first completed pregame analysis of a game primary and later ones refreshes", () => {
+    expect(chooseAssessmentRole(pregame)).toEqual({
+      role: "primary",
+      reason: "Earliest completed analysis before kickoff",
+    });
+    expect(chooseAssessmentRole({ ...pregame, primaryId: "first" })).toEqual({
+      role: "refresh",
+      primaryId: "first",
+      reason: "Later completed analysis. The primary assessment is unchanged.",
     });
   });
 
+  it("never makes a refresh primary, even when its parent was never classified", () => {
+    expect(chooseAssessmentRole({ ...pregame, parentId: "unclassified-parent" })).toEqual({
+      role: "ineligible",
+      reason: "A refresh is never the primary assessment, and this game has no primary assessment.",
+    });
+    expect(
+      chooseAssessmentRole({ ...pregame, parentId: "parent", primaryId: "parent" }),
+    ).toMatchObject({ role: "refresh", primaryId: "parent" });
+  });
+
+  it("does not classify an unfinished or post-kickoff analysis as primary", () => {
+    expect(chooseAssessmentRole({ ...pregame, status: "failed" }).role).toBe("ineligible");
+    expect(chooseAssessmentRole({ ...pregame, status: "interrupted" }).role).toBe("ineligible");
+    expect(chooseAssessmentRole({ ...pregame, cutoffAt: pregame.kickoffAt }).reason).toMatch(
+      /not before kickoff/,
+    );
+  });
+
   it("does not accept a final score argument", () => {
-    expect(primaryRun.length).toBe(1);
+    expect(chooseAssessmentRole.length).toBe(1);
   });
 });

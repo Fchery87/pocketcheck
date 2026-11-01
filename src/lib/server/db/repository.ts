@@ -33,6 +33,7 @@ import {
 } from "../analysis/journal-backup.ts";
 import type { StoredNotice } from "../analysis/store.ts";
 import { parentsFirst } from "./order.ts";
+import { chooseAssessmentRole } from "../analysis/primary.ts";
 
 export type SaveAnalysisInput = {
   game: Omit<GameRecord, "id"> & { id?: string };
@@ -164,7 +165,6 @@ export class JournalRepository {
     const offerId = input.offer.id ?? randomUUID();
     const analysisId = input.analysis.id ?? randomUUID();
     const evidenceIds = input.evidence.map((item) => item.id ?? randomUUID());
-    const completedAt = new Date().toISOString();
     const decimalOdds = input.offer.decimalOdds ?? americanToDecimal(input.offer.americanOdds);
     const completed = input.analysis.status === "completed";
 
@@ -189,9 +189,10 @@ export class JournalRepository {
             updated_at = now()
         `;
         const gameRows = await tx<{ id: string }[]>`
-          SELECT id FROM games WHERE source_game_id = ${input.game.sourceGameId}
+          SELECT id FROM games WHERE source_game_id = ${input.game.sourceGameId} FOR UPDATE
         `;
         const persistedGameId = gameRows[0]?.id ?? gameId;
+        const completedAt = await completionClock(tx);
 
         const snapshot: AnalysisSnapshot = {
           version: 1,
@@ -248,12 +249,12 @@ export class JournalRepository {
           input.analysis.status === "failed" ||
           input.analysis.status === "interrupted";
         const role = terminal
-          ? await chooseAssessmentRole(tx, {
-              analysisId,
-              status: input.analysis.status,
+          ? await frozenAssessmentRole(tx, {
+              status: input.analysis.status as "completed" | "failed" | "interrupted",
               cutoffAt: input.analysis.cutoffAt,
-              gameId: input.game.sourceGameId,
+              sourceGameId: input.game.sourceGameId,
               kickoffAt: input.game.kickoffAt,
+              parentId: input.analysis.parentId ?? null,
             })
           : null;
         await tx`
@@ -409,8 +410,11 @@ export class JournalRepository {
       throw new Error("An attempt update cannot change its request identity or inputs.");
     }
     if (existing.completedAt) return this.readRun(analysisId);
+    const status = input.analysis.status;
+    if (status !== "completed" && status !== "failed" && status !== "interrupted") {
+      throw new Error(`An attempt cannot finish as ${status}.`);
+    }
 
-    const completedAt = input.analysis.status === "completed" ? new Date().toISOString() : null;
     const evidenceIds = input.evidence.map((item) => item.id ?? randomUUID());
     const snapshot = {
       ...existing.snapshot,
@@ -422,12 +426,18 @@ export class JournalRepository {
       ...(input.analysis.forecast ? { forecast: input.analysis.forecast } : {}),
     };
     await this.sql.begin(async (tx) => {
-      const role = await chooseAssessmentRole(tx, {
-        analysisId,
-        status: input.analysis.status,
+      await lockGame(tx, existing.snapshot.game.sourceGameId);
+      const [current] = await tx<{ completed_at: Date | null }[]>`
+        SELECT completed_at FROM analyses WHERE id = ${analysisId} FOR UPDATE
+      `;
+      if (current?.completed_at) return;
+      const completedAt = status === "completed" ? await completionClock(tx) : null;
+      const role = await frozenAssessmentRole(tx, {
+        status,
         cutoffAt: existing.cutoffAt,
-        gameId: existing.snapshot.game.sourceGameId,
+        sourceGameId: existing.snapshot.game.sourceGameId,
         kickoffAt: existing.snapshot.game.kickoffAt,
+        parentId: existing.parentId,
       });
       const updated = await tx<{ id: string }[]>`
         UPDATE analyses SET
@@ -598,7 +608,12 @@ export class JournalRepository {
 
   /** Only an unfinished analysis can be marked interrupted. Completed rows stay immutable. */
   async markInterrupted(analysisId: string): Promise<void> {
+    const [game] = await this.sql<{ source_game_id: string }[]>`
+      SELECT snapshot->'game'->>'sourceGameId' AS source_game_id FROM analyses WHERE id = ${analysisId}
+    `;
+    if (!game) return;
     await this.sql.begin(async (tx) => {
+      await lockGame(tx, game.source_game_id);
       const rows = await tx<AnalysisRow[]>`
         SELECT * FROM analyses
         WHERE id = ${analysisId} AND status NOT IN ('completed', 'interrupted', 'failed')
@@ -606,17 +621,18 @@ export class JournalRepository {
       `;
       const row = rows[0];
       if (!row) return;
-      const role = await chooseAssessmentRole(tx, {
-        analysisId,
+      const role = await frozenAssessmentRole(tx, {
         status: "interrupted",
         cutoffAt: iso(row.cutoff_at)!,
-        gameId: row.snapshot.game.sourceGameId,
+        sourceGameId: game.source_game_id,
         kickoffAt: row.snapshot.game.kickoffAt,
+        parentId: row.parent_id,
       });
+      const interruptedAt = await completionClock(tx);
       await tx`
         UPDATE analyses SET
           status = 'interrupted',
-          completed_at = COALESCE(completed_at, now()),
+          completed_at = COALESCE(completed_at, ${interruptedAt}),
           assessment_role = ${role.role},
           assessment_role_reason = ${role.reason},
           primary_analysis_id = ${role.primaryId}
@@ -1019,6 +1035,18 @@ export class JournalRepository {
     snapshot: RestorableJournal,
     restoreBoards: () => Promise<void>,
   ): Promise<void> {
+    // Completions lock one game row; restore locks every stored game it touches in one sorted
+    // order, so a restore and a completion cannot each hold a lock the other waits for.
+    const sourceGameIds = [
+      ...new Set([
+        ...snapshot.games.map((game) => game.sourceGameId),
+        ...(snapshot.gameBoards ?? []).map((board) => board.game.id),
+      ]),
+    ].sort();
+    await tx`
+      SELECT id FROM games WHERE source_game_id = ANY(${sourceGameIds})
+      ORDER BY source_game_id FOR UPDATE
+    `;
     await restoreProtocolRegistrations(tx, snapshot.protocolRegistrations ?? []);
     const gameIds = await restoreGames(tx, snapshot.games);
     await restoreOffers(tx, snapshot.offers, gameIds);
@@ -1498,52 +1526,50 @@ function isUniqueViolation(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "23505";
 }
 
-const PRIMARY_REASON = "Earliest completed analysis before kickoff";
-const REFRESH_REASON = "Later completed analysis. The primary assessment is unchanged.";
-const NOT_COMPLETED_REASON = "This analysis did not complete before kickoff.";
-const AFTER_KICKOFF_REASON =
-  "Decision cutoff is not before kickoff, so this analysis is not an eligible pregame assessment.";
+/**
+ * Locks the shared game row. Every completion of an analysis or board takes this lock before the
+ * lock on its own row, so completions of one game serialize and agree on the earliest one.
+ */
+export async function lockGame(tx: TransactionSql, sourceGameId: string): Promise<void> {
+  const [game] = await tx<{ id: string }[]>`
+    SELECT id FROM games WHERE source_game_id = ${sourceGameId} FOR UPDATE
+  `;
+  if (!game) throw new Error(`Game not found: ${sourceGameId}`);
+}
 
-type RoleSql = TransactionSql;
+/** The completion instant, read after the game lock rather than at transaction start. */
+export async function completionClock(tx: TransactionSql): Promise<string> {
+  const [row] = await tx<{ now: Date }[]>`SELECT clock_timestamp() AS now`;
+  return row!.now.toISOString();
+}
 
-/** Locks the game's classified rows. Never reads scores and never writes. */
-async function chooseAssessmentRole(
-  tx: RoleSql,
+/** Reads the game's frozen primary under the caller's game lock. Never reads scores. */
+async function frozenAssessmentRole(
+  tx: TransactionSql,
   input: {
-    analysisId: string;
-    status: string;
+    status: "completed" | "failed" | "interrupted";
     cutoffAt: string;
-    gameId: string;
+    sourceGameId: string;
     kickoffAt: string;
+    parentId: string | null;
   },
 ): Promise<{
   role: "primary" | "refresh" | "ineligible";
   reason: string;
   primaryId: string | null;
 }> {
-  const locked = await tx.unsafe(
-    `SELECT id, completed_at, assessment_role
-     FROM analyses
-     WHERE snapshot->'game'->>'sourceGameId' = $1
-       AND assessment_role IS NOT NULL
-     ORDER BY completed_at ASC NULLS LAST, id ASC
-     FOR UPDATE`,
-    [input.gameId],
-  );
-  const pregame =
-    input.status === "completed" && Date.parse(input.cutoffAt) < Date.parse(input.kickoffAt);
-  const primary = locked.find((row) => row.assessment_role === "primary");
-  if (!pregame) {
-    return {
-      role: "ineligible",
-      reason: input.status === "completed" ? AFTER_KICKOFF_REASON : NOT_COMPLETED_REASON,
-      primaryId: null,
-    };
-  }
-  if (!primary || primary.id === input.analysisId) {
-    return { role: "primary", reason: PRIMARY_REASON, primaryId: null };
-  }
-  return { role: "refresh", reason: REFRESH_REASON, primaryId: primary.id };
+  const [primary] = await tx<{ id: string }[]>`
+    SELECT id FROM analyses
+    WHERE snapshot->'game'->>'sourceGameId' = ${input.sourceGameId} AND assessment_role = 'primary'
+  `;
+  const choice = chooseAssessmentRole({
+    status: input.status,
+    cutoffAt: input.cutoffAt,
+    kickoffAt: input.kickoffAt,
+    parentId: input.parentId,
+    primaryId: primary?.id ?? null,
+  });
+  return { ...choice, primaryId: choice.role === "refresh" ? choice.primaryId : null };
 }
 
 function listedAssessmentRole(row: {

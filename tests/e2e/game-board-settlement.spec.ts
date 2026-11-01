@@ -43,7 +43,7 @@ test("a final score grades the model pick and a correction regrades it with hist
   await expect(card.getByTestId("pick-result")).toHaveText("Lost");
   const firstId = await card.getByTestId("pick-notice-id").first().textContent();
 
-  // A correction is recorded later than the notice it corrects, as a backup requires.
+  // The fixture clock is fixed, and a correction must be recorded after the notice it corrects.
   const advanced = await page.request.patch("/__verification", {
     headers: { origin },
     data: { now: "2026-10-25T16:00:01.000Z" },

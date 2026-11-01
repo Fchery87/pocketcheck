@@ -211,6 +211,13 @@ export type BoardSettlement = {
 
 export const SETTLEMENT_EVENT_CONFLICT =
   "This settlement event identifier was already used with different inputs.";
+export const CORRECTION_NOT_LATER =
+  "A correction must be recorded later than the notice it corrects.";
+
+/** A backup refuses a correction recorded at or before its notice, so recording refuses it too. */
+export function correctionIsLater(prior: { recordedAt: string }, recordedAt: string): boolean {
+  return Date.parse(prior.recordedAt) < Date.parse(recordedAt);
+}
 
 export function gameSettlementPayloadKey(input: RecordGameSettlementInput): string {
   return JSON.stringify({
@@ -545,14 +552,14 @@ export function createMemoryBoardStore(
       if (![...boards.values()].some((board) => board.game.id === input.gameId)) {
         throw new Error(`Game not found: ${input.gameId}`);
       }
-      if (input.correctsNoticeId) {
-        if (!input.reason?.trim()) {
-          return { kind: "conflict", error: "A correction requires a reason." };
-        }
-        const prior = notices.find((item) => item.id === input.correctsNoticeId);
-        if (!prior || prior.gameId !== input.gameId) {
-          throw new Error(`Settlement not found: ${input.correctsNoticeId}`);
-        }
+      if (input.correctsNoticeId && !input.reason?.trim()) {
+        return { kind: "conflict", error: "A correction requires a reason." };
+      }
+      const corrected = input.correctsNoticeId
+        ? notices.find((item) => item.id === input.correctsNoticeId)
+        : undefined;
+      if (input.correctsNoticeId && (!corrected || corrected.gameId !== input.gameId)) {
+        throw new Error(`Settlement not found: ${input.correctsNoticeId}`);
       }
       const payloadKey = gameSettlementPayloadKey(input);
       const sameEvent = notices.filter((item) => item.eventId === input.eventId);
@@ -560,6 +567,9 @@ export function createMemoryBoardStore(
         const match = sameEvent.find((item) => item.payloadKey === payloadKey);
         if (match) return { kind: "duplicate", noticeId: match.id };
         return { kind: "conflict", error: SETTLEMENT_EVENT_CONFLICT };
+      }
+      if (corrected && !correctionIsLater(corrected, input.recordedAt)) {
+        return { kind: "conflict", error: CORRECTION_NOT_LATER };
       }
       const saved: StoredNotice = {
         id: randomUUID(),

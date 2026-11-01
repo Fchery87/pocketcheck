@@ -1,12 +1,15 @@
 import { randomUUID } from "node:crypto";
 import type { Sql, TransactionSql } from "postgres";
 import { parentsFirst } from "../db/order.ts";
+import { completionClock, lockGame } from "../db/repository.ts";
 import type { BoardQuoteResult } from "#lib/domain/board.ts";
 import type { Market, Offer } from "#lib/domain/offer.ts";
 import { requireFinalScores } from "#lib/domain/settlement.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
 import {
   BOARD_CONFLICT,
+  CORRECTION_NOT_LATER,
+  correctionIsLater,
   SETTLEMENT_EVENT_CONFLICT,
   gameSettlementPayloadKey,
   gradeBoardMarkets,
@@ -310,7 +313,12 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
     async finishBoard(input) {
       const explanation =
         input.status === "completed" && input.explanation ? input.explanation : null;
+      const [game] = await sql<{ source_game_id: string }[]>`
+        SELECT game->>'id' AS source_game_id FROM game_boards WHERE id = ${input.boardId}
+      `;
+      if (!game) return require(sql, input.boardId);
       await sql.begin(async (tx) => {
+        await lockGame(tx, game.source_game_id);
         const [board] = await tx<
           Array<{
             id: string;
@@ -320,17 +328,13 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
             kickoff_at: Date;
           }>
         >`
-          SELECT b.id, b.parent_id, b.cutoff_at, b.game_id, b.kickoff_at
-          FROM game_boards b
-          WHERE b.id = ${input.boardId} AND b.completed_at IS NULL
-          FOR UPDATE OF b
-        `;
-        if (!board) return;
-        await tx`
-          SELECT pick_id FROM model_pick_roles
-          WHERE game_id = ${board.game_id}
+          SELECT id, parent_id, cutoff_at, game_id, kickoff_at
+          FROM game_boards
+          WHERE id = ${input.boardId} AND completed_at IS NULL
           FOR UPDATE
         `;
+        if (!board) return;
+        const completedAt = await completionClock(tx);
         const picks = await tx<Array<{ id: string; market: Market }>>`
           SELECT id, market FROM model_picks WHERE board_id = ${input.boardId}
         `;
@@ -348,11 +352,11 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
           });
           await tx`
             INSERT INTO model_pick_roles (
-              pick_id, game_id, market, role, reason, primary_pick_id, protocol_id
+              pick_id, game_id, market, role, reason, primary_pick_id, protocol_id, classified_at
             ) VALUES (
               ${pick.id}, ${board.game_id}, ${pick.market}, ${role.role}, ${role.reason},
               ${role.role === "refresh" ? role.primaryPickId : null},
-              ${role.role === "primary" ? role.protocolId : null}
+              ${role.role === "primary" ? role.protocolId : null}, ${completedAt}
             )
           `;
         }
@@ -360,7 +364,7 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
           UPDATE game_boards
           SET status = ${input.status}, failure_reason = ${input.failureReason},
             explanation = ${explanation ? tx.json(explanation as never) : null},
-            completed_at = now()
+            completed_at = ${completedAt}
           WHERE id = ${input.boardId} AND completed_at IS NULL
         `;
       });
@@ -375,16 +379,16 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
         SELECT id FROM games WHERE source_game_id = ${input.gameId}
       `;
       if (!game) throw new Error(`Game not found: ${input.gameId}`);
-      if (input.correctsNoticeId) {
-        if (!input.reason?.trim()) {
-          return { kind: "conflict", error: "A correction requires a reason." };
-        }
-        const [prior] = await sql<{ game_id: string | null }[]>`
-          SELECT game_id FROM settlement_notices WHERE id = ${input.correctsNoticeId}
-        `;
-        if (!prior || prior.game_id !== game.id) {
-          throw new Error(`Settlement not found: ${input.correctsNoticeId}`);
-        }
+      if (input.correctsNoticeId && !input.reason?.trim()) {
+        return { kind: "conflict", error: "A correction requires a reason." };
+      }
+      const [corrected] = input.correctsNoticeId
+        ? await sql<{ game_id: string | null; recorded_at: Date }[]>`
+            SELECT game_id, recorded_at FROM settlement_notices WHERE id = ${input.correctsNoticeId}
+          `
+        : [];
+      if (input.correctsNoticeId && (!corrected || corrected.game_id !== game.id)) {
+        throw new Error(`Settlement not found: ${input.correctsNoticeId}`);
       }
       const payloadKey = gameSettlementPayloadKey(input);
       const find = async () => {
@@ -399,6 +403,12 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
           : ({ kind: "conflict", error: SETTLEMENT_EVENT_CONFLICT } as const);
       const existing = await find();
       if (existing) return settle(existing);
+      if (
+        corrected &&
+        !correctionIsLater({ recordedAt: corrected.recorded_at.toISOString() }, input.recordedAt)
+      ) {
+        return { kind: "conflict", error: CORRECTION_NOT_LATER };
+      }
       const id = randomUUID();
       try {
         await sql`

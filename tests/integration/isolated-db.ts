@@ -10,7 +10,11 @@ if (!testDatabaseUrl) {
 }
 
 export type IsolatedDb = { db: Db; schema: string; drop(): Promise<void> };
-export type IsolatedDbOptions = { throughMigration?: string };
+export type IsolatedDbOptions = {
+  throughMigration?: string;
+  /** More than one lets transactions in a test run concurrently. */
+  connections?: number;
+};
 
 const options = {
   ssl: new URL(testDatabaseUrl).searchParams.get("sslmode") === "disable" ? false : "require",
@@ -19,8 +23,9 @@ const options = {
 } satisfies postgres.Options<Record<string, postgres.PostgresType>>;
 
 /**
- * A fresh schema with every migration applied. One connection, so the session's search_path
- * holds; it goes to the unpooled endpoint because the pooler does not keep session state.
+ * A fresh schema with every migration applied. Each connection starts with the schema as its
+ * search_path and application name; it goes to the unpooled endpoint because the pooler does not
+ * keep session state.
  */
 export async function isolatedDb(optionsForTest: IsolatedDbOptions = {}): Promise<IsolatedDb> {
   if (!testDatabaseUrl) throw new Error("No database URL for integration tests");
@@ -29,11 +34,11 @@ export async function isolatedDb(optionsForTest: IsolatedDbOptions = {}): Promis
   await admin.unsafe(`CREATE SCHEMA ${schema}`);
   const db = postgres(testDatabaseUrl.replace("-pooler.", "."), {
     ...options,
-    max: 1,
+    max: optionsForTest.connections ?? 1,
     idle_timeout: 0,
+    connection: { search_path: schema, application_name: schema },
   });
   try {
-    await db.unsafe(`SET search_path TO ${schema}`);
     const migrations = path.resolve(process.cwd(), "migrations");
     const files = (await readdir(migrations)).filter((name) => name.endsWith(".sql")).sort();
     const end = optionsForTest.throughMigration
