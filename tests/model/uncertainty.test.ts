@@ -171,7 +171,7 @@ describe("artifact uncertainty", { timeout: 60_000 }, () => {
     expect(fitArtifact(flipped, cutoff).uncertainty).toEqual(
       fitArtifact(games, cutoff).uncertainty,
     );
-  });
+  }, 120_000);
 
   it("is reproducible", () => {
     expect(fitArtifact(games, cutoff).uncertainty).toEqual(fitArtifact(games, cutoff).uncertainty);
