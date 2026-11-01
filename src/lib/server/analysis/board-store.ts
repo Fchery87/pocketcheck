@@ -1,4 +1,18 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
+import {
+  decideExplanationWrite,
+  projectBoardExplanation,
+  type ExplanationEvent,
+  type ExplanationState,
+  type ExplanationWriteResult,
+  type BeginExplanation,
+  type RequestIntent,
+  type SavedExplanationResponse,
+  type FinishExplanation,
+  type ExplanationCommand,
+} from "./board-explanation.ts";
+export type { ExplanationEvent, ExplanationState } from "./board-explanation.ts";
 import {
   provesAnchorPair,
   type BoardPricing,
@@ -92,6 +106,7 @@ export type GameBoard = {
     hash: string;
     protocolRegistrationId?: string;
     explanationFormatVersion?: 2;
+    lifecycleFormat?: "forecast-first-v1";
   };
   parentId: string | null;
   status: GameBoardStatus;
@@ -120,6 +135,7 @@ export type GameBoard = {
   withdrawal: BoardWithdrawal | null;
   createdAt: string;
   completedAt: string | null;
+  explanationState?: ExplanationState;
 };
 
 export type BoardWithdrawal = { reason: string; at: string };
@@ -128,6 +144,13 @@ export const WITHDRAW_UNFINISHED = "Only a finished game board can be withdrawn.
 export const WITHDRAW_NEEDS_REASON = "Say why this board is withdrawn.";
 
 export type BoardDrafter = { id: string; modelId: string };
+
+export class BoardBeginError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BoardBeginError";
+  }
+}
 
 /** What a board saves once the drafter has answered, before the answer is validated. */
 export type BoardDraftAttempt = {
@@ -159,7 +182,9 @@ export type NewGameBoard = Pick<
  */
 export function requireNewMarketPricing(market: NewGameBoard["markets"][number]): void {
   if (!provesAnchorPair(market)) {
-    throw new Error(`A new ${market.market} market needs its anchor pair in the current format.`);
+    throw new BoardBeginError(
+      `A new ${market.market} market needs its anchor pair in the current format.`,
+    );
   }
 }
 
@@ -191,6 +216,50 @@ export type FinishBoardInput = {
   /** Saved with a completed board only. A failed board keeps its picks and no explanation. */
   explanation?: PickExplanationReport | null;
 };
+
+export function requireForecastCompletion(board: GameBoard, input: FreezeModelPicksInput): void {
+  if (board.status === "completed") {
+    const saved = {
+      evidence: board.evidence,
+      gaps: board.gaps,
+      markets: board.markets.map((market): FrozenMarketResult => {
+        if (!market.pick) return { market: market.market, noPickReason: market.noPickReason! };
+        const { parentPickId, forecastingModel, calculation, forecast } = market.pick;
+        return {
+          market: market.market,
+          pick: { parentPickId, forecastingModel, calculation, forecast },
+        };
+      }),
+    };
+    const incoming = {
+      evidence: input.evidence,
+      gaps: input.gaps,
+      markets: board.markets.map((market) =>
+        input.markets.find((result) => result.market === market.market),
+      ),
+    };
+    if (!isDeepStrictEqual(saved, incoming))
+      throw new Error("Conflicting completed forecast inputs.");
+  }
+  if (board.request.lifecycleFormat !== "forecast-first-v1")
+    throw new Error("Atomic forecast completion requires the forecast-first lifecycle.");
+  if (isTerminalBoard(board.status) && board.status !== "completed")
+    throw new Error("A failed board cannot complete a forecast.");
+  if (
+    input.markets.length !== board.markets.length ||
+    new Set(input.markets.map((market) => market.market)).size !== board.markets.length ||
+    board.markets.some((market) => !input.markets.some((result) => result.market === market.market))
+  )
+    throw new Error("Every board market must resolve exactly once.");
+  for (const result of input.markets)
+    if (!result.pick && !result.noPickReason.trim())
+      throw new Error("An unavailable market needs a reason.");
+  if (
+    !isTerminalBoard(board.status) &&
+    board.markets.some((market) => market.pick || market.noPickReason !== null)
+  )
+    throw new Error("A market is already frozen.");
+}
 
 /**
  * A final score is a fact about the game, not about one board, so a game settlement notice is
@@ -284,6 +353,14 @@ export function gradeBoardMarkets(board: GameBoard, notices: StoredNotice[]): Bo
 }
 
 export type GameBoardStore = {
+  listBoardExplanationEvents: (boardId: string) => Promise<ExplanationEvent[]>;
+  completeBoardForecast: (input: FreezeModelPicksInput) => Promise<GameBoard>;
+  beginBoardExplanation: (input: BeginExplanation) => Promise<ExplanationWriteResult>;
+  reserveBoardExplanationRequest: (input: RequestIntent) => Promise<ExplanationWriteResult>;
+  recordBoardExplanationResponse: (
+    input: SavedExplanationResponse,
+  ) => Promise<ExplanationWriteResult>;
+  finishBoardExplanation: (input: FinishExplanation) => Promise<ExplanationWriteResult>;
   /** Saves a pending board with its entered prices. Same id and inputs return the saved board. */
   beginBoard: (input: NewGameBoard) => Promise<BeginBoardResult>;
   /** Saves evidence, gaps, and the frozen model picks. Each market is frozen once. */
@@ -323,6 +400,7 @@ export function isTerminalBoard(status: GameBoardStatus): boolean {
 }
 
 export type MemoryBoardStore = GameBoardStore & {
+  explanationEvents: Map<string, ExplanationEvent>;
   /** The picked offer, for a closing comparison. Null when the pick is unknown. */
   pickContract: (pickId: string) => OpenPick | null;
   /** Saved boards, used by the journal backup. */
@@ -360,7 +438,7 @@ export function requireBoardRegistration(
       Date.parse(board.cutoffAt) >= Date.parse(registration.protocol.period.end)) ||
     board.markets.some((market) => !registration.protocol.markets.includes(market.market))
   ) {
-    throw new Error("A board cannot enroll before its protocol registration.");
+    throw new BoardBeginError("A board cannot enroll before its protocol registration.");
   }
 }
 
@@ -399,10 +477,41 @@ export function requirePickRegistration(
 export function createMemoryBoardStore(
   notices: StoredNotice[] = [],
   registrations: ProtocolRegistration[] = [],
+  options: { now?: () => string } = {},
 ): MemoryBoardStore {
+  const now = options.now ?? (() => new Date().toISOString());
   const boards = new Map<string, GameBoard>();
   const submissions = new Map<string, string>();
   const finishChains = new Map<string, Promise<unknown>>();
+  const explanationEvents = new Map<string, ExplanationEvent>();
+  function explanationWrite(command: ExplanationCommand): ExplanationWriteResult {
+    const board = require(command.boardId);
+    if (
+      [...explanationEvents.values()].some(
+        (event) =>
+          event.boardId !== board.id &&
+          (event.attemptId === command.attemptId ||
+            (command.kind === "request-intent" &&
+              event.kind === "request-intent" &&
+              event.requestId === command.requestId)),
+      )
+    )
+      return {
+        kind: "conflict",
+        error: "The explanation attempt or request identity belongs to another board.",
+      };
+    const events = [...explanationEvents.values()]
+      .filter((event) => event.boardId === board.id)
+      .sort((a, b) => a.sequence - b.sequence);
+    const result = decideExplanationWrite(board, events, command, now());
+    if (result.kind === "acquired")
+      explanationEvents.set(result.event.id, structuredClone(result.event));
+    return structuredClone(result);
+  }
+
+  function project(board: GameBoard): GameBoard {
+    return structuredClone(projectBoardExplanation(board, [...explanationEvents.values()]));
+  }
 
   function require(id: string): GameBoard {
     const board = boards.get(id);
@@ -412,7 +521,94 @@ export function createMemoryBoardStore(
 
   return {
     boards,
+    explanationEvents,
     submissions,
+    async listBoardExplanationEvents(boardId) {
+      require(boardId);
+      return structuredClone(
+        [...explanationEvents.values()]
+          .filter((event) => event.boardId === boardId)
+          .sort((a, b) => a.sequence - b.sequence),
+      );
+    },
+    async beginBoardExplanation(input) {
+      return explanationWrite({ kind: "started", ...input });
+    },
+    async reserveBoardExplanationRequest(input) {
+      return explanationWrite({ kind: "request-intent", ...input });
+    },
+    async recordBoardExplanationResponse(input) {
+      return explanationWrite({ kind: "response", ...input });
+    },
+    async finishBoardExplanation({ boardId, attemptId, outcome }) {
+      return explanationWrite({ boardId, attemptId, ...outcome });
+    },
+    async completeBoardForecast(input) {
+      const initial = require(input.boardId);
+      const prior = finishChains.get(initial.game.id) ?? Promise.resolve();
+      const write = prior.then(() => {
+        const board = require(input.boardId);
+        requireForecastCompletion(board, input);
+        if (isTerminalBoard(board.status)) return project(board);
+        requirePickRegistration(
+          board,
+          input,
+          registrations.find((row) => row.id === board.request.protocolRegistrationId),
+        );
+        const completedAt = now();
+        const markets = board.markets.map((market): BoardMarket => {
+          const result = input.markets.find((item) => item.market === market.market)!;
+          if (!result.pick) return { ...market, noPickReason: result.noPickReason };
+          if (
+            result.pick.parentPickId !== null &&
+            boards.get(board.parentId ?? "")?.markets.find((item) => item.market === market.market)
+              ?.pick?.id !== result.pick.parentPickId
+          )
+            throw new Error("The parent pick must belong to the parent board market.");
+          const primary = [...boards.values()]
+            .filter((other) => other.game.id === board.game.id)
+            .flatMap((other) => other.markets)
+            .find(
+              (other) => other.market === market.market && other.pick?.role.role === "primary",
+            )?.pick;
+          return {
+            ...market,
+            pick: {
+              ...result.pick,
+              id: randomUUID(),
+              boardId: board.id,
+              market: market.market,
+              createdAt: completedAt,
+              role: chooseModelPickRole({
+                status: "completed",
+                cutoffAt: board.cutoffAt,
+                kickoffAt: board.game.kickoff,
+                isRefresh: board.parentId !== null,
+                primaryPickId: primary?.id ?? null,
+              }),
+            },
+          };
+        });
+        const updated: GameBoard = structuredClone({
+          ...board,
+          evidence: input.evidence,
+          gaps: input.gaps,
+          markets,
+          status: "completed",
+          completedAt,
+        });
+        boards.set(board.id, updated);
+        return project(updated);
+      });
+      finishChains.set(
+        initial.game.id,
+        write.then(
+          () => undefined,
+          () => undefined,
+        ),
+      );
+      return write;
+    },
     async beginBoard(input) {
       const existingId = submissions.get(input.request.id);
       if (existingId) {
@@ -420,7 +616,7 @@ export function createMemoryBoardStore(
         if (existing.request.hash !== input.request.hash) {
           return { kind: "conflict", error: BOARD_CONFLICT };
         }
-        return { kind: "existing", board: structuredClone(existing) };
+        return { kind: "existing", board: project(existing) };
       }
       if (input.parentId && !boards.has(input.parentId)) {
         throw new Error(`Parent game board not found: ${input.parentId}`);
@@ -450,15 +646,17 @@ export function createMemoryBoardStore(
         usage: null,
         explanation: null,
         withdrawal: null,
-        createdAt: new Date().toISOString(),
+        createdAt: now(),
         completedAt: null,
       });
       boards.set(board.id, board);
       submissions.set(input.request.id, board.id);
-      return { kind: "created", board: structuredClone(board) };
+      return { kind: "created", board: project(board) };
     },
     async freezeModelPicks(input) {
       const board = require(input.boardId);
+      if (board.request.lifecycleFormat)
+        throw new Error("Use completeBoardForecast for a forecast-first board.");
       requirePickRegistration(
         board,
         input,
@@ -472,7 +670,7 @@ export function createMemoryBoardStore(
           throw new Error(`The board has no ${result.market} market.`);
         }
       }
-      const createdAt = new Date().toISOString();
+      const createdAt = now();
       const markets = board.markets.map((market) => {
         const result = input.markets.find((item) => item.market === market.market);
         if (!result) return market;
@@ -509,10 +707,12 @@ export function createMemoryBoardStore(
         markets,
       });
       boards.set(board.id, updated);
-      return structuredClone(updated);
+      return project(updated);
     },
     async saveBoardDraft(input) {
       const board = require(input.boardId);
+      if (board.request.lifecycleFormat)
+        throw new Error("Use explanation events for a forecast-first board.");
       if (isTerminalBoard(board.status)) {
         throw new Error("A finished game board cannot save a new draft.");
       }
@@ -523,15 +723,17 @@ export function createMemoryBoardStore(
         usage: input.usage,
       });
       boards.set(board.id, updated);
-      return structuredClone(updated);
+      return project(updated);
     },
     async finishBoard(input) {
       const board = require(input.boardId);
       const prior = finishChains.get(board.game.id) ?? Promise.resolve();
       const write = prior.then(async () => {
         const current = require(input.boardId);
-        if (isTerminalBoard(current.status)) return structuredClone(current);
-        const completedAt = new Date().toISOString();
+        if (isTerminalBoard(current.status)) return project(current);
+        if (current.request.lifecycleFormat && input.status === "completed")
+          throw new Error("Use completeBoardForecast for a forecast-first board.");
+        const completedAt = now();
         const markets = current.markets.map((market) => {
           if (!market.pick || market.pick.role.role !== "unclassified") return market;
           const existing = [...boards.values()]
@@ -565,7 +767,7 @@ export function createMemoryBoardStore(
           completedAt,
         });
         boards.set(current.id, updated);
-        return structuredClone(updated);
+        return project(updated);
       });
       finishChains.set(
         board.game.id,
@@ -578,7 +780,7 @@ export function createMemoryBoardStore(
     },
     async getBoard(id) {
       const board = boards.get(id);
-      return board ? structuredClone(board) : null;
+      return board ? project(board) : null;
     },
     async recordGameSettlement(input) {
       requireFinalScores(input);
@@ -633,13 +835,13 @@ export function createMemoryBoardStore(
       return [...boards.values()]
         .filter((board) => board.parentId === parentId)
         .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-        .map((board) => structuredClone(board));
+        .map(project);
     },
     async getBoardForPick(pickId) {
       const board = [...boards.values()].find((item) =>
         item.markets.some((market) => market.pick?.id === pickId),
       );
-      return board ? structuredClone(board) : null;
+      return board ? project(board) : null;
     },
     async listModelPicks() {
       const finished = [...boards.values()]
@@ -672,16 +874,16 @@ export function createMemoryBoardStore(
     },
     async withdrawBoard(input) {
       const board = require(input.boardId);
-      if (board.withdrawal) return structuredClone(board);
+      if (board.withdrawal) return project(board);
       if (!isTerminalBoard(board.status)) throw new Error(WITHDRAW_UNFINISHED);
       const reason = input.reason.trim();
       if (!reason) throw new Error(WITHDRAW_NEEDS_REASON);
       const updated: GameBoard = {
         ...board,
-        withdrawal: { reason, at: new Date().toISOString() },
+        withdrawal: { reason, at: now() },
       };
       boards.set(board.id, updated);
-      return structuredClone(updated);
+      return project(updated);
     },
     pickContract(pickId) {
       for (const board of boards.values()) {

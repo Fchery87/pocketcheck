@@ -1,5 +1,11 @@
 import { proportionalMargin } from "../../domain/odds.ts";
-import { marginMeanForHomeWin } from "./distribution.ts";
+import {
+  ANCHOR_MAPPING,
+  marginMeanForHomeWin,
+  meanForDecisiveProbability,
+  spreadFromMargin,
+  totalFromDistribution,
+} from "./distribution.ts";
 import type { ResidualDistribution } from "./distribution.ts";
 import type { Market } from "./games.ts";
 
@@ -8,6 +14,8 @@ import type { Market } from "./games.ts";
  * sides from one sportsbook there is no anchor, and then there is no forecast.
  */
 export type AnchorLine = {
+  /** Omitted on historical saved forecasts. */
+  mappingVersion?: typeof ANCHOR_MAPPING;
   market: Market;
   /** The sportsbook whose two sides produced the anchor. Never mixed across books. */
   sportsbook: string;
@@ -24,6 +32,35 @@ export type AnchorQuote = {
   /** Home spread line, or the total. Absent for a moneyline. */
   line?: number;
 };
+
+const mappedMeans = new WeakMap<ResidualDistribution, Map<string, number>>();
+
+function matchedMean(
+  distribution: ResidualDistribution,
+  market: Market,
+  probability: number,
+  line: number | undefined,
+): number {
+  const key = `${market}:${probability}:${line ?? ""}`;
+  const cache = mappedMeans.get(distribution) ?? new Map<string, number>();
+  const cached = cache.get(key);
+  if (cached !== undefined) return cached;
+  const mean =
+    market === "moneyline"
+      ? marginMeanForHomeWin(distribution, probability)
+      : meanForDecisiveProbability(
+          distribution,
+          probability,
+          market === "spread" ? marginFromHomeLine(line!) : line!,
+          (bins) =>
+            market === "spread"
+              ? spreadFromMargin(bins, line!).home
+              : totalFromDistribution(bins, line!).over,
+        );
+  cache.set(key, mean);
+  mappedMeans.set(distribution, cache);
+  return mean;
+}
 
 /**
  * The home margin a home spread line implies. A home line of -7 says the home team is expected
@@ -53,7 +90,8 @@ export function anchorFromQuote(
       market,
       sportsbook: quote.sportsbook,
       noVigHome: null,
-      mean: quote.line,
+      mean: matchedMean(marginDistribution, market, fair.probabilities.home!, quote.line),
+      mappingVersion: ANCHOR_MAPPING,
     };
   }
   if (market === "spread") {
@@ -62,7 +100,8 @@ export function anchorFromQuote(
       market,
       sportsbook: quote.sportsbook,
       noVigHome: null,
-      mean: marginFromHomeLine(quote.line),
+      mean: matchedMean(marginDistribution, market, fair.probabilities.home!, quote.line),
+      mappingVersion: ANCHOR_MAPPING,
     };
   }
   const home = fair.probabilities.home ?? 0;
@@ -70,6 +109,7 @@ export function anchorFromQuote(
     market,
     sportsbook: quote.sportsbook,
     noVigHome: home,
-    mean: marginMeanForHomeWin(marginDistribution, home),
+    mean: matchedMean(marginDistribution, market, home, undefined),
+    mappingVersion: ANCHOR_MAPPING,
   };
 }

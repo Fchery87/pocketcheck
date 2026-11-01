@@ -364,7 +364,9 @@ export function describeStoreContract(
       const store = await makeStore();
       const outcome = await runAnalysis(ask(), { store, model: unreleasedModel });
       const saved = await store.getRun(outcome.run!.id);
-      expect(saved?.probabilityModel).toEqual(await unreleasedModel(game, NOW, outcome.run!.offer));
+      expect(saved?.probabilityModel).toEqual(
+        await unreleasedModel({ game, cutoffAt: NOW, offer: outcome.run!.offer, evidence: [] }),
+      );
       expect(saved).toEqual(outcome.run);
     });
 
@@ -1710,11 +1712,15 @@ export function describeStoreContract(
       expect(backup.gameBoards?.map((board) => board.id)).toContain(outcome.board.id);
       const exportedBoard = backup.gameBoards?.find((board) => board.id === outcome.board.id);
       expect(exportedBoard?.request.explanationFormatVersion).toBe(2);
-      expect(exportedBoard?.drafter).toEqual(outcome.board.drafter);
-      expect(exportedBoard?.providerRequests).toEqual(outcome.board.providerRequests);
-      expect(exportedBoard?.providerOutcomeAmbiguous).toBe(outcome.board.providerOutcomeAmbiguous);
-      expect(exportedBoard?.usage).toEqual(outcome.board.usage);
-      expect(exportedBoard?.explanation).toEqual(outcome.board.explanation);
+      expect(exportedBoard?.providerRequests).toEqual([]);
+      expect(exportedBoard?.providerOutcomeAmbiguous).toBe(false);
+      expect(exportedBoard?.usage).toBeNull();
+      expect(exportedBoard?.explanation).toBeNull();
+      const explanationEvents = await store.listBoardExplanationEvents(outcome.board.id);
+      expect(
+        backup.explanationEvents?.filter((event) => event.boardId === outcome.board.id),
+      ).toEqual(explanationEvents);
+      expect(explanationEvents.some((event) => event.kind === "response")).toBe(true);
       expect(exportedBoard?.markets[0]?.pick?.id).toBe(outcome.board.markets[0]!.pick!.id);
       expect(exportedBoard?.markets[0]?.pick?.role.role).toBe("primary");
       const pickId = outcome.board.markets[0]!.pick!.id;
@@ -1726,6 +1732,8 @@ export function describeStoreContract(
       const again = await empty.restoreJournal(backup);
       expect(again).toEqual(restored);
       expect(await empty.getBoard(outcome.board.id)).toEqual(outcome.board);
+      expect(await empty.listBoardExplanationEvents(outcome.board.id)).toEqual(explanationEvents);
+      expect(await empty.exportJournal()).toEqual(backup);
       expect((await empty.listBets()).map((bet) => bet.modelPickId)).toContain(
         outcome.board.markets[0]!.pick!.id,
       );
@@ -1738,6 +1746,7 @@ export function describeStoreContract(
         ),
       };
       delete older.gameBoards;
+      delete older.explanationEvents;
       const blank = (await makeStore()) as JournalStore;
       await expect(blank.restoreJournal(older)).resolves.toBeDefined();
       const before = await blank.exportJournal();

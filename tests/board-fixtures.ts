@@ -1,5 +1,5 @@
 import type { EvidenceCollector } from "#lib/server/analysis/evidence.ts";
-import type { ModelSource, RunModel } from "#lib/server/analysis/model.ts";
+import type { ForecastRequest, ModelSource, RunModel } from "#lib/server/analysis/model.ts";
 import type { OutcomeProbabilities } from "#lib/domain/odds.ts";
 
 /** No automatic gaps, so the grade depends only on the prices and the model. */
@@ -18,7 +18,7 @@ export function scriptedModel(input: {
   trainingCutoff?: string;
 }): ModelSource & { offers: string[] } {
   const offers: string[] = [];
-  const source = async (_game: unknown, _cutoff: string, offer: { selection: string }) => {
+  const source = async ({ offer }: ForecastRequest) => {
     offers.push(offer.selection);
     const home = offer.selection === "home";
     const conservative = home ? input.conservativeHome : input.conservativeAway;

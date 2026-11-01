@@ -1,4 +1,5 @@
 // Display helpers shared by pages. NFL kickoffs are shown in America/New_York.
+export { easternDateTimeInput } from "./time.ts";
 
 const eastern = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York",

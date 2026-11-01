@@ -221,7 +221,7 @@ describe("private lean on a game board", () => {
         store,
         collect: quiet,
         model: scriptedModel({ home: { win: 0.6, loss: 0.4, push: 0 } }),
-        forecast: async (_game, _cutoff, _offer, model) =>
+        forecast: async (_request, model) =>
           model.status === "computed"
             ? {
                 version: 1,

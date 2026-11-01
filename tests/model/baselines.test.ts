@@ -79,6 +79,9 @@ describe("calibration counts", () => {
         baseRate: null,
         outcome: "win",
         priceState: "missing",
+        slate: "2024-09-08",
+        americanOdds: null,
+        conservativeExpectedValue: null,
       },
     ]);
     expect(summary.calibration.at(-1)?.count).toBe(1);

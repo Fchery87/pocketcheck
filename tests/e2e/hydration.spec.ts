@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixture.ts";
 
 // A game chosen before the client script runs must survive hydration. The script
 // is held back so the choice reliably happens first, whatever the machine load.

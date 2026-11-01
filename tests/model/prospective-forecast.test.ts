@@ -48,7 +48,7 @@ const offer = {
   americanOdds: -110,
   decimalOdds: 1.9090909090909092,
   observedAt: "2024-09-28T16:00:00.000Z",
-  enteredAt: "2024-09-28T16:00:00.000Z",
+  opposing: null,
   kickoffAt: "2024-09-29T17:00:00.000Z",
   rules: { period: "full-game", overtime: "included", tie: "push" },
 } satisfies Offer;

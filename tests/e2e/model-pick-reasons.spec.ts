@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixture.ts";
 
 test.beforeEach(async ({ request }) => {
   const response = await request.get("/__verification");
@@ -8,7 +8,7 @@ test.beforeEach(async ({ request }) => {
 
 async function fillBoard(page: Page, sportsbook: string) {
   await page.goto("/board");
-  await page.waitForLoadState("networkidle");
+  await expect(page.getByTestId("board-game")).toBeEnabled();
   await page.getByTestId("board-game").selectOption("2026_07_DAL_PHI");
   await page.getByTestId("board-sportsbook").fill(sportsbook);
   await page.getByTestId("board-observed-at").fill("2026-10-25T11:30");

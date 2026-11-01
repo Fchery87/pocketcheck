@@ -150,6 +150,16 @@ export type ProviderRequestRecord = {
   costKnown: boolean;
 };
 
+export type ProviderRequestHooks = {
+  /** Resolve only after acquiring a durable reservation, or return its proven response. */
+  beforeRequest?: (input: {
+    role: ProviderRequestRole;
+    body: string;
+  }) => Promise<void | { response: ProviderRequestRecord }>;
+  /** Persist the exchange before validation or another paid request can begin. */
+  afterResponse?: (record: ProviderRequestRecord) => Promise<void>;
+};
+
 export type ProviderErrorKind = "auth" | "rate_limit" | "timeout" | "transport" | "invalid_report";
 
 /** A failed provider request. The message never contains the API key. */
@@ -204,11 +214,13 @@ export type ThesisProvider = {
     packet: ThesisPacket;
   }) => Promise<DraftThesisResult>;
   /** Explains frozen model picks. Same refusal, repair, and accounting rules as `draftThesis`. */
-  draftPickExplanation: (input: {
-    modelId: string;
-    catalog: ModelCatalogEntry[];
-    packet: PickExplanationPacket;
-  }) => Promise<DraftPickExplanationResult>;
+  draftPickExplanation: (
+    input: ProviderRequestHooks & {
+      modelId: string;
+      catalog: ModelCatalogEntry[];
+      packet: PickExplanationPacket;
+    },
+  ) => Promise<DraftPickExplanationResult>;
 };
 
 /** What a run needs from whatever drafts its text, including the fixture drafter. */

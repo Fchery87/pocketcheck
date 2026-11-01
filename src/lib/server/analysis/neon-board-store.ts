@@ -1,4 +1,12 @@
 import { randomUUID } from "node:crypto";
+import {
+  decideExplanationWrite,
+  projectBoardExplanation,
+  type ExplanationEvent,
+  type ExplanationCommand,
+  type ExplanationWriteResult,
+} from "./board-explanation.ts";
+import { requireForecastCompletion } from "./board-store.ts";
 import type { Sql, TransactionSql } from "postgres";
 import { parentsFirst } from "../db/order.ts";
 import { completionClock, lockGame } from "../db/repository.ts";
@@ -42,6 +50,7 @@ type BoardRow = {
   request_hash: string;
   protocol_registration_id: string | null;
   explanation_format_version: 2 | null;
+  lifecycle_format: "forecast-first-v1" | null;
   parent_id: string | null;
   game: RunGame;
   sportsbook: string;
@@ -94,6 +103,8 @@ function iso(value: Date): string {
 }
 
 export type NeonBoardJournal = {
+  readExplanationEvents: (db: Sql | TransactionSql) => Promise<ExplanationEvent[]>;
+  restoreExplanationEvents: (tx: TransactionSql, events: ExplanationEvent[]) => Promise<void>;
   /** Every board, read through the caller's connection so a backup can share one snapshot. */
   readBoards: (db: Sql | TransactionSql) => Promise<GameBoard[]>;
   restoreBoards: (tx: TransactionSql, boards: GameBoard[]) => Promise<void>;
@@ -101,12 +112,50 @@ export type NeonBoardJournal = {
 
 /** Game boards in Neon. Same contract as the memory journal's boards. */
 export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJournal {
-  async function read(db: Sql | TransactionSql, id: string): Promise<GameBoard | null> {
-    const [board] = await db<BoardRow[]>`SELECT * FROM game_boards WHERE id = ${id}`;
-    if (!board) return null;
-    const markets = await db<MarketRow[]>`
-      SELECT market, offers, quotes, pricing_format, anchor, no_pick_reason
-      FROM board_markets WHERE board_id = ${id}
+  async function readEvents(
+    db: Sql | TransactionSql,
+    boardId?: string,
+  ): Promise<ExplanationEvent[]> {
+    const rows = boardId
+      ? await db<
+          { payload: ExplanationEvent }[]
+        >`SELECT payload FROM board_explanation_events WHERE board_id = ${boardId} ORDER BY sequence`
+      : await db<
+          { payload: ExplanationEvent }[]
+        >`SELECT payload FROM board_explanation_events ORDER BY board_id, sequence`;
+    return rows.map((row) => row.payload);
+  }
+  async function insertEvent(tx: TransactionSql, event: ExplanationEvent): Promise<void> {
+    await tx`INSERT INTO board_explanation_events (id, board_id, attempt_id, sequence, kind, request_id, request_role, recorded_at, payload) VALUES (${event.id}, ${event.boardId}, ${event.attemptId}, ${event.sequence}, ${event.kind}, ${"requestId" in event ? event.requestId : null}, ${event.kind === "request-intent" ? event.role : null}, ${event.recordedAt}, ${tx.json(event as never)})`;
+  }
+  async function explanationWrite(command: ExplanationCommand): Promise<ExplanationWriteResult> {
+    return sql.begin(async (tx) => {
+      await tx`SELECT id FROM game_boards WHERE id = ${command.boardId} FOR UPDATE`;
+      const board = await require(tx, command.boardId);
+      if (command.kind === "started" || command.kind === "request-intent") {
+        const [used] =
+          await tx`SELECT id FROM board_explanation_events WHERE board_id <> ${board.id} AND (attempt_id = ${command.attemptId} OR (${command.kind === "request-intent"} AND request_id = ${command.kind === "request-intent" ? command.requestId : null})) LIMIT 1`;
+        if (used)
+          return {
+            kind: "conflict" as const,
+            error: "The explanation attempt or request identity belongs to another board.",
+          };
+      }
+      const result = decideExplanationWrite(board, await readEvents(tx, board.id), command);
+      if (result.kind === "acquired") await insertEvent(tx, result.event);
+      return result;
+    });
+  }
+  async function hydrate(
+    db: Sql | TransactionSql,
+    boards: BoardRow[],
+    mode: "raw" | "project",
+  ): Promise<GameBoard[]> {
+    if (boards.length === 0) return [];
+    const ids = boards.map((board) => board.id);
+    const markets = await db<(MarketRow & { board_id: string })[]>`
+      SELECT board_id, market, offers, quotes, pricing_format, anchor, no_pick_reason
+      FROM board_markets WHERE board_id IN ${db(ids)}
     `;
     const picks = await db<PickRow[]>`
       SELECT p.id, p.board_id, p.market, p.parent_pick_id, p.calculation, p.forecasting_model,
@@ -114,70 +163,162 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
         r.protocol_id
       FROM model_picks p
       LEFT JOIN model_pick_roles r ON r.pick_id = p.id
-      WHERE p.board_id = ${id}
+      WHERE p.board_id IN ${db(ids)}
     `;
-    const [withdrawal] = await db<{ reason: string; withdrawn_at: Date }[]>`
-      SELECT reason, withdrawn_at FROM board_withdrawals WHERE board_id = ${id}
+    const withdrawals = await db<{ board_id: string; reason: string; withdrawn_at: Date }[]>`
+      SELECT board_id, reason, withdrawn_at FROM board_withdrawals WHERE board_id IN ${db(ids)}
     `;
-    const ordered = [...markets].sort(
-      (left, right) => MARKET_ORDER.indexOf(left.market) - MARKET_ORDER.indexOf(right.market),
-    );
-    return {
-      id: board.id,
-      request: {
-        id: board.submission_id,
-        hash: board.request_hash,
-        ...(board.explanation_format_version === 2 ? { explanationFormatVersion: 2 as const } : {}),
-        ...(board.protocol_registration_id
-          ? { protocolRegistrationId: board.protocol_registration_id }
-          : {}),
-      },
-      parentId: board.parent_id,
-      status: board.status,
-      game: board.game,
-      sportsbook: board.sportsbook,
-      observedAt: iso(board.observed_at),
-      cutoffAt: iso(board.cutoff_at),
-      markets: ordered.map((row): BoardMarket => {
-        const pick = picks.find((item) => item.market === row.market);
-        return {
-          market: row.market,
-          offers: row.offers,
-          quotes: row.quotes,
-          ...(row.pricing_format && row.anchor
-            ? { pricing: { format: row.pricing_format, anchor: row.anchor } }
+    const lifecycleIds = boards.filter((board) => board.lifecycle_format).map((board) => board.id);
+    const events =
+      mode === "project" && lifecycleIds.length > 0
+        ? await db<{ board_id: string; payload: ExplanationEvent }[]>`
+          SELECT board_id, payload FROM board_explanation_events
+          WHERE board_id IN ${db(lifecycleIds)} ORDER BY board_id, sequence
+        `
+        : [];
+    function byBoard<T extends { board_id: string }>(rows: T[]): Map<string, T[]> {
+      const grouped = new Map<string, T[]>();
+      for (const row of rows) {
+        const group = grouped.get(row.board_id) ?? [];
+        group.push(row);
+        grouped.set(row.board_id, group);
+      }
+      return grouped;
+    }
+    const marketsByBoard = byBoard(markets);
+    const picksByBoard = byBoard(picks);
+    const withdrawalsByBoard = new Map(withdrawals.map((row) => [row.board_id, row]));
+    const eventsByBoard = byBoard(events);
+    return boards.map((board) => {
+      const withdrawal = withdrawalsByBoard.get(board.id);
+      const boardPicks = new Map(
+        (picksByBoard.get(board.id) ?? []).map((pick) => [pick.market, pick]),
+      );
+      const ordered = [...(marketsByBoard.get(board.id) ?? [])].sort(
+        (left, right) => MARKET_ORDER.indexOf(left.market) - MARKET_ORDER.indexOf(right.market),
+      );
+      const saved: GameBoard = {
+        id: board.id,
+        request: {
+          id: board.submission_id,
+          hash: board.request_hash,
+          ...(board.lifecycle_format ? { lifecycleFormat: board.lifecycle_format } : {}),
+          ...(board.explanation_format_version === 2
+            ? { explanationFormatVersion: 2 as const }
             : {}),
-          pick: pick ? toPick(pick) : null,
-          noPickReason: row.no_pick_reason,
-        };
-      }),
-      evidence: board.evidence,
-      gaps: board.gaps,
-      failureReason: board.failure_reason,
-      lean:
-        board.lean_text === null
-          ? null
-          : { text: board.lean_text, rationale: board.lean_rationale ?? "" },
-      drafter:
-        board.drafter_id === null
-          ? null
-          : { id: board.drafter_id, modelId: board.drafter_model_id ?? "" },
-      providerRequests: board.provider_requests,
-      providerOutcomeAmbiguous: board.provider_outcome_ambiguous,
-      usage: board.usage,
-      explanation: board.explanation,
-      createdAt: iso(board.created_at),
-      completedAt: board.completed_at ? iso(board.completed_at) : null,
-      withdrawal: withdrawal
-        ? { reason: withdrawal.reason, at: iso(withdrawal.withdrawn_at) }
-        : null,
-    };
+          ...(board.protocol_registration_id
+            ? { protocolRegistrationId: board.protocol_registration_id }
+            : {}),
+        },
+        parentId: board.parent_id,
+        status: board.status,
+        game: board.game,
+        sportsbook: board.sportsbook,
+        observedAt: iso(board.observed_at),
+        cutoffAt: iso(board.cutoff_at),
+        markets: ordered.map((row): BoardMarket => {
+          const pick = boardPicks.get(row.market);
+          return {
+            market: row.market,
+            offers: row.offers,
+            quotes: row.quotes,
+            ...(row.pricing_format && row.anchor
+              ? { pricing: { format: row.pricing_format, anchor: row.anchor } }
+              : {}),
+            pick: pick ? toPick(pick) : null,
+            noPickReason: row.no_pick_reason,
+          };
+        }),
+        evidence: board.evidence,
+        gaps: board.gaps,
+        failureReason: board.failure_reason,
+        lean:
+          board.lean_text === null
+            ? null
+            : { text: board.lean_text, rationale: board.lean_rationale ?? "" },
+        drafter:
+          board.drafter_id === null
+            ? null
+            : { id: board.drafter_id, modelId: board.drafter_model_id ?? "" },
+        providerRequests: board.provider_requests,
+        providerOutcomeAmbiguous: board.provider_outcome_ambiguous,
+        usage: board.usage,
+        explanation: board.explanation,
+        createdAt: iso(board.created_at),
+        completedAt: board.completed_at ? iso(board.completed_at) : null,
+        withdrawal: withdrawal
+          ? { reason: withdrawal.reason, at: iso(withdrawal.withdrawn_at) }
+          : null,
+      };
+      return mode === "project"
+        ? projectBoardExplanation(
+            saved,
+            (eventsByBoard.get(board.id) ?? []).map((row) => row.payload),
+          )
+        : saved;
+    });
+  }
+
+  async function read(
+    db: Sql | TransactionSql,
+    id: string,
+    project = true,
+  ): Promise<GameBoard | null> {
+    const boards = await db<BoardRow[]>`SELECT * FROM game_boards WHERE id = ${id}`;
+    return (await hydrate(db, boards, project ? "project" : "raw"))[0] ?? null;
   }
 
   async function require(db: Sql | TransactionSql, id: string): Promise<GameBoard> {
     const board = await read(db, id);
     if (!board) throw new Error(`Game board not found: ${id}`);
     return board;
+  }
+
+  async function readNotices(
+    db: Sql | TransactionSql,
+    gameIds: string[],
+  ): Promise<Map<string, StoredNotice[]>> {
+    const grouped = new Map<string, StoredNotice[]>();
+    if (gameIds.length === 0) return grouped;
+    const rows = await db<
+      Array<{
+        id: string;
+        event_id: string;
+        source_game_id: string;
+        kind: StoredNotice["kind"];
+        home_score: number | null;
+        away_score: number | null;
+        source: string;
+        reason: string | null;
+        corrects_id: string | null;
+        recorded_at: Date;
+      }>
+    >`
+      SELECT n.*, g.source_game_id FROM settlement_notices n
+      JOIN games g ON g.id = n.game_id
+      WHERE g.source_game_id IN ${db([...new Set(gameIds)])}
+      ORDER BY n.recorded_at ASC
+    `;
+    for (const row of rows) {
+      const notices = grouped.get(row.source_game_id) ?? [];
+      notices.push({
+        id: row.id,
+        eventId: row.event_id,
+        analysisId: null,
+        gameId: row.source_game_id,
+        betId: null,
+        kind: row.kind,
+        homeScore: row.home_score,
+        awayScore: row.away_score,
+        source: row.source,
+        reason: row.reason,
+        correctsId: row.corrects_id,
+        recordedAt: iso(row.recorded_at),
+        payloadKey: "",
+      });
+      grouped.set(row.source_game_id, notices);
+    }
+    return grouped;
   }
 
   async function existing(submissionId: string, hash: string) {
@@ -215,14 +356,14 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
         INSERT INTO game_boards (
           id, submission_id, request_hash, parent_id, game_id, game, sportsbook,
           observed_at, kickoff_at, cutoff_at, status, lean_text, lean_rationale,
-          drafter_id, drafter_model_id, protocol_registration_id, explanation_format_version
+          drafter_id, drafter_model_id, protocol_registration_id, explanation_format_version, lifecycle_format
         ) VALUES (
           ${id}, ${input.request.id}, ${input.request.hash}, ${input.parentId},
           ${gameRow!.id}, ${tx.json(game as never)}, ${input.sportsbook},
           ${input.observedAt}, ${game.kickoff}, ${input.cutoffAt}, 'pending',
           ${input.lean?.text ?? null}, ${input.lean ? input.lean.rationale : null},
           ${input.drafter?.id ?? null}, ${input.drafter?.modelId ?? null},
-          ${input.request.protocolRegistrationId ?? null}, ${input.request.explanationFormatVersion ?? null}
+          ${input.request.protocolRegistrationId ?? null}, ${input.request.explanationFormatVersion ?? null}, ${input.request.lifecycleFormat ?? null}
         )
         ON CONFLICT (submission_id) DO NOTHING
         RETURNING id
@@ -243,6 +384,79 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
   }
 
   return {
+    async listBoardExplanationEvents(boardId) {
+      await require(sql, boardId);
+      return readEvents(sql, boardId);
+    },
+    readExplanationEvents: readEvents,
+    async restoreExplanationEvents(tx, events) {
+      for (const event of events) {
+        const [existing] = await tx<
+          { payload: ExplanationEvent }[]
+        >`SELECT payload FROM board_explanation_events WHERE id = ${event.id}`;
+        if (existing) {
+          if (!sameRecord(existing.payload, event))
+            throw new Error(`Conflicting explanation event ${event.id}.`);
+        } else await insertEvent(tx, event);
+      }
+    },
+    async beginBoardExplanation(input) {
+      return explanationWrite({ kind: "started", ...input });
+    },
+    async reserveBoardExplanationRequest(input) {
+      return explanationWrite({ kind: "request-intent", ...input });
+    },
+    async recordBoardExplanationResponse(input) {
+      return explanationWrite({ kind: "response", ...input });
+    },
+    async finishBoardExplanation({ boardId, attemptId, outcome }) {
+      return explanationWrite({ boardId, attemptId, ...outcome });
+    },
+    async completeBoardForecast(input) {
+      const initial = await require(sql, input.boardId);
+      await sql.begin(async (tx) => {
+        await lockGame(tx, initial.game.id);
+        await tx`SELECT id FROM game_boards WHERE id = ${input.boardId} FOR UPDATE`;
+        const board = await require(tx, input.boardId);
+        requireForecastCompletion(board, input);
+        if (isTerminalBoard(board.status)) return;
+        const [registration] = board.request.protocolRegistrationId
+          ? await tx<
+              { payload: ProtocolRegistration }[]
+            >`SELECT payload FROM protocol_registrations WHERE id = ${board.request.protocolRegistrationId}`
+          : [];
+        requirePickRegistration(board, input, registration?.payload);
+        const completedAt = await completionClock(tx);
+        const [game] = await tx<
+          { id: string }[]
+        >`SELECT id FROM games WHERE source_game_id = ${board.game.id}`;
+        for (const result of input.markets) {
+          await tx`UPDATE board_markets SET no_pick_reason = ${result.pick ? null : result.noPickReason}, frozen_at = ${completedAt} WHERE board_id = ${board.id} AND market = ${result.market} AND frozen_at IS NULL`;
+          if (!result.pick) continue;
+          const pick = result.pick;
+          if (pick.parentPickId !== null) {
+            const [parent] =
+              await tx`SELECT id FROM model_picks WHERE id = ${pick.parentPickId} AND board_id = ${board.parentId} AND market = ${result.market}`;
+            if (!parent) throw new Error("The parent pick must belong to the parent board market.");
+          }
+          const id = randomUUID();
+          await tx`INSERT INTO model_picks (id, board_id, market, parent_pick_id, calculation_version, picked_selection, strength_grade, release_label, calculation, forecasting_model, forecast, created_at) VALUES (${id}, ${board.id}, ${result.market}, ${pick.parentPickId}, ${pick.calculation.version}, ${pick.calculation.pickedSelection}, ${pick.calculation.grade}, ${pick.calculation.release}, ${tx.json(pick.calculation as never)}, ${tx.json(pick.forecastingModel as never)}, ${pick.forecast ? tx.json(pick.forecast as never) : null}, ${completedAt})`;
+          const [existing] = await tx<
+            { pick_id: string }[]
+          >`SELECT pick_id FROM model_pick_roles WHERE game_id = ${game!.id} AND market = ${result.market} AND role = 'primary'`;
+          const role = chooseModelPickRole({
+            status: "completed",
+            cutoffAt: board.cutoffAt,
+            kickoffAt: board.game.kickoff,
+            isRefresh: board.parentId !== null,
+            primaryPickId: existing?.pick_id ?? null,
+          });
+          await tx`INSERT INTO model_pick_roles (pick_id, game_id, market, role, reason, primary_pick_id, protocol_id, classified_at) VALUES (${id}, ${game!.id}, ${result.market}, ${role.role}, ${role.reason}, ${role.role === "refresh" ? role.primaryPickId : null}, ${role.role === "primary" ? role.protocolId : null}, ${completedAt})`;
+        }
+        await tx`UPDATE game_boards SET evidence = ${tx.json(input.evidence as never)}, gaps = ${tx.json(input.gaps as never)}, status = 'completed', completed_at = ${completedAt} WHERE id = ${board.id}`;
+      });
+      return require(sql, input.boardId);
+    },
     async beginBoard(input) {
       const found = await existing(input.request.id, input.request.hash);
       if (found) return found;
@@ -262,6 +476,8 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
         `;
         if (!board) throw new Error(`Game board not found: ${input.boardId}`);
         const saved = await require(tx, input.boardId);
+        if (saved.request.lifecycleFormat)
+          throw new Error("Use completeBoardForecast for a forecast-first board.");
         const [registration] = saved.request.protocolRegistrationId
           ? await tx<
               { payload: ProtocolRegistration }[]
@@ -308,6 +524,8 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
       return require(sql, input.boardId);
     },
     async saveBoardDraft(input) {
+      if ((await require(sql, input.boardId)).request.lifecycleFormat)
+        throw new Error("Use explanation events for a forecast-first board.");
       const updated = await sql<{ id: string }[]>`
         UPDATE game_boards
         SET provider_requests = ${sql.json(input.providerRequests as never)},
@@ -346,6 +564,11 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
           FOR UPDATE
         `;
         if (!board) return;
+        if (
+          (await require(tx, input.boardId)).request.lifecycleFormat &&
+          input.status === "completed"
+        )
+          throw new Error("Use completeBoardForecast for a forecast-first board.");
         const completedAt = await completionClock(tx);
         const picks = await tx<Array<{ id: string; market: Market }>>`
           SELECT id, market FROM model_picks WHERE board_id = ${input.boardId}
@@ -480,12 +703,10 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
       return gradeBoardMarkets(board, notices);
     },
     async listRefreshes(parentId) {
-      const rows = await sql<{ id: string }[]>`
-        SELECT id FROM game_boards WHERE parent_id = ${parentId} ORDER BY created_at, id
+      const rows = await sql<BoardRow[]>`
+        SELECT * FROM game_boards WHERE parent_id = ${parentId} ORDER BY created_at, id
       `;
-      const boards: GameBoard[] = [];
-      for (const row of rows) boards.push(await require(sql, row.id));
-      return boards;
+      return hydrate(sql, rows, "project");
     },
     async getBoardForPick(pickId) {
       const [row] = await sql<{ board_id: string }[]>`
@@ -494,17 +715,21 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
       return row ? read(sql, row.board_id) : null;
     },
     async listModelPicks() {
-      const rows = await sql<{ board_id: string }[]>`
-        SELECT b.id AS board_id
+      const rows = await sql<BoardRow[]>`
+        SELECT b.*
         FROM game_boards b
         WHERE b.completed_at IS NOT NULL
           AND EXISTS (SELECT 1 FROM model_picks p WHERE p.board_id = b.id)
         ORDER BY b.completed_at, b.id
       `;
+      const boards = await hydrate(sql, rows, "project");
+      const notices = await readNotices(
+        sql,
+        boards.map((board) => board.game.id),
+      );
       const listed: ListedModelPick[] = [];
-      for (const row of rows) {
-        const board = await require(sql, row.board_id);
-        const settlement = await this.readBoardSettlement(board.id);
+      for (const board of boards) {
+        const settlement = gradeBoardMarkets(board, notices.get(board.game.id) ?? []);
         for (const market of board.markets) {
           if (!market.pick) continue;
           const offer = market.offers.find(
@@ -544,10 +769,8 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
       return require(sql, input.boardId);
     },
     async readBoards(db: Sql | TransactionSql): Promise<GameBoard[]> {
-      const rows = await db<{ id: string }[]>`SELECT id FROM game_boards ORDER BY created_at, id`;
-      const boards: GameBoard[] = [];
-      for (const row of rows) boards.push(await require(db, row.id));
-      return boards;
+      const rows = await db<BoardRow[]>`SELECT * FROM game_boards ORDER BY created_at, id`;
+      return hydrate(db, rows, "raw");
     },
     async restoreBoards(tx: TransactionSql, boards: GameBoard[]): Promise<void> {
       const normalized = boards.map((board): GameBoard => ({
@@ -558,7 +781,7 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
         usage: board.usage ? (stripBoardSecrets(board.usage) as GameBoard["usage"]) : board.usage,
       }));
       for (const board of parentsFirst(normalized, (item) => item.parentId)) {
-        const existing = await read(tx, board.id);
+        const existing = await read(tx, board.id, false);
         if (existing) {
           if (!sameRecord(existing, board)) {
             throw new Error(
@@ -586,7 +809,7 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
             observed_at, kickoff_at, cutoff_at, status, evidence, gaps, failure_reason,
             lean_text, lean_rationale, drafter_id, drafter_model_id, provider_requests,
             provider_outcome_ambiguous, usage, explanation, created_at, completed_at,
-            protocol_registration_id, explanation_format_version
+            protocol_registration_id, explanation_format_version, lifecycle_format
           ) VALUES (
             ${board.id}, ${board.request.id}, ${board.request.hash}, ${board.parentId},
             ${gameRow!.id}, ${tx.json(board.game as never)}, ${board.sportsbook},
@@ -600,7 +823,7 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
             ${board.usage ? tx.json(board.usage as never) : null},
             ${board.explanation ? tx.json(board.explanation as never) : null},
             ${board.createdAt}, ${board.completedAt}, ${board.request.protocolRegistrationId ?? null},
-            ${board.request.explanationFormatVersion ?? null}
+            ${board.request.explanationFormatVersion ?? null}, ${board.request.lifecycleFormat ?? null}
           )
         `;
         if (board.withdrawal) {

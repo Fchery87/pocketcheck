@@ -1,3 +1,59 @@
+import { proportionalMargin, type OutcomeProbabilities } from "#lib/domain/odds.ts";
+import type { Offer } from "#lib/domain/offer.ts";
+import { validateClosingMarketSnapshot, type ClosingMarketSnapshot } from "../models/protocol.ts";
+
+export function laterNoVigBaseline(input: {
+  offer: Offer;
+  cutoffAt: string;
+  kickoffAt: string;
+  probabilities: OutcomeProbabilities;
+  snapshots: ClosingMarketSnapshot[];
+}): OutcomeProbabilities | null {
+  const matches = input.snapshots
+    .filter((snapshot) => {
+      try {
+        validateClosingMarketSnapshot(snapshot);
+      } catch {
+        return false;
+      }
+      return (
+        snapshot.gameId === input.offer.gameId &&
+        snapshot.market === input.offer.market &&
+        snapshot.offers.every(
+          (offer) => Date.parse(offer.kickoffAt) === Date.parse(input.kickoffAt),
+        ) &&
+        Date.parse(snapshot.observedAt) > Date.parse(input.cutoffAt) &&
+        snapshot.offers.some(
+          (offer) =>
+            compareClosing(
+              { ...input.offer, decimalOdds: 2 },
+              { ...offer, decimalOdds: 2 },
+              {
+                entryAt: input.offer.observedAt,
+                observedAt: snapshot.observedAt,
+                kickoffAt: input.kickoffAt,
+              },
+            ).available,
+        )
+      );
+    })
+    .sort(
+      (a, b) => Date.parse(a.observedAt) - Date.parse(b.observedAt) || a.id.localeCompare(b.id),
+    );
+  const snapshot = matches.at(-1);
+  if (!snapshot) return null;
+  const selected = snapshot.offers.find((offer) => offer.selection === input.offer.selection)!;
+  const other = snapshot.offers.find((offer) => offer.selection !== input.offer.selection)!;
+  const fair = proportionalMargin([
+    { side: "selected", american: selected.americanOdds },
+    { side: "other", american: other.americanOdds },
+  ]);
+  if (!fair.available) return null;
+  const push = input.probabilities.push;
+  const win = fair.probabilities.selected! * (1 - push);
+  return { win, loss: 1 - push - win, push };
+}
+
 export type ClosingRules = {
   period: string;
   overtime: string;

@@ -4,7 +4,10 @@ import type {
   PickExplanationPacket,
   ThesisDrafter,
   ThesisPacket,
+  ProviderRequestHooks,
+  ProviderRequestRecord,
 } from "../providers/contracts.ts";
+import { pickExplanationRequestBody, validatePickExplanation } from "./pick-explanation.ts";
 
 /** Deterministic drafter for tests and the local research walkthrough. No network, no AI. */
 export function createFixtureDrafter(): ThesisDrafter {
@@ -55,12 +58,18 @@ export function createFixtureDrafter(): ThesisDrafter {
         },
       };
     },
-    async draftPickExplanation(input: {
-      modelId: string;
-      packet: PickExplanationPacket;
-    }): Promise<DraftPickExplanationResult> {
+    async draftPickExplanation(
+      input: ProviderRequestHooks & {
+        modelId: string;
+        packet: PickExplanationPacket;
+      },
+    ): Promise<DraftPickExplanationResult> {
       const cited = input.packet.items[0]?.id;
-      return {
+      const reserved = await input.beforeRequest?.({
+        role: "draft",
+        body: pickExplanationRequestBody(input),
+      });
+      const result: DraftPickExplanationResult = {
         draftingFailed: false,
         repairAttempted: false,
         refusal: null,
@@ -96,6 +105,38 @@ export function createFixtureDrafter(): ThesisDrafter {
             missingInputs: [],
           })),
         },
+      };
+      const record: ProviderRequestRecord = reserved
+        ? reserved.response
+        : {
+            requestId: "fixture-draft",
+            role: "draft",
+            outcome: "completed",
+            response: JSON.stringify(result.report),
+            promptTokens: null,
+            completionTokens: null,
+            totalTokens: null,
+            costUsd: null,
+            costKnown: false,
+          };
+      if (record.role !== "draft")
+        throw new Error("Saved fixture response role does not match reservation");
+      if (!reserved) await input.afterResponse?.(record);
+      let report: unknown = null;
+      try {
+        report = typeof record.response === "string" ? JSON.parse(record.response) : null;
+      } catch {
+        report = null;
+      }
+      const validated = validatePickExplanation(report, input.packet);
+      return {
+        ...result,
+        ...(input.beforeRequest || input.afterResponse ? { providerRequests: [record] } : {}),
+        draftingFailed: !validated.ok,
+        report: validated.ok ? validated.report : null,
+        error: validated.ok
+          ? null
+          : { kind: "invalid_report", status: null, message: validated.reasons.join("; ") },
       };
     },
   };

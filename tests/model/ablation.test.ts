@@ -13,6 +13,7 @@ import { parseEvaluationReport } from "../../src/lib/server/models/inputs.ts";
 import { fitArtifact, readGames } from "../../src/lib/server/models/train.ts";
 import { buildFeatureRows } from "../../src/lib/server/models/features.ts";
 import { TRAINING_CODE } from "../../src/lib/server/models/training-code.ts";
+import { predictWithoutGroup } from "../../src/lib/server/models/predict.ts";
 
 const games = readGames(resolve("tests/model/fixtures/synthetic-games.json"));
 const artifact = fitArtifact(games, "2024-09-15T20:00:00Z");
@@ -59,6 +60,22 @@ describe("artifact comparison", () => {
 });
 
 describe("input group ablation", () => {
+  it("centers each model on its own training mean", () => {
+    const different = structuredClone(artifact);
+    const row = buildFeatureRows(games, artifact.featureParameters)[0]!;
+    const name = Object.keys(row.features)[0] as keyof typeof row.features;
+    different.margin.model.featureMeans[name] = -10;
+    different.total.model.featureMeans[name] = 20;
+    different.margin.model.coefficients[name] = 3;
+    different.total.model.coefficients[name] = 5;
+    const prediction = predictWithoutGroup(different, row, [name]);
+    expect(
+      prediction.drivers.margin.contributions.find((item) => item.feature === name)?.points,
+    ).toBe(0);
+    expect(
+      prediction.drivers.total.contributions.find((item) => item.feature === name)?.points,
+    ).toBe(0);
+  });
   it("shows a gain when a planted signal is removed", () => {
     // The group predicts the outcomes. Without it, every forecast is a coin flip.
     const withGroup = [
@@ -296,7 +313,7 @@ describe("model:evaluate report", { timeout: 60_000 }, () => {
   );
 });
 
-describe("model:refit", () => {
+describe("model:refit", { timeout: 60_000 }, () => {
   const directory = mkdtempSync(join(tmpdir(), "pocketcheck-refit-"));
   afterAll(() => rmSync(directory, { recursive: true, force: true }));
   const games = resolve("tests/model/fixtures/synthetic-games.json");

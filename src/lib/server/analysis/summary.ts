@@ -2,6 +2,159 @@ import { americanToDecimal, unitReturn } from "#lib/domain/odds.ts";
 import { returnOnSettledStakes, type StakeResult } from "#lib/domain/performance.ts";
 import type { Settlement } from "#lib/domain/settlement.ts";
 import type { ActualBet, ClosingObservation, RunSummary, SettlementGrade } from "./store.ts";
+import { multiclassBrier, multiclassLogLoss } from "../models/evaluate.ts";
+import type { FrozenForecastRecord } from "../models/prospective.ts";
+import type { Offer } from "#lib/domain/offer.ts";
+import type { SavedForecast } from "./forecast-record.ts";
+import type { ClosingMarketSnapshot } from "../models/protocol.ts";
+import { laterNoVigBaseline } from "./closing.ts";
+
+export function journalQualifiedForecasts(input: {
+  assessments: Array<{
+    id: string;
+    role: string;
+    offer: Offer;
+    kickoffAt: string;
+    forecast: SavedForecast | null;
+    result: string;
+  }>;
+  modelPicks: Array<{
+    id: string;
+    offer: Offer;
+    kickoffAt: string;
+    forecast: SavedForecast | null;
+  }>;
+  bets: Array<ActualBet & { result: string }>;
+  snapshots: ClosingMarketSnapshot[];
+}): NonNullable<Parameters<typeof journalSummaries>[0]["qualifiedForecasts"]> {
+  const outcome = (result: string): FrozenForecastRecord["outcome"] =>
+    result === "win" || result === "loss" || result === "push" ? result : null;
+  const record = (
+    source: { offer: Offer; kickoffAt: string; forecast: SavedForecast | null },
+    id: string,
+    result: string,
+    entryAt: string,
+  ) => {
+    const forecast = source.forecast;
+    if (!forecast || forecast.provenance !== "captured") return [];
+    return [
+      {
+        id,
+        probabilities: forecast.probabilities,
+        outcome: outcome(result),
+        closingBaseline: laterNoVigBaseline({
+          offer: { ...source.offer, observedAt: entryAt },
+          cutoffAt: forecast.decisionCutoff,
+          kickoffAt: source.kickoffAt,
+          probabilities: forecast.probabilities,
+          snapshots: input.snapshots,
+        }),
+      },
+    ];
+  };
+  return {
+    assessments: input.assessments.flatMap((row) =>
+      row.role === "primary" ? record(row, row.id, row.result, row.offer.observedAt) : [],
+    ),
+    bets: input.bets.flatMap((bet) => {
+      const source = bet.analysisId
+        ? input.assessments.find((row) => row.id === bet.analysisId)
+        : input.modelPicks.find((row) => row.id === bet.modelPickId);
+      if (
+        bet.contractProvenance !== "captured" ||
+        !source ||
+        !source.forecast ||
+        !Number.isFinite(Date.parse(bet.placedAt)) ||
+        Date.parse(bet.placedAt) < Date.parse(source.forecast.decisionCutoff) ||
+        Date.parse(bet.placedAt) >= Date.parse(source.kickoffAt) ||
+        !bet.rules ||
+        source.offer.market !== bet.market ||
+        source.offer.selection !== bet.selection ||
+        source.offer.pointLine !== bet.pointLine ||
+        source.offer.sportsbook !== bet.sportsbook ||
+        source.offer.rules.period !== bet.rules.period ||
+        source.offer.rules.overtime !== bet.rules.overtime ||
+        source.offer.rules.tie !== bet.rules.tie
+      )
+        return [];
+      return record(source, bet.id, bet.result, bet.placedAt);
+    }),
+  };
+}
+
+export type PerformanceCohort = "primary-assessments" | "actual-bets" | "primary-model-picks";
+type UnavailableMetric = { available: false; denominator: 0; reason: string };
+export type DescriptiveCohortMetrics = {
+  cohort: PerformanceCohort;
+  rawSameContractPriceMovement:
+    | UnavailableMetric
+    | {
+        available: true;
+        denominator: number;
+        meanDecimalOddsChange: number;
+      };
+  twoSidedNoVigCalibration:
+    | UnavailableMetric
+    | {
+        available: true;
+        denominator: number;
+        model: { brier: number; logLoss: number };
+        closing: { brier: number; logLoss: number };
+        meanWinProbabilityDifference: number;
+        modelWinCalibrationBias: number;
+      };
+};
+
+export function descriptiveCohortMetrics(
+  cohort: PerformanceCohort,
+  movements: Array<{ id: string; difference: number }>,
+  qualified: Array<
+    Pick<FrozenForecastRecord, "id" | "probabilities" | "closingBaseline" | "outcome">
+  >,
+): DescriptiveCohortMetrics {
+  const raw = [...new Map(movements.map((row) => [row.id, row.difference])).values()];
+  const scored = [...new Map(qualified.map((row) => [row.id, row])).values()].filter(
+    (row) => row.outcome !== null && row.closingBaseline !== null,
+  );
+  const average = (values: number[]) =>
+    values.reduce((sum, value) => sum + value, 0) / values.length;
+  return {
+    cohort,
+    rawSameContractPriceMovement: raw.length
+      ? {
+          available: true,
+          denominator: raw.length,
+          meanDecimalOddsChange: average(raw),
+        }
+      : { available: false, denominator: 0, reason: "missing-comparable-closes" },
+    twoSidedNoVigCalibration: scored.length
+      ? {
+          available: true,
+          denominator: scored.length,
+          model: {
+            brier: average(scored.map((row) => multiclassBrier(row.probabilities, row.outcome!))),
+            logLoss: average(
+              scored.map((row) => multiclassLogLoss(row.probabilities, row.outcome!)),
+            ),
+          },
+          closing: {
+            brier: average(
+              scored.map((row) => multiclassBrier(row.closingBaseline!, row.outcome!)),
+            ),
+            logLoss: average(
+              scored.map((row) => multiclassLogLoss(row.closingBaseline!, row.outcome!)),
+            ),
+          },
+          meanWinProbabilityDifference: average(
+            scored.map((row) => row.probabilities.win - row.closingBaseline!.win),
+          ),
+          modelWinCalibrationBias: average(
+            scored.map((row) => row.probabilities.win - (row.outcome === "win" ? 1 : 0)),
+          ),
+        }
+      : { available: false, denominator: 0, reason: "missing-qualified-forecast-outcomes" },
+  };
+}
 
 export type ClosingState = "comparable" | "missing";
 
@@ -210,6 +363,7 @@ export function applySettlementNotices(notices: SettlementNotice[]): {
 export type JournalPerformance = {
   assessments: CohortSummary;
   bets: CohortSummary;
+  descriptive: { assessments: DescriptiveCohortMetrics; bets: DescriptiveCohortMetrics };
 };
 
 export function profitFor(
@@ -242,6 +396,12 @@ export function journalSummaries(input: {
   assessments: Array<RunSummary & { americanOdds: number; grade: SettlementGrade }>;
   bets: Array<ActualBet & { grade: SettlementGrade | null }>;
   closings: ClosingObservation[];
+  qualifiedForecasts?: {
+    assessments: Array<
+      Pick<FrozenForecastRecord, "id" | "probabilities" | "closingBaseline" | "outcome">
+    >;
+    bets: Array<Pick<FrozenForecastRecord, "id" | "probabilities" | "closingBaseline" | "outcome">>;
+  };
 }): JournalPerformance {
   const trackedAssessments: TrackedAssessment[] = input.assessments
     .filter((row) => row.assessmentRole.role === "primary" || row.assessmentRole.role === "refresh")
@@ -271,5 +431,44 @@ export function journalSummaries(input: {
   return {
     assessments: summarizePrimary(trackedAssessments),
     bets: summarizeBets(trackedBets),
+    descriptive: {
+      assessments: descriptiveCohortMetrics(
+        "primary-assessments",
+        comparableMovements(
+          input.closings,
+          "analysis",
+          new Set(trackedAssessments.filter((row) => row.role === "primary").map((row) => row.id)),
+        ),
+        (input.qualifiedForecasts?.assessments ?? []).filter((row) =>
+          trackedAssessments.some(
+            (assessment) => assessment.id === row.id && assessment.role === "primary",
+          ),
+        ),
+      ),
+      bets: descriptiveCohortMetrics(
+        "actual-bets",
+        comparableMovements(input.closings, "bet", new Set(trackedBets.map((row) => row.id))),
+        (input.qualifiedForecasts?.bets ?? []).filter((row) =>
+          trackedBets.some((bet) => bet.id === row.id),
+        ),
+      ),
+    },
   };
+}
+
+function comparableMovements(
+  closings: ClosingObservation[],
+  kind: ClosingObservation["subject"]["kind"],
+  ids: Set<string>,
+) {
+  return [...closings]
+    .sort(
+      (a, b) =>
+        Date.parse(a.observedAt ?? "") - Date.parse(b.observedAt ?? "") || a.id.localeCompare(b.id),
+    )
+    .flatMap((row) =>
+      row.subject.kind === kind && ids.has(row.subject.id) && row.comparison.available
+        ? [{ id: row.subject.id, difference: row.comparison.difference }]
+        : [],
+    );
 }

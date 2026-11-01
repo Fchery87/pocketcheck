@@ -180,6 +180,19 @@ function unchangedFailure(command: "prospective" | "release", context: ReturnTyp
 }
 
 describe("prospective command boundary", { timeout: 120000 }, () => {
+  it("writes a separate release attestation and preserves exact predictor bytes", () => {
+    const context = setup(500);
+    const result = run("release", context.paths);
+    expect(result.status, result.stderr).toBe(0);
+    const attestation = JSON.parse(readFileSync(context.paths.output, "utf8"));
+    expect(readFileSync(context.paths.artifact, "utf8")).toBe(artifactBytes);
+    expect(attestation.kind).toBe("pocketcheck-release-attestation");
+    expect(attestation.artifactChecksum).toBe(artifact.checksum);
+    expect(attestation.registration).toEqual(registration);
+    expect(attestation.evidence.journal).toEqual(context.journal);
+    expect(attestation.releasedMarkets).toEqual(["moneyline"]);
+    expect(attestation).not.toHaveProperty("releaseStatus");
+  });
   it("writes failed-sample diagnostics with provenance and explicit denominators", () => {
     const context = setup();
     const result = run("prospective", context.paths);
@@ -264,9 +277,13 @@ describe("prospective command boundary", { timeout: 120000 }, () => {
     context.paths.output = join(context.directory, "released.json");
     const result = run("release", context.paths);
     expect(result.status, result.stderr).toBe(0);
-    expect(JSON.parse(readFileSync(context.paths.output, "utf8")).releasedMarkets).toEqual([
-      "moneyline",
-    ]);
+    const attestation = JSON.parse(readFileSync(context.paths.output, "utf8"));
+    expect(readFileSync(context.paths.artifact, "utf8")).toBe(artifactBytes);
+    expect(attestation.kind).toBe("pocketcheck-release-attestation");
+    expect(attestation.artifactChecksum).toBe(artifact.checksum);
+    expect(attestation.evidence.journal).toEqual(context.journal);
+    expect(attestation).not.toHaveProperty("releaseStatus");
+    expect(attestation.releasedMarkets).toEqual(["moneyline"]);
     for (const input of [context.paths.journal, context.paths.protocol, context.paths.artifact]) {
       context.paths.output = input;
       unchangedFailure("prospective", context);

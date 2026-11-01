@@ -135,6 +135,14 @@
   });
 </script>
 
+<svelte:window onpageshow={() => {
+  if (!formElement) return;
+  delete formElement.dataset.submitting;
+  const button = formElement.querySelector<HTMLButtonElement>('[data-testid="analyze"]');
+  if (button) { button.disabled = !selected; button.textContent = "Freeze & analyze"; }
+  formElement.querySelector<HTMLElement>('[data-testid="submission-pending"]')?.setAttribute("hidden", "");
+}} />
+
 <main class="pc-analyze" data-hydrated={hydrated}>
   <h1 class="pc-kicker">New analysis</h1>
   <p class="pc-hint" data-testid="board-entry">
@@ -310,7 +318,7 @@
               </span>
             </div>
             <label class="pc-field">
-              When you saw this price
+              When you saw this price (America/New_York)
               <input
                 type="datetime-local"
                 name="observedAt"
@@ -319,7 +327,15 @@
                 data-testid="observed-at"
               />
             </label>
+            <label class="pc-field">Repeated Eastern time
+              <select name="timeOccurrence" value={value("timeOccurrence", "")}><option value="">choose if time occurs twice</option><option value="earlier">earlier occurrence</option><option value="later">later occurrence</option></select>
+            </label>
           </div>
+          <label class="pc-field">
+            Opposing American odds, same sportsbook and observation time
+            <input name="opposingAmericanOdds" defaultValue={value("opposingAmericanOdds", "")} inputmode="numeric" data-testid="opposing-american-odds" />
+          </label>
+          <p class="pc-hint">Both sides are needed for a forecast. The opposing spread has the mirrored line. Leave this blank to record research with an unavailable forecast.</p>
           {#if guidance.tieRule}
             <label class="pc-field">
               Moneyline tie rule

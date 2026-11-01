@@ -29,7 +29,7 @@ import {
   type LinearModel,
   type WalkForwardPrediction,
 } from "./fit.ts";
-import { anchorFromQuote, marginFromHomeLine } from "./anchor.ts";
+import { anchorFromQuote } from "./anchor.ts";
 import {
   CHRONOLOGY,
   kickoffMs,
@@ -128,8 +128,18 @@ function calibrationSamples(
     }
     const spreadPrice = game.prices?.spread;
     if (spreadPrice) {
+      const anchor = anchorFromQuote(
+        "spread",
+        {
+          sportsbook: "close",
+          line: spreadPrice.line,
+          homeAmerican: spreadPrice.home.american,
+          awayAmerican: spreadPrice.away.american,
+        },
+        distribution,
+      );
       const spread = spreadFromMargin(
-        anchoredMass(distribution, marginFromHomeLine(spreadPrice.line), prediction.mean),
+        anchoredMass(distribution, anchor.mean, prediction.mean),
         spreadPrice.line,
       );
       samples.push(
@@ -156,7 +166,20 @@ function calibrationSamples(
     if (!totalPrice) continue;
     const slate = slateOf(game.kickoff);
     const total = totalFromDistribution(
-      anchoredMass(distribution, totalPrice.line, prediction.mean),
+      anchoredMass(
+        distribution,
+        anchorFromQuote(
+          "total",
+          {
+            sportsbook: "close",
+            line: totalPrice.line,
+            homeAmerican: totalPrice.over.american,
+            awayAmerican: totalPrice.under.american,
+          },
+          distribution,
+        ).mean,
+        prediction.mean,
+      ),
       totalPrice.line,
     );
     const over = settleTotal(game.homeScore + game.awayScore, totalPrice.line);
@@ -207,15 +230,35 @@ export function fitArtifact(
         distribution,
       ).mean;
     }
-    if (market === "spread" && prices?.spread) return marginFromHomeLine(prices.spread.line);
-    if (market === "total" && prices?.total) return prices.total.line;
+    if (market === "spread" && prices?.spread)
+      return anchorFromQuote(
+        "spread",
+        {
+          sportsbook: "close",
+          line: prices.spread.line,
+          homeAmerican: prices.spread.home.american,
+          awayAmerican: prices.spread.away.american,
+        },
+        distribution,
+      ).mean;
+    if (market === "total" && prices?.total)
+      return anchorFromQuote(
+        "total",
+        {
+          sportsbook: "close",
+          line: prices.total.line,
+          homeAmerican: prices.total.over.american,
+          awayAmerican: prices.total.under.american,
+        },
+        distribution,
+      ).mean;
     return null;
   };
   const flat: ResidualDistribution = fitResidualDistribution(
     train.map(() => 0),
     DEFAULT_FIT.residualBandwidth,
   );
-  const anchored = (distribution: (row: FeatureRow) => ResidualDistribution) => {
+  const anchored = (distribution: (row: FeatureRow, total?: boolean) => ResidualDistribution) => {
     const marginRows: FeatureRow[] = [];
     const marginTargets: number[] = [];
     const totalRows: FeatureRow[] = [];
@@ -224,14 +267,15 @@ export function fitArtifact(
     for (const row of train) {
       const game = byId.get(row.gameId)!;
       const marginAnchor =
-        closeMean(game, "spread", flat) ?? closeMean(game, "moneyline", distribution(row));
+        closeMean(game, "spread", distribution(row)) ??
+        closeMean(game, "moneyline", distribution(row));
       if (marginAnchor === null) excluded.moneyline += 1;
       else {
         marginRows.push(row);
         marginTargets.push(marginHome(game) - marginAnchor);
       }
       if (!game.prices?.spread) excluded.spread += 1;
-      const totalAnchor = closeMean(game, "total", flat);
+      const totalAnchor = closeMean(game, "total", distribution(row, true));
       if (totalAnchor === null) excluded.total += 1;
       else {
         totalRows.push(row);
@@ -244,18 +288,21 @@ export function fitArtifact(
   if (first.marginRows.length < 2 || first.totalRows.length < 2) {
     throw new Error("Training window needs priced games for the anchor");
   }
-  const distributions = new Map<number, ResidualDistribution>();
-  const priorDistribution = (row: FeatureRow): ResidualDistribution => {
+  const distributions = new Map<string, ResidualDistribution>();
+  const priorDistribution = (row: FeatureRow, total = false): ResidualDistribution => {
     const cutoff = kickoffMs(row);
-    const cached = distributions.get(cutoff);
+    const key = `${total}:${cutoff}`;
+    const cached = distributions.get(key);
     if (cached) return cached;
-    const prior = first.marginRows.flatMap((previous, index) =>
-      resultAvailableMs(previous) < cutoff ? [first.marginTargets[index]!] : [],
+    const prior = (total ? first.totalRows : first.marginRows).flatMap((previous, index) =>
+      resultAvailableMs(previous) < cutoff
+        ? [(total ? first.totalTargets : first.marginTargets)[index]!]
+        : [],
     );
     const distribution = prior.length
       ? fitResidualDistribution(prior, DEFAULT_FIT.residualBandwidth)
       : flat;
-    distributions.set(cutoff, distribution);
+    distributions.set(key, distribution);
     return distribution;
   };
   const { marginRows, marginTargets, totalRows, totalTargets, excluded } =
@@ -336,13 +383,13 @@ export function fitArtifact(
   );
   return withChecksum({
     kind: "pocketcheck-baseline",
-    version: 6,
+    version: 7,
     trainingCode: TRAINING_CODE,
     releaseStatus: "unreleased",
     releasedMarkets: [],
     anchor: {
       definition:
-        "moneyline no-vig home probability mapped to an implied margin; spread home line; total line",
+        "probability-matched-discrete-v1: same-book no-vig decisive probability, final discrete weighted mass, push excluded",
       history: "recorded close",
       decisionTime: "one sportsbook's two sides",
       excludedNoClose: excluded,

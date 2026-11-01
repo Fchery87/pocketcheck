@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixture.ts";
 import { browserPorts } from "../../scripts/browser-port.ts";
 
 async function optionIndex(page: Page, testId: string, text: string): Promise<number> {
@@ -25,7 +25,7 @@ test.beforeEach(async ({ request }) => {
     weather: "off",
     model: {
       artifact: "tests/fixtures/models/browser-forecasting-model.json",
-      checksum: "a9f3e3e2effcd0317019712ce997ee63229b29221bd589fa8aecd109ecbd976b",
+      checksum: "2572f1c211ce3fb42cf8c5ec81d6b133cd3f1b9ebffe976c25756ca3b6e9b6c2",
       releaseStatus: "unreleased",
       trainingCutoff: "2024-09-22T17:00:00Z",
     },
@@ -41,6 +41,41 @@ test("production rejects a mismatched form origin", async ({ request }) => {
   expect(response.status()).toBe(403);
 });
 
+test("paired research prices freeze one evidence-aware unreleased forecast", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/");
+  await page.getByTestId("game-id").selectOption("2026_07_DAL_PHI");
+  await page.getByLabel("Sportsbook", { exact: true }).fill("Paired research book");
+  await page.getByTestId("american-odds").fill("-110");
+  await page.getByTestId("opposing-american-odds").fill("-110");
+  await page.getByTestId("observed-at").fill("2026-10-25T11:30");
+  await page.getByTestId("analyze").click();
+  await expect(page).toHaveURL(/\/analysis\//);
+  const id = new URL(page.url()).pathname.split("/").at(-1);
+  const backup = await (await request.get("/journal/export")).json();
+  const analysis = backup.analyses.find((entry: { id: string }) => entry.id === id);
+  expect(analysis).toBeTruthy();
+  const offer = backup.offers.find((entry: { id: string }) => entry.id === analysis.offerId);
+  expect(offer.opposing.americanOdds).toBe(-110);
+  expect(analysis.snapshot.forecast.provenance).toBe("captured");
+  expect(analysis.snapshot.forecast.probabilities).toEqual(analysis.probabilityModel.probabilities);
+  expect(analysis.snapshot.forecast.marketEligibility.eligible).toBe(false);
+  expect(analysis.probabilityModel.eligible).toBe(false);
+  await page.getByTestId("refresh-odds").fill("-105");
+  await page.getByTestId("refresh-opposing-odds").fill("-115");
+  await page.getByTestId("refresh").click();
+  await expect(page).not.toHaveURL(new RegExp(`${id}$`));
+  const refreshed = await (await request.get("/journal/export")).json();
+  const child = refreshed.analyses.find((entry: { parentId: string }) => entry.parentId === id);
+  const childOffer = refreshed.offers.find((entry: { id: string }) => entry.id === child.offerId);
+  expect(childOffer.americanOdds).toBe(-105);
+  expect(childOffer.opposing.americanOdds).toBe(-115);
+  expect(child.snapshot.forecast.probabilities).toEqual(child.probabilityModel.probabilities);
+  expect(refreshed.analyses.find((entry: { id: string }) => entry.id === id)).toEqual(analysis);
+});
+
 test("offer, report, refresh, and unchanged prior report", async ({ page, request }) => {
   await page.goto("/");
   // The page marks itself once its component has mounted; network idleness does not.
@@ -51,7 +86,7 @@ test("offer, report, refresh, and unchanged prior report", async ({ page, reques
   await expect(page.getByTestId("away")).toHaveText("DAL");
   await expect(page.getByTestId("venue")).toHaveText("Lincoln Financial Field");
 
-  await page.getByLabel("Sportsbook").fill("Example Book");
+  await page.getByLabel("Sportsbook", { exact: true }).fill("Example Book");
   await page.getByTestId("market").selectOption("spread");
   await expect(page.getByTestId("selection").locator("option")).toHaveText(["home", "away"]);
   await expect(page.getByTestId("line-guidance")).toContainText("side you selected");
@@ -129,7 +164,7 @@ test("offer, report, refresh, and unchanged prior report", async ({ page, reques
   );
   await expect(page.getByTestId("model-probabilities")).toHaveCount(0);
   await expect(page.getByTestId("probability-model")).toContainText(
-    "Enter both sides on a game board",
+    "Enter the opposing price with this research offer",
   );
   // Injury rows from the cached file and the user's own evidence are both in the run.
   await expect(page.getByTestId("all-evidence")).toContainText("Saquon Barkley");
@@ -224,9 +259,9 @@ test("offer, report, refresh, and unchanged prior report", async ({ page, reques
 
 test("a spread refresh changes the line and leaves the parent contract", async ({ page }) => {
   await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  await expect(page.getByTestId("game-id")).toBeEnabled();
   await page.getByTestId("game-id").selectOption("2026_07_DAL_PHI");
-  await page.getByLabel("Sportsbook").fill("Example Book");
+  await page.getByLabel("Sportsbook", { exact: true }).fill("Example Book");
   await page.getByTestId("market").selectOption("spread");
   await page.getByTestId("selection").selectOption("home");
   await page.getByTestId("point-line").fill("-3.5");
@@ -263,9 +298,9 @@ test("a spread refresh changes the line and leaves the parent contract", async (
 
 test("a researched spread of -3 keeps its terms when the placed bet is -3.5", async ({ page }) => {
   await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  await expect(page.getByTestId("game-id")).toBeEnabled();
   await page.getByTestId("game-id").selectOption("2026_07_DAL_PHI");
-  await page.getByLabel("Sportsbook").fill("Research Book");
+  await page.getByLabel("Sportsbook", { exact: true }).fill("Research Book");
   await page.locator('select[name="market"]').selectOption("spread");
   await page.locator('select[name="selection"]').selectOption("home");
   await page.locator('input[name="pointLine"]').fill("-3");
@@ -342,9 +377,9 @@ test("a researched spread of -3 keeps its terms when the placed bet is -3.5", as
 
 test("a comparable close, a moved line, and a missing close stay distinct", async ({ page }) => {
   await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  await expect(page.getByTestId("game-id")).toBeEnabled();
   await page.getByTestId("game-id").selectOption("2026_07_DAL_PHI");
-  await page.getByLabel("Sportsbook").fill("Research Book");
+  await page.getByLabel("Sportsbook", { exact: true }).fill("Research Book");
   await page.locator('select[name="market"]').selectOption("spread");
   await page.locator('select[name="selection"]').selectOption("home");
   await page.locator('input[name="pointLine"]').fill("-3.5");
@@ -399,9 +434,9 @@ test("a correction, export, and restore keep the journal and leave a bad file un
   page,
 }) => {
   await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  await expect(page.getByTestId("game-id")).toBeEnabled();
   await page.getByTestId("game-id").selectOption("2026_07_DAL_PHI");
-  await page.getByLabel("Sportsbook").fill("Recovery Book");
+  await page.getByLabel("Sportsbook", { exact: true }).fill("Recovery Book");
   await page.locator('select[name="market"]').selectOption("moneyline");
   await page.locator('select[name="selection"]').selectOption("home");
   await page.getByTestId("tie-rule").selectOption("push");
@@ -433,7 +468,7 @@ test("a correction, export, and restore keep the journal and leave a bad file un
   await page.getByTestId("settle-event").fill("browser-recovery-correction");
   await page.getByTestId("settle-home").fill("20");
   await page.getByTestId("settle-away").fill("20");
-  await page.getByTestId("settle-corrects").fill(noticeId ?? "");
+  await page.getByTestId("settle-corrects").selectOption(noticeId ?? "");
   await page.getByTestId("settle-reason").fill("Official score was corrected to a tie.");
   await page.getByRole("button", { name: "Record settlement" }).click();
   await expect(page.getByTestId("settlement-recorded")).toHaveText("Settlement recorded");
@@ -461,7 +496,8 @@ test("a correction, export, and restore keep the journal and leave a bad file un
     buffer: Buffer.from(JSON.stringify({ ...backup, version: 99 })),
   });
   await page.getByRole("button", { name: "Restore journal" }).click();
-  await expect(page.getByTestId("form-error").first()).toContainText("Version 1");
+  await expect(page.getByTestId("form-error")).toHaveCount(1);
+  await expect(page.getByTestId("form-error")).toContainText("Version 1");
   await expect(page.getByTestId("assessments")).toContainText("Recovery Book");
 
   const emptied = await page.request.post("/__verification", {
@@ -520,9 +556,9 @@ async function noHorizontalOverflow(page: Page) {
 
 async function fillOffer(page: Page, odds: string) {
   await page.goto("/");
-  await page.waitForLoadState("networkidle");
+  await expect(page.getByTestId("game-id")).toBeEnabled();
   await page.getByTestId("game-id").selectOption("2026_07_DAL_PHI");
-  await page.getByLabel("Sportsbook").fill("Example Book");
+  await page.getByLabel("Sportsbook", { exact: true }).fill("Example Book");
   await page.getByTestId("market").selectOption("moneyline");
   await page.getByTestId("observed-at").fill("2026-10-25T11:30");
   await page.getByTestId("lean").fill("PHI");
@@ -538,7 +574,7 @@ test("the theme cookie picks the server-rendered theme and the switch changes it
   ]);
   const response = await page.goto("/");
   expect(await response!.text()).toMatch(/<html lang="en" data-theme="dark"/);
-  await page.waitForLoadState("networkidle");
+  await expect(page.getByTestId("theme-switch")).toBeVisible();
 
   const themes = page.getByTestId("theme-switch");
   await expect(themes.getByRole("radio", { name: "Dark" })).toHaveAttribute("aria-checked", "true");
@@ -570,7 +606,7 @@ test("a failed submission focuses the offer and keeps every typed value", async 
   await page.getByTestId("analyze").click();
   await expect(page.getByTestId("form-error")).toContainText("Invalid American price");
   await expect(page.getByRole("heading", { name: "Offer", exact: true })).toBeFocused();
-  await expect(page.getByLabel("Sportsbook")).toHaveValue("Example Book");
+  await expect(page.getByLabel("Sportsbook", { exact: true })).toHaveValue("Example Book");
   await expect(page.getByTestId("market")).toHaveValue("moneyline");
   await expect(page.getByTestId("observed-at")).toHaveValue("2026-10-25T11:30");
   await expect(page.getByTestId("lean")).toHaveValue("PHI");

@@ -35,6 +35,14 @@ import type { StoredNotice } from "../analysis/store.ts";
 import { parentsFirst } from "./order.ts";
 import { chooseAssessmentRole } from "../analysis/primary.ts";
 
+export type ClosingOpenContract = BetContract & {
+  gameId: string;
+  observedAt: string;
+  kickoffAt: string;
+  sportsbook: string;
+  americanOdds: number;
+};
+
 export type SaveAnalysisInput = {
   game: Omit<GameRecord, "id"> & { id?: string };
   offer: Omit<OfferRecord, "id" | "decimalOdds" | "completedAt"> & {
@@ -561,6 +569,7 @@ export class JournalRepository {
         point_line: string | null;
         american_odds: number;
         snapshot_provenance: "captured" | "legacy-unknown";
+        forecast_snapshot: AnalysisSnapshot;
         relies_on_manual_evidence: boolean;
         assessment_role: "primary" | "refresh" | "ineligible" | null;
         assessment_role_reason: string | null;
@@ -568,7 +577,7 @@ export class JournalRepository {
         completed_at: Date | null;
       }[]
     >(
-      `SELECT a.id, a.parent_id, a.created_at, a.conclusion,
+      `SELECT a.id, a.parent_id, a.created_at, a.conclusion, a.snapshot AS forecast_snapshot,
               a.snapshot->'game'->>'sourceGameId' AS source_game_id,
               a.snapshot->'game'->>'homeTeam' AS home_team,
               a.snapshot->'game'->>'awayTeam' AS away_team,
@@ -586,6 +595,8 @@ export class JournalRepository {
       id: row.id,
       parentId: row.parent_id,
       snapshotProvenance: row.snapshot_provenance,
+      frozenForecast: row.forecast_snapshot.forecast ?? null,
+      frozenOffer: row.forecast_snapshot.offer,
       createdAt: iso(row.created_at)!,
       conclusion: row.conclusion,
       game: {
@@ -686,14 +697,53 @@ export class JournalRepository {
   }
 
   async findPickContract(pickId: string) {
+    return (await this.findPickContracts([pickId])).get(pickId) ?? null;
+  }
+
+  async findClosingAnalysisContracts(ids: string[]): Promise<Map<string, ClosingOpenContract>> {
+    if (ids.length === 0) return new Map();
+    const rows = await this.sql<Array<{ id: string; snapshot: AnalysisSnapshot }>>`
+      SELECT id, snapshot FROM analyses WHERE id IN ${this.sql([...new Set(ids)])}
+    `;
+    return new Map(
+      rows.map(({ id, snapshot }) => [
+        id,
+        {
+          gameId: snapshot.game.sourceGameId,
+          kickoffAt: snapshot.game.kickoffAt,
+          observedAt: snapshot.offer.observedAt,
+          market: snapshot.offer.market,
+          selection: snapshot.offer.selection,
+          pointLine: snapshot.offer.pointLine,
+          sportsbook: snapshot.offer.sportsbook,
+          americanOdds: snapshot.offer.americanOdds,
+          rules: snapshot.offer.rules,
+        },
+      ]),
+    );
+  }
+
+  async findClosingBets(ids: string[]): Promise<BetRecord[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.sql<
+      BetRow[]
+    >`SELECT * FROM bets WHERE id IN ${this.sql([...new Set(ids)])}`;
+    return rows.map(mapBet);
+  }
+
+  async findPickContracts(pickIds: string[]): Promise<Map<string, ClosingOpenContract>> {
+    if (pickIds.length === 0) return new Map();
     const rows = await this.sql<
       Array<{
+        id: string;
         source_game_id: string;
         kickoff_at: Date;
         observed_at: Date;
         sportsbook: string;
         market: BetContract["market"];
         offers: Array<{
+          sportsbook: string;
+          observedAt: string;
           selection: string;
           pointLine: number | null;
           americanOdds: number;
@@ -702,28 +752,36 @@ export class JournalRepository {
         picked: string;
       }>
     >`
-      SELECT g.source_game_id, b.kickoff_at, b.observed_at, b.sportsbook, m.market, m.offers,
+      SELECT p.id, g.source_game_id, b.kickoff_at, b.observed_at, b.sportsbook, m.market, m.offers,
         p.calculation->>'pickedSelection' AS picked
       FROM model_picks p
       JOIN game_boards b ON b.id = p.board_id
       JOIN games g ON g.id = b.game_id
       JOIN board_markets m ON m.board_id = b.id AND m.market = p.market
-      WHERE p.id = ${pickId}
+      WHERE p.id IN ${this.sql([...new Set(pickIds)])}
     `;
-    const row = rows[0];
-    const offer = row?.offers.find((item) => item.selection === row.picked);
-    if (!row || !offer) return null;
-    return {
-      gameId: row.source_game_id,
-      observedAt: iso(row.observed_at)!,
-      kickoffAt: iso(row.kickoff_at)!,
-      market: row.market,
-      selection: offer.selection as BetContract["selection"],
-      pointLine: offer.pointLine,
-      sportsbook: row.sportsbook,
-      americanOdds: offer.americanOdds,
-      rules: offer.rules,
-    };
+    return new Map(
+      rows.flatMap((row) => {
+        const offer = row.offers.find((item) => item.selection === row.picked);
+        if (!offer) return [];
+        return [
+          [
+            row.id,
+            {
+              gameId: row.source_game_id,
+              observedAt: offer.observedAt,
+              kickoffAt: iso(row.kickoff_at)!,
+              market: row.market,
+              selection: offer.selection as BetContract["selection"],
+              pointLine: offer.pointLine,
+              sportsbook: offer.sportsbook,
+              americanOdds: offer.americanOdds,
+              rules: offer.rules,
+            },
+          ] as const,
+        ];
+      }),
+    );
   }
 
   async readClosing(id: string): Promise<ClosingRecord | null> {

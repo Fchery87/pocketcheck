@@ -4,12 +4,13 @@ import { FEATURE_DEFINITIONS, type FeatureParameters } from "./features.ts";
 import type { FitParameters, LinearModel } from "./fit.ts";
 import type { CHRONOLOGY, Market } from "./games.ts";
 import type { ArtifactUncertainty } from "./uncertainty.ts";
+import { hasVerifiedRelease, type VerifiedReleaseAttestation } from "./release.ts";
 
 export type ReleaseStatus = "unreleased" | "released-experimental";
 
 export type ModelArtifact = {
   kind: "pocketcheck-baseline";
-  version: 6;
+  version: 7;
   /** The training code that built this artifact. See TRAINING_CODE. */
   trainingCode: string;
   /** How the forecast starts. The fit learns only the deviation from this mean. */
@@ -63,19 +64,16 @@ export function withChecksum(artifact: Omit<ModelArtifact, "checksum">): ModelAr
 }
 
 export function valueEligibility(
-  artifact: Pick<ModelArtifact, "releaseStatus" | "releasedMarkets">,
+  artifact: Pick<ModelArtifact, "releaseStatus" | "releasedMarkets"> &
+    Partial<Pick<ModelArtifact, "checksum">>,
   market: Market,
+  attestation?: VerifiedReleaseAttestation,
 ): ValueEligibility {
-  if (artifact.releaseStatus !== "released-experimental") {
+  if (!hasVerifiedRelease(attestation, artifact.checksum, market)) {
     return {
       eligible: false,
-      reason: "Unreleased artifacts are not eligible for a value recommendation.",
-    };
-  }
-  if (!artifact.releasedMarkets.includes(market)) {
-    return {
-      eligible: false,
-      reason: `The artifact did not pass the release gate for the ${market} market.`,
+      reason:
+        "A verified release attestation for this artifact and market is required for a value recommendation.",
     };
   }
   return {

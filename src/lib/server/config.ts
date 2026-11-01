@@ -6,6 +6,8 @@ import {
   POCKETCHECK_INJURY_CSV,
   POCKETCHECK_JOURNAL,
   POCKETCHECK_MODEL_ARTIFACT,
+  POCKETCHECK_ACCESS_SECRET,
+  POCKETCHECK_RELEASE_ATTESTATION,
   POCKETCHECK_NOW,
   POCKETCHECK_SCHEDULE_CSV,
   POCKETCHECK_TEST_MODE,
@@ -124,6 +126,9 @@ export function modelSource(): ModelSource {
   }
   return createArtifactModel({
     artifactPath: resolve(POCKETCHECK_MODEL_ARTIFACT || "data/artifacts/baseline.json"),
+    ...(POCKETCHECK_RELEASE_ATTESTATION
+      ? { attestationPath: resolve(POCKETCHECK_RELEASE_ATTESTATION) }
+      : {}),
     schedulePath: schedulePath(),
     depthChartPath: (season) => sourcePath("depth-charts", season),
   });
@@ -189,8 +194,8 @@ export function providerKeys(): Partial<Record<ProviderId, string>> {
 
 /** Every configured credential, so text can be checked for one before it is saved or shown. */
 export function configuredSecrets(): string[] {
-  return [THECLAWBAY_API_KEY, DEEPSEEK_API_KEY, DATABASE_URL].filter((value): value is string =>
-    Boolean(value),
+  return [THECLAWBAY_API_KEY, DEEPSEEK_API_KEY, DATABASE_URL, POCKETCHECK_ACCESS_SECRET].filter(
+    (value): value is string => Boolean(value),
   );
 }
 
@@ -218,7 +223,18 @@ export async function thesisDrafter(): Promise<
     drafter: {
       ...drafter,
       async draftPickExplanation(input) {
-        const drafted = await drafter.draftPickExplanation(input);
+        const drafted = await drafter.draftPickExplanation({
+          ...input,
+          afterResponse: async (record) => {
+            if (record.outcome === "completed" && typeof record.response === "string") {
+              const report = JSON.parse(record.response) as { picks?: Array<{ summary: string }> };
+              if (report.picks?.[0])
+                report.picks[0].summary = "The total pick is over 99.5 at decimal odds 3.00.";
+              record = { ...record, response: JSON.stringify(report) };
+            }
+            await input.afterResponse?.(record);
+          },
+        });
         const entry = drafted.report?.picks[0];
         if (entry) entry.summary = "The total pick is over 99.5 at decimal odds 3.00.";
         return drafted;

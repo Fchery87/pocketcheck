@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixture.ts";
 
 test.beforeEach(async ({ request }) => {
   const response = await request.get("/__verification");
@@ -15,7 +15,7 @@ async function noHorizontalOverflow(page: Page) {
 
 test("a three-market game board freezes a model pick for each market", async ({ page }) => {
   await page.goto("/board");
-  await page.waitForLoadState("networkidle");
+  await expect(page.getByTestId("board-game")).toBeEnabled();
   await page.getByTestId("board-game").selectOption("2026_07_DAL_PHI");
   await page.getByTestId("board-sportsbook").fill("Three Market Book");
   await page.getByTestId("board-observed-at").fill("2026-10-25T11:30");
@@ -55,7 +55,7 @@ test("a three-market game board freezes a model pick for each market", async ({ 
 
 test("a rejected spread keeps every typed value", async ({ page }) => {
   await page.goto("/board");
-  await page.waitForLoadState("networkidle");
+  await expect(page.getByTestId("board-game")).toBeEnabled();
   await page.getByTestId("board-game").selectOption("2026_07_DAL_PHI");
   await page.getByTestId("board-sportsbook").fill("Bad Spread Book");
   await page.getByTestId("spread-home-line").fill("-3.5");
@@ -79,7 +79,7 @@ test("a rejected spread keeps every typed value", async ({ page }) => {
 test("a three-market game board fits a 390px phone", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/board");
-  await page.waitForLoadState("networkidle");
+  await expect(page.getByTestId("board-game")).toBeEnabled();
   await noHorizontalOverflow(page);
   await page.getByTestId("board-sportsbook").fill("Phone Three Book");
   await page.getByTestId("spread-home-line").fill("-3.5");

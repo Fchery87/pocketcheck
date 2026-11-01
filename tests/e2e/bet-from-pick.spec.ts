@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixture.ts";
 
 test.beforeEach(async ({ request }) => {
   const response = await request.get("/__verification");
@@ -11,7 +11,7 @@ test("a bet recorded from a model pick keeps the odds that were placed", async (
   request,
 }) => {
   await page.goto("/board");
-  await page.waitForLoadState("networkidle");
+  await expect(page.getByTestId("board-game")).toBeEnabled();
   await page.getByTestId("board-game").selectOption("2026_07_DAL_PHI");
   await page.getByTestId("board-sportsbook").fill("Pick Lane Book");
   await page.getByTestId("board-observed-at").fill("2026-10-25T11:30");
@@ -26,7 +26,6 @@ test("a bet recorded from a model pick keeps the odds that were placed", async (
 
   await card.getByTestId("record-bet-from-pick").click();
   await expect(page).toHaveURL(/\/journal\?pick=[0-9a-f-]{36}/);
-  await page.waitForLoadState("networkidle");
   await expect(page.getByTestId("bet-pick-start")).toContainText("DAL at PHI");
   // The picked contract is only a starting point.
   await expect(page.getByTestId("bet-sportsbook")).toHaveValue("Pick Lane Book");
@@ -64,7 +63,7 @@ test("a bet recorded from a model pick keeps the odds that were placed", async (
   await page.getByTestId("settle-kind").selectOption("final");
   await page.getByTestId("settle-home").fill("20");
   await page.getByTestId("settle-away").fill("24");
-  await page.getByTestId("settle-corrects").fill(firstId!);
+  await page.getByTestId("settle-corrects").selectOption(firstId!);
   await page.getByTestId("settle-reason").fill("Official score changed");
   await page.getByRole("button", { name: "Record settlement" }).click();
   await expect(page.getByTestId("pick-bet-result")).toHaveText("win");

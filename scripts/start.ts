@@ -24,6 +24,9 @@ const plan = listenPlan(process.env);
 let allowed = hostAllowlist(process.env, networkInterfaces());
 const port = Number(process.env.PORT || 3000);
 process.env.PROTOCOL_HEADER = PROTOCOL_HEADER;
+// This listener is HTTP even when a caller supplies proxy-related environment.
+// Deploy the adapter separately behind a trusted TLS proxy for HTTPS cookies.
+process.env.ORIGIN = "";
 
 const { handler } = await import(new URL("../build/handler.js", import.meta.url).href);
 

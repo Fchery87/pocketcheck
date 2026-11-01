@@ -100,6 +100,30 @@
       <p>{board.failureReason}</p>
     </section>
   {/if}
+  {#if board.explanationState?.kind === "failed"}
+    <section class="pc-alert-block" data-testid="explanation-failure">
+      <h2>Explanation failed</h2>
+      <p>The forecast completed and its frozen picks are unchanged.</p>
+      <ul>{#each board.explanationState.reasons as reason}<li>{reason}</li>{/each}</ul>
+    </section>
+  {:else if board.explanationState?.kind === "ambiguous"}
+    <section class="pc-alert-block" data-testid="explanation-failure">
+      <h2>Explanation outcome unknown</h2>
+      <p>{board.explanationState.reason} The completed forecast remains frozen. Another provider request requires a deliberate new attempt.</p>
+    </section>
+  {:else if board.explanationState?.kind === "pending"}
+    <p class="pc-hint" data-testid="explanation-pending">The forecast is complete. Its explanation has not finished.</p>
+  {/if}
+  {#if board.request.lifecycleFormat && board.status === "completed" && (board.explanationState?.kind === "failed" || board.explanationState?.kind === "ambiguous")}
+    <form class="pc-form" method="POST" action="?/explain" data-testid="new-explanation-form">
+      <input type="hidden" name="attemptId" value={data.explanationAttemptId} />
+      <p>The original explanation history stays saved. A new explanation does not recompute the forecast or change its primary classification.</p>
+      <label><input name="confirmed" type="checkbox" value="yes" required />I want a new explanation request and understand the provider may charge for it.</label>
+      <Button type="submit">Start new explanation attempt</Button>
+    </form>
+  {/if}
+  {#if form?.explanationError}<Alert data-testid="explanation-action-error">{form.explanationError}</Alert>{/if}
+  {#if form?.explanationRecorded}<p class="pc-success">Explanation recorded. The forecast is unchanged.</p>{/if}
 
   {#each board.markets as market (market.market)}
     {@const anchor = anchorPairOf(market)}
@@ -451,6 +475,14 @@
       A final score belongs to the game, so it grades every model pick on every board of this game.
       A repeated event is ignored. A correction names the earlier notice and needs a reason.
     </p>
+    {#if data.resultCandidate}
+      <form class="pc-form" method="POST" action="?/confirmResult" data-testid="sourced-result-form">
+        <p data-testid="sourced-result">The current schedule reports {board.game.home} {data.resultCandidate.homeScore}, {board.game.away} {data.resultCandidate.awayScore}. Source {data.resultCandidate.source}, retrieved {easternTime(data.resultCandidate.retrievedAt)}. This has not been recorded as a settlement.</p>
+        <input type="hidden" name="identity" value={data.resultCandidate.identity} />
+        <label><input type="checkbox" name="confirmed" value="yes" required />I checked this final result and want to append its settlement notice.</label>
+        <Button type="submit">Confirm and record sourced result</Button>
+      </form>
+    {/if}
     <form class="pc-form" method="POST" action="?/settle" data-testid="settle-form">
       <label>Event identifier <input name="eventId" required data-testid="settle-event" /></label>
       <label>
@@ -464,7 +496,14 @@
       </label>
       <label>{board.game.home} (home) score <input name="homeScore" inputmode="numeric" data-testid="settle-home" /></label>
       <label>{board.game.away} (away) score <input name="awayScore" inputmode="numeric" data-testid="settle-away" /></label>
-      <label>Corrects notice <input name="correctsNoticeId" data-testid="settle-corrects" /></label>
+      <label>Corrects notice
+        <select name="correctsNoticeId" data-testid="settle-corrects">
+          <option value="">New notice, not a correction</option>
+          {#each data.correctionNotices as notice (notice.id)}
+            <option value={notice.id}>{resultWord(notice.result)}, {easternTime(notice.recordedAt)}{notice.reason ? `, ${notice.reason}` : ""}</option>
+          {/each}
+        </select>
+      </label>
       <label>Reason <input name="reason" data-testid="settle-reason" /></label>
       <Button type="submit" data-testid="settle-submit">Record settlement</Button>
     </form>

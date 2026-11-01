@@ -39,9 +39,26 @@ function scripted(answer: Drafted): PickDrafter & { packets: PickExplanationPack
     id: "scripted",
     modelId: "scripted-model",
     packets,
-    async draftPickExplanation({ packet }) {
+    async draftPickExplanation({ packet, beforeRequest, afterResponse }) {
       packets.push(packet);
-      return answer(packet);
+      const reserved = await beforeRequest?.({ role: "draft", body: JSON.stringify(packet) });
+      if (reserved) {
+        return {
+          ...(await fixtureAnswer(packet)),
+          report: reserved.response.response as PickExplanationReport,
+          providerRequests: [reserved.response],
+        };
+      }
+      const result = await answer(packet);
+      const exchanges = result.providerRequests?.length
+        ? result.providerRequests
+        : [request("scripted-draft", "draft", { response: result.report })];
+      for (const exchange of exchanges) {
+        if (exchange.role === "repair")
+          await beforeRequest?.({ role: "repair", body: JSON.stringify({ packet, repair: true }) });
+        await afterResponse?.(exchange);
+      }
+      return result;
     },
   };
 }
@@ -90,6 +107,47 @@ const run = (
 ) => runGameBoard(board(overrides), { store, collect: quiet, model: model(), drafter });
 
 describe("pick explanation", () => {
+  it("persists each scripted exchange through its reserved request hooks", async () => {
+    const store = createMemoryStore();
+    const phases: string[] = [];
+    const reserve = store.reserveBoardExplanationRequest.bind(store);
+    const record = store.recordBoardExplanationResponse.bind(store);
+    store.reserveBoardExplanationRequest = async (input) => {
+      phases.push(`reserve:${input.role}`);
+      return reserve(input);
+    };
+    store.recordBoardExplanationResponse = async (input) => {
+      phases.push(`response:${input.exchange.role}`);
+      return record(input);
+    };
+    const drafter = scripted(async (packet) => {
+      expect(phases).toEqual(["reserve:original"]);
+      const result = await fixtureAnswer(packet);
+      return {
+        ...result,
+        repairAttempted: true,
+        providerRequests: [
+          request("original", "draft", { response: "invalid original" }),
+          request("repair", "repair", { response: result.report }),
+        ],
+      };
+    });
+    const result = await run(store, drafter, { requestId: "adapter-hooks" });
+    expect(result.ok, result.ok ? "" : result.error).toBe(true);
+    expect(phases).toEqual([
+      "reserve:original",
+      "response:draft",
+      "reserve:repair",
+      "response:repair",
+    ]);
+    if (!result.ok) return;
+    const responses = (await store.listBoardExplanationEvents(result.board.id)).filter(
+      (event) => event.kind === "response",
+    );
+    expect(responses).toHaveLength(2);
+    expect(result.board.usage).toMatchObject({ totalTokens: 300, costUsd: 0.02 });
+  });
+
   it("saves the fixture drafter's explanation beside the frozen pick", async () => {
     const store = createMemoryStore();
     const outcome = await runGameBoard(board({ requestId: "fixture" }), {
@@ -115,7 +173,13 @@ describe("pick explanation", () => {
     expect(entry!.otherSideCase.length).toBeGreaterThan(0);
     expect(entry!.claims.some((claim) => claim.stance === "opposing")).toBe(true);
     // Fixture drafter reports no provider usage, and that stays unknown.
-    expect(saved.usage).toBeNull();
+    expect(saved.usage).toEqual({
+      promptTokens: null,
+      completionTokens: null,
+      totalTokens: null,
+      costUsd: null,
+      partial: true,
+    });
   });
 
   it("freezes the picks before drafting and keeps the private lean out of the packet", async () => {
@@ -146,7 +210,7 @@ describe("pick explanation", () => {
       ],
     });
     expect(outcome.ok, outcome.ok ? "" : outcome.error).toBe(true);
-    expect(during!.status).toBe("running");
+    expect(during!.status).toBe("completed");
     expect(during!.markets[0]!.pick).not.toBeNull();
     expect(during!.explanation).toBeNull();
     const [packet] = drafter.packets;
@@ -230,9 +294,15 @@ describe("pick explanation contradictions", () => {
     if (outcome.ok) return;
     expect(outcome.board).toBeDefined();
     const saved = (await store.getBoard(outcome.board!.id))!;
-    expect(saved.status).toBe("failed");
+    expect(saved.status).toBe("completed");
+    expect(saved.explanationState?.kind).toBe("failed");
     expect(saved.explanation).toBeNull();
-    expect(saved.failureReason).toMatch(/frozen|did not supply|not supplied|evidence id/);
+    expect(saved.explanationState).toMatchObject({
+      kind: "failed",
+      reasons: expect.arrayContaining([
+        expect.stringMatching(/frozen|did not supply|not supplied|evidence id/),
+      ]),
+    });
     expect(saved.markets[0]!.pick!.calculation.pickedSelection).toBe("home");
     expect(saved.markets[0]!.pick!.calculation.grade).toBe("lean");
   });
@@ -330,6 +400,14 @@ describe("pick explanation contradictions", () => {
       drafter: misused,
     });
     expect(misusedResult.ok).toBe(false);
+    if (!misusedResult.ok) {
+      expect(misusedResult.error).toMatch(/evidence|numeric|number|line/i);
+      expect(misusedResult.board!.explanationState?.kind).toBe("failed");
+      expect(misusedResult.board!.markets[0]!.pick!.calculation).toMatchObject({
+        pickedSelection: "home",
+        grade: "lean",
+      });
+    }
 
     const uncited = scripted(async (packet) =>
       withReport(await fixtureAnswer(packet), (report) => {
@@ -431,7 +509,11 @@ describe("pick explanation provider accounting and recovery", () => {
     const outcome = await run(store, drafter, { requestId: "transit" });
     expect(outcome.ok).toBe(false);
     if (outcome.ok) return;
-    expect(outcome.board!.status).toBe("failed");
+    expect(outcome.board!.status).toBe("completed");
+    expect(outcome.board!.explanationState).toMatchObject({
+      kind: "failed",
+      reasons: ["network down"],
+    });
     expect(outcome.board!.providerRequests).toHaveLength(2);
     expect(outcome.board!.usage).toMatchObject({ promptTokens: 200, costUsd: null, partial: true });
     expect(outcome.board!.markets[0]!.pick).not.toBeNull();
@@ -448,13 +530,18 @@ describe("pick explanation provider accounting and recovery", () => {
         providerRequests: [request("saved", "draft", { response: drafted.report })],
       };
     });
-    const finish = store.finishBoard.bind(store);
+    const finish = store.finishBoardExplanation.bind(store);
     let failures = 1;
-    store.finishBoard = async (input) => {
+    store.finishBoardExplanation = async (input) => {
       if (failures-- > 0) throw new Error("connection lost");
       return finish(input);
     };
-    await expect(run(store, drafter, { requestId: "recover" })).rejects.toThrow("connection lost");
+    const interrupted = await run(store, drafter, { requestId: "recover" });
+    expect(interrupted.ok).toBe(false);
+    if (interrupted.ok) return;
+    expect(interrupted.error).toContain("connection lost");
+    expect(interrupted.board!.explanationState?.kind).toBe("pending");
+    expect(interrupted.board!.providerRequests[0]?.response).not.toBeNull();
     expect(calls).toBe(1);
     const retried = await run(store, drafter, { requestId: "recover" });
     expect(retried.ok, retried.ok ? "" : retried.error).toBe(true);
@@ -481,13 +568,15 @@ describe("pick explanation provider accounting and recovery", () => {
         providerRequests: [request("unversioned", "draft", { response: unversioned })],
       };
     });
-    const finish = store.finishBoard.bind(store);
+    const finish = store.finishBoardExplanation.bind(store);
     let failures = 1;
-    store.finishBoard = async (input) => {
+    store.finishBoardExplanation = async (input) => {
       if (failures-- > 0) throw new Error("connection lost");
       return finish(input);
     };
-    await expect(run(store, drafter, { requestId: "unversioned-recovery" })).rejects.toThrow();
+    const interrupted = await run(store, drafter, { requestId: "unversioned-recovery" });
+    expect(interrupted.ok).toBe(false);
+    if (!interrupted.ok) expect(interrupted.error).toContain("connection lost");
     const retried = await run(store, drafter, { requestId: "unversioned-recovery" });
     expect(retried.ok).toBe(false);
     expect(calls).toBe(1);
@@ -505,13 +594,18 @@ describe("pick explanation provider accounting and recovery", () => {
         providerRequests: [request("text", "draft", { response: JSON.stringify(drafted.report) })],
       };
     });
-    const finish = store.finishBoard.bind(store);
+    const finish = store.finishBoardExplanation.bind(store);
     let failures = 1;
-    store.finishBoard = async (input) => {
+    store.finishBoardExplanation = async (input) => {
       if (failures-- > 0) throw new Error("connection lost");
       return finish(input);
     };
-    await expect(run(store, drafter, { requestId: "text" })).rejects.toThrow();
+    const interrupted = await run(store, drafter, { requestId: "text" });
+    expect(interrupted.ok).toBe(false);
+    if (!interrupted.ok) {
+      expect(interrupted.error).toContain("connection lost");
+      expect(typeof interrupted.board!.providerRequests[0]?.response).toBe("string");
+    }
     const retried = await run(store, drafter, { requestId: "text" });
     expect(retried.ok, retried.ok ? "" : retried.error).toBe(true);
     expect(calls).toBe(1);

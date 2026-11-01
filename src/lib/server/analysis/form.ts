@@ -1,9 +1,11 @@
 import { americanToDecimal, PriceError } from "#lib/domain/odds.ts";
+import { easternDateTimeInput, parseEasternTime } from "#lib/time.ts";
 import {
   offerEntryGuidance,
   type Market,
   type SideSelection,
   type TieRule,
+  type OpposingPrice,
 } from "#lib/domain/offer.ts";
 
 export { offerEntryGuidance };
@@ -22,8 +24,10 @@ export type RefreshFields = {
   pointLine: string;
   americanOdds: string;
   observedAt: string;
+  timeOccurrence?: string;
   market: string;
   selection: string;
+  opposingAmericanOdds?: string;
 };
 
 export type RefreshContract = {
@@ -34,6 +38,7 @@ export type RefreshContract = {
   americanOdds: number;
   observedAt: string;
   tieRule: TieRule | undefined;
+  opposing?: OpposingPrice;
 };
 
 export type RefreshParse =
@@ -80,8 +85,29 @@ export function parseRefreshContract(fields: RefreshFields, parent: RefreshParen
     return { ok: false, values, error: message };
   }
 
-  const observedAt = parseObservedAt(fields.observedAt);
-  if (!observedAt) return { ok: false, values, error: "Enter when you observed the new price" };
+  const parsedTime = parseEasternTime(
+    fields.observedAt,
+    fields.timeOccurrence === "earlier" || fields.timeOccurrence === "later"
+      ? fields.timeOccurrence
+      : undefined,
+  );
+  if (!parsedTime.ok) return { ok: false, values, error: parsedTime.error };
+  const observedAt = parsedTime.iso;
+  let opposing: OpposingPrice | undefined;
+  try {
+    opposing = parseOpposingPrice(fields.opposingAmericanOdds ?? "", {
+      sportsbook,
+      market: parent.market,
+      pointLine,
+      observedAt,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      values,
+      error: error instanceof Error ? error.message : "Invalid opposing price",
+    };
+  }
 
   return {
     ok: true,
@@ -93,38 +119,44 @@ export function parseRefreshContract(fields: RefreshFields, parent: RefreshParen
       sportsbook,
       americanOdds,
       observedAt,
+      opposing,
       tieRule: parent.market === "moneyline" ? (parent.tieRule ?? undefined) : undefined,
     },
   };
 }
 
-const LOCAL_INPUT = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/;
-
-/**
- * Reads an observed-time field. A datetime-local value has no zone, so it is read
- * as this computer's local time; PocketCheck runs on the user's own machine.
- */
-export function parseObservedAt(raw: string): string | null {
-  const value = raw.trim();
-  if (!value) return null;
-  const local = LOCAL_INPUT.exec(value);
-  const instant = local
-    ? new Date(
-        Number(local[1]),
-        Number(local[2]) - 1,
-        Number(local[3]),
-        Number(local[4]),
-        Number(local[5]),
-      )
-    : new Date(value);
-  return Number.isFinite(instant.getTime()) ? instant.toISOString() : null;
+export function parseOpposingPrice(
+  raw: string,
+  offer: {
+    sportsbook: string;
+    market: Market;
+    pointLine?: number;
+    observedAt: string;
+  },
+): OpposingPrice | undefined {
+  if (!raw.trim()) return undefined;
+  const americanOdds = Number(raw);
+  americanToDecimal(americanOdds);
+  return {
+    sportsbook: offer.sportsbook,
+    americanOdds,
+    observedAt: offer.observedAt,
+    ...(offer.pointLine === undefined
+      ? {}
+      : { pointLine: offer.market === "spread" ? -offer.pointLine : offer.pointLine }),
+  };
 }
 
-/** A datetime-local value for an instant, in this computer's local time. */
+export function parseObservedAt(raw: string, occurrence?: string): string | null {
+  const parsed = parseEasternTime(
+    raw,
+    occurrence === "earlier" || occurrence === "later" ? occurrence : undefined,
+  );
+  return parsed.ok ? parsed.iso : null;
+}
+
 export function localInputValue(iso: string): string {
-  const date = new Date(iso);
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return easternDateTimeInput(iso);
 }
 
 export type ManualEvidenceRow = {

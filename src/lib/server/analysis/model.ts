@@ -3,7 +3,11 @@ import { dirname, join } from "node:path";
 import type { OutcomeProbabilities } from "#lib/domain/odds.ts";
 import type { Offer } from "#lib/domain/offer.ts";
 import { valueEligibility, type ModelArtifact } from "../models/artifact.ts";
-import { PROSPECTIVE_PROTOCOL } from "../models/release.ts";
+import {
+  PROSPECTIVE_PROTOCOL,
+  verifyReleaseAttestation,
+  type VerifiedReleaseAttestation,
+} from "../models/release.ts";
 import { parseArtifact } from "../models/inputs.ts";
 import {
   freezeProspectiveForecast,
@@ -50,15 +54,23 @@ export type RunModel =
       eligible: boolean;
       reason: string;
       protocol: { id: string; role: "independent"; blockingReason: string };
+      forecast?: SavedForecast;
     };
 
-export type ModelSource = (
-  game: ScheduledGame,
-  cutoffIso: string,
-  offer: Offer,
-  /** The anchor sportsbook's two sides, when the offer's price was shopped from another book. */
-  anchor?: AnchorQuote,
-) => Promise<RunModel>;
+export type ForecastRequest = {
+  game: ScheduledGame;
+  cutoffAt: string;
+  offer: Offer;
+  evidence: EvidenceItem[];
+  /** Explicit anchor prices remain separate from a shopped executable offer. */
+  anchor?: AnchorQuote;
+};
+
+export type ForecastResult = RunModel;
+export type ModelSource = ((request: ForecastRequest) => Promise<ForecastResult>) & {
+  pin?: () => ModelSource;
+  identity?: { checksum: string; inputAvailability: string; trainingCutoff: string };
+};
 
 export const noModel: ModelSource = async () => ({
   status: "unavailable",
@@ -72,18 +84,28 @@ function unavailable(reason: string): RunModel {
 /** Loads a fitted artifact and prices the offer from finished games before the decision cutoff. */
 export function createArtifactModel(input: {
   artifactPath: string;
+  attestationPath?: string;
   schedulePath: string;
   /** Where npm run data:depth-charts keeps a season's file. Without it starters come from history. */
   depthChartPath?: (season: number) => string;
 }): ModelSource {
-  return async (game, cutoffIso, offer, anchor) => {
-    if (!existsSync(input.artifactPath)) {
+  return artifactSource(input);
+}
+
+function artifactSource(
+  input: Parameters<typeof createArtifactModel>[0],
+  pinned?: ModelArtifact | string,
+  pinnedAuthorization?: VerifiedReleaseAttestation,
+): ModelSource {
+  const source: ModelSource = async ({ game, cutoffAt: cutoffIso, offer, evidence, anchor }) => {
+    if (typeof pinned === "string") return unavailable(pinned);
+    if (!pinned && !existsSync(input.artifactPath)) {
       return unavailable(`No model artifact at ${input.artifactPath}. Run npm run model:fit.`);
     }
     let artifact: ModelArtifact;
     try {
-      const value: unknown = JSON.parse(readFileSync(input.artifactPath, "utf8"));
-      artifact = parseArtifact(value);
+      artifact =
+        pinned ?? parseArtifact(JSON.parse(readFileSync(input.artifactPath, "utf8")) as unknown);
     } catch (error) {
       return unavailable(
         `The model artifact is unavailable: ${error instanceof Error ? error.message : String(error)}`,
@@ -101,10 +123,28 @@ export function createArtifactModel(input: {
     if (!existsSync(input.schedulePath)) {
       return unavailable(`No schedule at ${input.schedulePath}. Run npm run data:schedule.`);
     }
-    const forecast = forecastOffer(input, artifact, game, cutoffIso, offer, undefined, anchor);
+    let authorization = pinnedAuthorization;
+    if (!pinned && input.attestationPath) {
+      try {
+        authorization = verifyReleaseAttestation(
+          artifact,
+          JSON.parse(readFileSync(input.attestationPath, "utf8")) as unknown,
+        );
+      } catch (error) {
+        return unavailable(
+          `Release attestation is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    const forecast = forecastOffer(input, artifact, game, cutoffIso, offer, evidence, anchor);
     if (typeof forecast === "string") return unavailable(forecast);
     const { probabilities, uncertainty } = forecast;
-    const eligibility = valueEligibility(artifact, offer.market);
+    const eligibility = valueEligibility(artifact, offer.market, authorization);
+    forecast.marketEligibility = {
+      market: offer.market,
+      eligible: eligibility.eligible,
+      ...(authorization ? { attestationChecksum: authorization.checksum } : {}),
+    };
     const protocolReason = eligibility.eligible
       ? `${PROSPECTIVE_PROTOCOL.id} released this market. Release eligibility is not a profitability claim.`
       : artifact.releaseStatus === "released-experimental"
@@ -116,11 +156,14 @@ export function createArtifactModel(input: {
         checksum,
         version: artifact.version,
         trainingCutoff: artifact.trainingCutoff,
-        releaseStatus: artifact.releaseStatus,
-        releasedMarkets: artifact.releasedMarkets,
+        releaseStatus: authorization ? "released-experimental" : artifact.releaseStatus,
+        releasedMarkets: authorization
+          ? [...authorization.releasedMarkets]
+          : artifact.releasedMarkets,
       },
       probabilities,
       uncertainty,
+      forecast,
       eligible: eligibility.eligible,
       reason: eligibility.reason,
       protocol: {
@@ -130,6 +173,34 @@ export function createArtifactModel(input: {
       },
     };
   };
+  source.pin = () => {
+    if (pinned) return source;
+    try {
+      const artifact = parseArtifact(
+        JSON.parse(readFileSync(input.artifactPath, "utf8")) as unknown,
+      );
+      const authorization = input.attestationPath
+        ? verifyReleaseAttestation(
+            artifact,
+            JSON.parse(readFileSync(input.attestationPath, "utf8")) as unknown,
+          )
+        : undefined;
+      return artifactSource(input, artifact, authorization);
+    } catch (error) {
+      return artifactSource(
+        input,
+        `The model artifact is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  };
+  if (pinned && typeof pinned !== "string") {
+    source.identity = {
+      checksum: pinned.checksum,
+      inputAvailability: INPUT_AVAILABILITY.version,
+      trainingCutoff: pinned.trainingCutoff,
+    };
+  }
+  return source;
 }
 
 /** The kickoff forecast already collected, read back as the snapshot the forecast records. */
@@ -244,7 +315,7 @@ function forecastOffer(
 ): SavedForecast | string {
   const anchorQuote = anchor ?? sameBookQuote(offer);
   if (!anchorQuote) {
-    return "The forecasting model needs both sides of this market from one sportsbook to anchor its forecast. Enter both sides on a game board.";
+    return "The forecasting model needs both sides of this market from one sportsbook to anchor its forecast. Enter the opposing price with this research offer.";
   }
   const { csv, games } = scheduleHistory(input.schedulePath);
   const cutoff = Date.parse(cutoffIso);
@@ -302,6 +373,7 @@ function forecastOffer(
     probabilities: frozen.probabilities,
     uncertainty: frozen.uncertainty,
     policyVersion: frozen.policyVersion,
+    ...(frozen.anchor ? { anchor: frozen.anchor } : {}),
     ...(frozen.drivers ? { drivers: frozen.drivers } : {}),
     ...(frozen.weather ? { weather: frozen.weather } : {}),
   };
@@ -318,33 +390,24 @@ export function createArtifactForecast(input: {
   /** Where npm run data:depth-charts keeps a season's file. Without it every starter is unknown. */
   depthChartPath?: (season: number) => string;
 }): ForecastSource {
-  return async (game, cutoffIso, offer, model, evidence, anchor) => {
-    if (model.status !== "computed") return null;
-    if (!existsSync(input.artifactPath) || !existsSync(input.schedulePath)) return null;
-    let artifact: ModelArtifact;
-    try {
-      artifact = parseArtifact(JSON.parse(readFileSync(input.artifactPath, "utf8")) as unknown);
-    } catch {
-      return null;
-    }
-    if (artifact.checksum !== model.artifact.checksum) return null;
-    const forecast = forecastOffer(input, artifact, game, cutoffIso, offer, evidence, anchor);
-    return typeof forecast === "string" ? null : forecast;
-  };
+  void input;
+  return async (_request, model) => (model.status === "computed" ? (model.forecast ?? null) : null);
 }
 
 /** A run's model as the report page may see it: an ineligible model's numbers stay server-side. */
 export type DisplayedModel =
   | Extract<RunModel, { status: "unavailable" }>
-  | (Omit<Extract<RunModel, { status: "computed" }>, "probabilities"> & {
+  | (Omit<Extract<RunModel, { status: "computed" }>, "probabilities" | "forecast"> & {
       probabilities: OutcomeProbabilities | null;
       uncertainty: UncertaintyAssessment;
     });
 
 export function forDisplay(model: RunModel | null): DisplayedModel | null {
-  if (model === null || model.status === "unavailable" || model.eligible) return model;
+  if (model === null || model.status === "unavailable") return model;
+  const { forecast: _forecast, ...projection } = model;
+  if (model.eligible) return projection;
   return {
-    ...model,
+    ...projection,
     probabilities: null,
     uncertainty: {
       available: false,

@@ -4,12 +4,16 @@ import type { FrozenForecastRecord } from "../models/prospective.ts";
 import type { ListedModelPick } from "./board-store.ts";
 import type { StrengthGrade } from "./model-pick.ts";
 import type { ClosingObservation } from "./store.ts";
+import type { ClosingMarketSnapshot } from "../models/protocol.ts";
+import { laterNoVigBaseline } from "./closing.ts";
 import {
   closingFor,
   profitFor,
   summarizeModelPicks,
   type CohortSummary,
   type TrackedModelPick,
+  descriptiveCohortMetrics,
+  type DescriptiveCohortMetrics,
 } from "./summary.ts";
 
 const MARKETS: readonly Market[] = ["moneyline", "spread", "total"];
@@ -38,6 +42,7 @@ export type ModelPickRow = {
 
 /** Model-pick performance, kept apart from assessments and actual bets. */
 export type ModelPickPerformance = {
+  descriptive: DescriptiveCohortMetrics;
   /** Primary model picks only, in the order their boards finished. */
   rows: ModelPickRow[];
   overall: CohortSummary;
@@ -56,9 +61,12 @@ function trackedRole(listed: ListedModelPick): "primary" | "refresh" | null {
 }
 
 function closingState(closings: ClosingObservation[], pickId: string): ModelPickRow["closing"] {
-  const mine = closings.filter(
-    (closing) => closing.subject.kind === "model-pick" && closing.subject.id === pickId,
-  );
+  const mine = closings
+    .filter((closing) => closing.subject.kind === "model-pick" && closing.subject.id === pickId)
+    .sort(
+      (a, b) =>
+        Date.parse(a.observedAt ?? "") - Date.parse(b.observedAt ?? "") || a.id.localeCompare(b.id),
+    );
   if (mine.length === 0) return { state: "missing" };
   const comparable = mine.filter((closing) => closing.comparison.available).at(-1);
   if (comparable?.comparison.available) {
@@ -79,6 +87,7 @@ function closingState(closings: ClosingObservation[], pickId: string): ModelPick
 export function modelPickPerformance(
   picks: ListedModelPick[],
   closings: ClosingObservation[],
+  snapshots: ClosingMarketSnapshot[] = [],
 ): ModelPickPerformance {
   const tracked = picks.flatMap((listed) => {
     const role = trackedRole(listed);
@@ -121,6 +130,38 @@ export function modelPickPerformance(
     ];
   });
   return {
+    descriptive: descriptiveCohortMetrics(
+      "primary-model-picks",
+      rows.flatMap((row) =>
+        row.closing.state === "comparable"
+          ? [{ id: row.pickId, difference: row.closing.difference }]
+          : [],
+      ),
+      picks.flatMap((listed) => {
+        const forecast = listed.pick.forecast;
+        if (
+          listed.withdrawn ||
+          listed.pick.role.role !== "primary" ||
+          !forecast ||
+          forecast.provenance !== "captured"
+        )
+          return [];
+        return [
+          {
+            id: listed.pick.id,
+            probabilities: forecast.probabilities,
+            closingBaseline: laterNoVigBaseline({
+              offer: listed.offer,
+              cutoffAt: forecast.decisionCutoff,
+              kickoffAt: listed.game.kickoff,
+              probabilities: forecast.probabilities,
+              snapshots,
+            }),
+            outcome: outcomeOf(listed.grade.effective),
+          },
+        ];
+      }),
+    ),
     rows,
     overall: slice(() => true),
     byMarket: Object.fromEntries(

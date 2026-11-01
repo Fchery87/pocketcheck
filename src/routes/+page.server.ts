@@ -1,10 +1,11 @@
 import { fail, redirect } from "@sveltejs/kit";
 import { randomUUID } from "node:crypto";
 import { easternTime } from "#lib/format.ts";
+import { parseEasternTime } from "#lib/time.ts";
 import {
   localInputValue,
   parseManualEvidence,
-  parseObservedAt,
+  parseOpposingPrice,
 } from "#lib/server/analysis/form.ts";
 import { americanToDecimal, PriceError } from "#lib/domain/odds.ts";
 import { offerEntryGuidance, type SideSelection, type TieRule } from "#lib/domain/offer.ts";
@@ -29,7 +30,9 @@ const FIELDS = [
   "selection",
   "pointLine",
   "americanOdds",
+  "opposingAmericanOdds",
   "observedAt",
+  "timeOccurrence",
   "tieRule",
   "lean",
   "rationale",
@@ -83,8 +86,14 @@ export const actions = {
     const game = schedule.games.find((item) => item.id === values.gameId);
     if (!game) return refuse(400, "Choose a game");
     if (!upcomingGames([game], nowIso).length) return refuse(400, "The game has already started");
-    const observedAt = parseObservedAt(values.observedAt ?? "");
-    if (!observedAt) return refuse(400, "Enter when you observed this price");
+    const parsedTime = parseEasternTime(
+      values.observedAt ?? "",
+      values.timeOccurrence === "earlier" || values.timeOccurrence === "later"
+        ? values.timeOccurrence
+        : undefined,
+    );
+    if (!parsedTime.ok) return refuse(400, parsedTime.error);
+    const observedAt = parsedTime.iso;
     const market = values.market;
     if (market !== "moneyline" && market !== "spread" && market !== "total") {
       return refuse(400, "Choose a market");
@@ -108,6 +117,17 @@ export const actions = {
       return refuse(400, error instanceof PriceError ? error.message : "Invalid American price");
     }
     const tieRule = values.tieRule as TieRule;
+    let opposing;
+    try {
+      opposing = parseOpposingPrice(values.opposingAmericanOdds ?? "", {
+        sportsbook: values.sportsbook ?? "",
+        market,
+        pointLine,
+        observedAt,
+      });
+    } catch (error) {
+      return refuse(400, error instanceof Error ? error.message : "Invalid opposing price");
+    }
     if (market === "moneyline" && !["push", "loss", "win", "void"].includes(tieRule)) {
       return refuse(400, "A moneyline requires a tie rule");
     }
@@ -134,6 +154,7 @@ export const actions = {
         pointLine,
         americanOdds,
         observedAt,
+        opposing,
         tieRule: market === "moneyline" ? tieRule : undefined,
         lean: values.lean,
         rationale: values.rationale,

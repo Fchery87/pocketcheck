@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { error, fail } from "@sveltejs/kit";
+import { isActionFailure, error, fail } from "@sveltejs/kit";
 import { parseGameBoard } from "#lib/domain/board.ts";
 import { validFinalScores } from "#lib/domain/settlement.ts";
 import {
@@ -10,8 +10,8 @@ import {
   type TieRule,
 } from "#lib/domain/offer.ts";
 import { ConfigError, now, researchStore } from "#lib/server/config.ts";
-import { journalSummaries } from "#lib/server/analysis/summary.ts";
-import { parseObservedAt } from "#lib/server/analysis/form.ts";
+import { journalSummaries, journalQualifiedForecasts } from "#lib/server/analysis/summary.ts";
+import { parseEasternTime } from "#lib/time.ts";
 import { PROSPECTIVE_PROTOCOL } from "#lib/server/models/release.ts";
 import type { SettlementNoticeKind } from "#lib/server/analysis/store.ts";
 import type { Actions, PageServerLoad } from "./$types";
@@ -97,6 +97,37 @@ export const load: PageServerLoad = async ({ url }) => {
   );
   const betGrades = [...settlements.flatMap((row) => row.bets), ...pickBetGrades];
   const performance = journalSummaries({
+    qualifiedForecasts: journalQualifiedForecasts({
+      assessments: assessments.flatMap((row) =>
+        row.frozenOffer
+          ? [
+              {
+                id: row.id,
+                role: row.assessmentRole.role,
+                offer: row.frozenOffer,
+                kickoffAt: row.game.kickoff,
+                forecast: row.frozenForecast ?? null,
+                result:
+                  settlements.find((settlement) => settlement.analysisId === row.id)?.assessment
+                    .effective ?? "unresolved",
+              },
+            ]
+          : [],
+      ),
+      modelPicks: modelPicks
+        .filter((row) => !row.withdrawn)
+        .map((row) => ({
+          id: row.pick.id,
+          offer: row.offer,
+          kickoffAt: row.game.kickoff,
+          forecast: row.pick.forecast ?? null,
+        })),
+      bets: bets.map((bet) => ({
+        ...bet,
+        result: betGrades.find((row) => row.betId === bet.id)?.grade?.effective ?? "unresolved",
+      })),
+      snapshots: closingMarkets,
+    }),
     assessments: assessments.map((assessment) => ({
       ...assessment,
       americanOdds: assessment.offer.americanOdds,
@@ -126,7 +157,7 @@ export const load: PageServerLoad = async ({ url }) => {
   };
 };
 
-export const actions = {
+const journalActions = {
   registerProtocol: async ({ request }) => {
     const data = await request.formData();
     const checksum = String(data.get("artifactChecksum") ?? "").trim();
@@ -161,7 +192,13 @@ export const actions = {
     const market = field("market");
     const sportsbook = field("sportsbook");
     const source = field("source");
-    const observedAt = parseObservedAt(field("observedAt"));
+    const occurrence = field("timeOccurrence");
+    const time = parseEasternTime(
+      field("observedAt"),
+      occurrence === "earlier" || occurrence === "later" ? occurrence : undefined,
+    );
+    if (!time.ok) return fail(400, { error: time.error, fieldErrors: { observedAt: time.error } });
+    const observedAt = time.iso;
     const firstText = field("firstOdds");
     const secondText = field("secondOdds");
     const lineText = field("pointLine");
@@ -417,7 +454,13 @@ export const actions = {
     const selection = String(data.get("selection") ?? "").trim();
     const pointLineText = String(data.get("pointLine") ?? "").trim();
     const americanOdds = Number(data.get("americanOdds"));
-    const observedAt = String(data.get("observedAt") ?? "").trim();
+    const occurrence = String(data.get("timeOccurrence") ?? "");
+    const time = parseEasternTime(
+      String(data.get("observedAt") ?? ""),
+      occurrence === "earlier" || occurrence === "later" ? occurrence : undefined,
+    );
+    if (!time.ok) return fail(400, { error: time.error, fieldErrors: { observedAt: time.error } });
+    const observedAt = time.iso;
     const source = String(data.get("source") ?? "").trim();
     const tie = String(data.get("tie") ?? "").trim();
     if (subjectKind !== "analysis" && subjectKind !== "bet" && subjectKind !== "model-pick") {
@@ -474,7 +517,7 @@ export const actions = {
         pointLine,
         rules,
         americanOdds,
-        observedAt: new Date(observedAt).toISOString(),
+        observedAt,
         source,
       });
       return { recorded: true, error: null, closingId: result.closing.id };
@@ -519,4 +562,55 @@ export const actions = {
     }
     return { restored: true, error: null };
   },
+} satisfies Actions;
+
+type JournalActionName = keyof typeof journalActions;
+type JournalActionResult = {
+  error: string | null;
+  fieldErrors: Record<string, string>;
+  values: Record<string, string>;
+  duplicate: boolean;
+} & {
+  [Name in JournalActionName]:
+    | { action: Name; outcome: "success" }
+    | { action: Name; outcome: "failure" };
+}[JournalActionName];
+
+function scopedAction(
+  name: JournalActionName,
+  handler: (typeof journalActions)[JournalActionName],
+) {
+  return async (event: Parameters<typeof handler>[0]) => {
+    const submitted = await event.request.clone().formData();
+    const values = Object.fromEntries(
+      [...submitted].filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+    );
+    const result = await handler(event);
+    const failed = isActionFailure(result);
+    const payload = (failed ? result.data : result) as {
+      error?: string | null;
+      fieldErrors?: Record<string, string>;
+      duplicate?: boolean;
+    };
+    const response: JournalActionResult = {
+      action: name,
+      outcome: failed ? "failure" : "success",
+      error: payload.error ?? null,
+      fieldErrors:
+        payload.fieldErrors ??
+        (failed ? { _form: payload.error ?? "The record was not saved." } : {}),
+      values,
+      duplicate: payload.duplicate ?? false,
+    };
+    return failed ? fail(result.status, response) : response;
+  };
+}
+
+export const actions = {
+  bet: scopedAction("bet", journalActions.bet),
+  settle: scopedAction("settle", journalActions.settle),
+  closing: scopedAction("closing", journalActions.closing),
+  closingMarket: scopedAction("closingMarket", journalActions.closingMarket),
+  registerProtocol: scopedAction("registerProtocol", journalActions.registerProtocol),
+  restore: scopedAction("restore", journalActions.restore),
 } satisfies Actions;

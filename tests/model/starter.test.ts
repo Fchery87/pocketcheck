@@ -14,6 +14,7 @@ const chart = (
   season = 2025,
 ): DepthChartEntry => ({
   season,
+  week: 4,
   team: "PHI",
   position: "QB",
   depth,

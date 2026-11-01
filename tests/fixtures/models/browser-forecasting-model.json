@@ -1,11 +1,11 @@
 {
   "kind": "pocketcheck-baseline",
-  "version": 6,
-  "trainingCode": "training-2026-10-29",
+  "version": 7,
+  "trainingCode": "training-2026-11-01",
   "releaseStatus": "unreleased",
   "releasedMarkets": [],
   "anchor": {
-    "definition": "moneyline no-vig home probability mapped to an implied margin; spread home line; total line",
+    "definition": "probability-matched-discrete-v1: same-book no-vig decisive probability, final discrete weighted mass, push excluded",
     "history": "recorded close",
     "decisionTime": "one sportsbook's two sides",
     "excludedNoClose": {
@@ -831,16 +831,16 @@
   },
   "margin": {
     "model": {
-      "intercept": 1.0625,
+      "intercept": 1.5821089446544647,
       "coefficients": {
-        "home_prior_margin": -2.241779312387432,
-        "away_prior_margin": -2.4622543501711154,
-        "home_prior_points_for": -0.29431831581667156,
-        "away_prior_points_for": -0.3209704828205164,
-        "home_prior_points_against": -0.06051304509159574,
-        "away_prior_points_against": -0.08730906013826308,
+        "home_prior_margin": -2.148363829157682,
+        "away_prior_margin": -2.2466406784555755,
+        "home_prior_points_for": -0.18176023173072156,
+        "away_prior_points_for": -0.20669663670450478,
+        "home_prior_points_against": 0.036650179023297716,
+        "away_prior_points_against": 0.01164965371840019,
         "home_rest_days": 0,
-        "away_rest_days": -2.880620551535987,
+        "away_rest_days": -2.6913796152211287,
         "home_qb_share": 0,
         "away_qb_share": 0,
         "home_qb_rating": 0,
@@ -854,7 +854,7 @@
         "away_defense_epa": 0,
         "pace_seconds": 0,
         "pass_rate_over_expected": 0,
-        "rest_differential": 2.880620551535987,
+        "rest_differential": 2.6913796152211287,
         "short_week": 0,
         "off_bye": 0,
         "home_offense_pass_epa": 0,
@@ -1003,7 +1003,7 @@
     },
     "residuals": {
       "residuals": [
-        2.0477342459052505, -1.9522657540947495, 0.9707189171029622, -1.066187408913466
+        2.0212775620239665, -1.9787224379760338, 0.9302688263110834, -0.9728239503590146
       ],
       "bandwidth": 1.5,
       "support": {
@@ -1340,16 +1340,16 @@
   },
   "total": {
     "model": {
-      "intercept": -1.166666666666666,
+      "intercept": -1.727126161257426,
       "coefficients": {
         "home_prior_margin": 0,
-        "away_prior_margin": 0.11249426064331434,
-        "home_prior_points_for": 0.11249426064331453,
-        "away_prior_points_for": 0.11249426064331414,
-        "home_prior_points_against": 0.1124942606433145,
-        "away_prior_points_against": 0.11249426064331411,
+        "away_prior_margin": 0.00441115813272042,
+        "home_prior_points_for": 0.004411158132720406,
+        "away_prior_points_for": 0.004411158132720464,
+        "home_prior_points_against": 0.004411158132720406,
+        "away_prior_points_against": 0.004411158132720464,
         "home_rest_days": 0,
-        "away_rest_days": 0.11249426064331457,
+        "away_rest_days": 0.004411158132720605,
         "home_qb_share": 0,
         "away_qb_share": 0,
         "home_qb_rating": 0,
@@ -1363,7 +1363,7 @@
         "away_defense_epa": 0,
         "pace_seconds": 0,
         "pass_rate_over_expected": 0,
-        "rest_differential": -0.11249426064331448,
+        "rest_differential": -0.00441115813272042,
         "short_week": 0,
         "off_bye": 0,
         "home_offense_pass_epa": 0,
@@ -1511,7 +1511,7 @@
       }
     },
     "residuals": {
-      "residuals": [-1.7765151515151516, 1.7234848484848484, 0.05303030303030279],
+      "residuals": [-1.7510397199428447, 1.7489602800571553, 0.002079439885688261],
       "bandwidth": 1.5,
       "support": {
         "min": -21,
@@ -1520,5 +1520,5 @@
       "keyWeights": []
     }
   },
-  "checksum": "a9f3e3e2effcd0317019712ce997ee63229b29221bd589fa8aecd109ecbd976b"
+  "checksum": "2572f1c211ce3fb42cf8c5ec81d6b133cd3f1b9ebffe976c25756ca3b6e9b6c2"
 }

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixture.ts";
 import { browserPorts } from "../../scripts/browser-port.ts";
 
 test.afterEach(async ({ request }) => {
@@ -28,10 +28,17 @@ test("a contradictory explanation fails visibly without replacing the frozen pic
   await page.getByTestId("total-over").fill("-110");
   await page.getByTestId("total-under").fill("-110");
   await page.getByTestId("freeze-board").click();
-  await expect(page.getByTestId("board-status")).toHaveText("failed");
+  await expect(page.getByTestId("board-status")).toHaveText("completed");
   const backup = await (await request.get("/journal/export")).json();
   const board = backup.gameBoards[0];
-  expect(board.failureReason).toMatch(/frozen fact references|unsupported contract/);
+  expect(board.failureReason).toBeNull();
+  const failure = backup.explanationEvents.find(
+    (event: { boardId: string; kind: string }) =>
+      event.boardId === board.id && event.kind === "failed",
+  );
+  expect(failure).toBeDefined();
+  expect(failure.reasons.join(" ")).toMatch(/frozen fact references|unsupported contract/);
+  expect(board.markets[0].pick.role.role).toBe("primary");
   expect(board.explanation).toBeNull();
   expect(board.markets[0].pick).not.toBeNull();
   expect(board.markets[0].offers.map((offer: { pointLine: number }) => offer.pointLine)).toEqual([
@@ -39,8 +46,35 @@ test("a contradictory explanation fails visibly without replacing the frozen pic
   ]);
   await page.reload();
   await expect(page.getByTestId("model-pick-total")).toBeVisible();
+  await expect(page.getByTestId("explanation-failure")).toContainText("forecast");
   expect((await (await request.get("/journal/export")).json()).gameBoards).toEqual(
     backup.gameBoards,
+  );
+  expect(
+    (
+      await request.patch("/__verification", {
+        headers: { origin },
+        data: { contradictoryDraft: false },
+      })
+    ).ok(),
+  ).toBe(true);
+  const retry = page.getByTestId("new-explanation-form");
+  const attemptId = await retry.locator('input[name="attemptId"]').inputValue();
+  await retry.getByRole("checkbox").check();
+  await retry.getByRole("button", { name: "Start new explanation attempt" }).click();
+  await expect(page.getByTestId("explanation-failure")).toHaveCount(0);
+  await expect(page.getByTestId("explanation-summary")).toBeVisible();
+  const recovered = await (await request.get("/journal/export")).json();
+  expect(recovered.gameBoards).toEqual(backup.gameBoards);
+  expect(recovered.explanationEvents.length).toBeGreaterThan(backup.explanationEvents.length);
+  expect(recovered.explanationEvents).toEqual(expect.arrayContaining(backup.explanationEvents));
+  const replay = await request.post(`/board/${board.id}?/explain`, {
+    headers: { origin },
+    form: { confirmed: "yes", attemptId },
+  });
+  expect(replay.ok()).toBe(true);
+  expect((await (await request.get("/journal/export")).json()).explanationEvents).toEqual(
+    recovered.explanationEvents,
   );
 });
 

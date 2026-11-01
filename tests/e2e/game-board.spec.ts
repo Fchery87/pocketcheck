@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixture.ts";
 
 test.beforeEach(async ({ request }) => {
   const response = await request.get("/__verification");
@@ -24,7 +24,7 @@ test("a moneyline game board freezes an unvalidated model pick", async ({ page, 
   await page.goto("/");
   await page.getByRole("link", { name: "Game board" }).first().click();
   await expect(page).toHaveURL(/\/board$/);
-  await page.waitForLoadState("networkidle");
+  await expect(page.getByTestId("board-game")).toBeEnabled();
   await page.getByTestId("board-game").selectOption("2026_07_DAL_PHI");
   await page.getByTestId("board-sportsbook").fill("Board Lane Book");
   await page.getByTestId("board-observed-at").fill("2026-10-25T11:30");
@@ -86,7 +86,7 @@ test("a moneyline game board freezes an unvalidated model pick", async ({ page, 
     "Any price keeps lean: the forecasting model gives this side no chance to lose.",
   );
   // The forecasting model chose the side; its identity is shown on the card.
-  await expect(card.getByTestId("forecasting-model")).toContainText("a9f3e3e2effc");
+  await expect(card.getByTestId("forecasting-model")).toContainText("2572f1c211ce");
   await expect(card.getByTestId("calculation-version")).toHaveText("model-pick-2026-11-01.1");
 
   // The drafter wrote the explanation from the frozen pick, and its identity is separate.
@@ -100,7 +100,7 @@ test("a moneyline game board freezes an unvalidated model pick", async ({ page, 
   await expect(page.getByTestId("drafter")).toContainText("fixture-drafter");
   await expect(page.getByTestId("drafter")).toContainText("no AI call");
   await expect(card.getByTestId("forecasting-model")).not.toContainText("fixture-drafter");
-  await expect(page.getByTestId("drafter")).not.toContainText("a9f3e3e2effc");
+  await expect(page.getByTestId("drafter")).not.toContainText("2572f1c211ce");
 
   // Frozen in the journal, and not an analysis.
   await page.reload();
@@ -112,7 +112,7 @@ test("a moneyline game board freezes an unvalidated model pick", async ({ page, 
 
 test("a rejected game board keeps every typed value", async ({ page }) => {
   await page.goto("/board");
-  await page.waitForLoadState("networkidle");
+  await expect(page.getByTestId("board-game")).toBeEnabled();
   await page.getByTestId("board-game").selectOption("2026_07_DAL_PHI");
   await page.getByTestId("board-sportsbook").fill("One Side Book");
   await page.getByTestId("board-observed-at").fill("2026-10-25T11:40");
@@ -134,7 +134,7 @@ test("a rejected game board keeps every typed value", async ({ page }) => {
 test("the game board and model pick fit a 390px phone", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/board");
-  await page.waitForLoadState("networkidle");
+  await expect(page.getByTestId("board-game")).toBeEnabled();
   await noHorizontalOverflow(page);
   await page.getByTestId("board-game").selectOption("2026_07_DAL_PHI");
   await page.getByTestId("board-sportsbook").fill("Phone Board Book");

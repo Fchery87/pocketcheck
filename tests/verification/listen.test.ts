@@ -106,9 +106,19 @@ it("stays quiet for an explicit loopback host", () => {
 
 it("warns that there is no login when bound beyond loopback", () => {
   for (const host of ["0.0.0.0", "::", "192.168.1.20"]) {
-    const plan = listenPlan({ HOST: host });
+    const plan = listenPlan({ HOST: host, POCKETCHECK_UNSAFE_LAN: "1" });
     expect(plan.host).toBe(host);
     expect(plan.warning).toContain("no login");
     expect(plan.warning).toContain(host);
+  }
+});
+
+it("refuses unprotected network binds without an explicit unsafe opt-in", () => {
+  for (const HOST of ["0.0.0.0", "::", "192.168.1.20"]) {
+    expect(() => listenPlan({ HOST })).toThrow("POCKETCHECK_UNSAFE_LAN=1");
+    expect(() => listenPlan({ HOST, POCKETCHECK_UNSAFE_LAN: "true" })).toThrow();
+    expect(
+      listenPlan({ HOST, POCKETCHECK_ACCESS_SECRET: "0123456789abcdef".repeat(4) }).warning,
+    ).toContain("plain HTTP");
   }
 });

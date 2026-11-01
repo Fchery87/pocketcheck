@@ -7,6 +7,40 @@ import type { ModelSource } from "#lib/server/analysis/model.ts";
 import type { OutcomeProbabilities } from "#lib/domain/odds.ts";
 import { quiet, scriptedModel } from "../../../../tests/board-fixtures.ts";
 import { PROSPECTIVE_PROTOCOL } from "#lib/server/models/release.ts";
+import { INPUT_AVAILABILITY } from "#lib/server/models/forecast.ts";
+import { BoardBeginError } from "./board-store.ts";
+import { explainBoard } from "./board-explain.ts";
+import type { ModelSource as Source } from "./model.ts";
+
+function captured(source: Source): Source {
+  const result: Source = async (request) => {
+    const result = await source(request);
+    if (result.status !== "computed") return result;
+    const unknown = { state: "unknown" as const, identity: null, evidenceAt: null };
+    return {
+      ...result,
+      forecast: {
+        version: 1,
+        provenance: "captured",
+        decisionCutoff: request.cutoffAt,
+        inputAvailability: INPUT_AVAILABILITY,
+        artifact: result.artifact,
+        features: {},
+        starters: { home: unknown, away: unknown },
+        marketEligibility: { market: request.offer.market, eligible: result.eligible },
+        probabilities: result.probabilities,
+        uncertainty: result.uncertainty,
+        policyVersion: "fixture",
+      },
+    };
+  };
+  result.identity = {
+    checksum: "f".repeat(64),
+    inputAvailability: INPUT_AVAILABILITY.version,
+    trainingCutoff: "2026-03-01T00:00:00.000Z",
+  };
+  return result;
+}
 
 const NOW = "2026-10-25T16:00:00.000Z";
 const game = loadFixtureGames("tests/fixtures/sources/games-minimized.csv", NOW).find(
@@ -25,6 +59,266 @@ function board(overrides: Partial<GameBoardRequest> = {}): GameBoardRequest {
 }
 
 describe("game board run", () => {
+  it("starts a new explanation only deliberately and preserves the completed forecast", async () => {
+    const store = createMemoryStore();
+    const fixture = createFixtureDrafter();
+    let outgoing = 0;
+    const broken = {
+      ...fixture,
+      draftPickExplanation: async (input: Parameters<typeof fixture.draftPickExplanation>[0]) => {
+        await input.beforeRequest?.({ role: "draft", body: "interrupted-original" });
+        outgoing++;
+        throw new Error("lost response");
+      },
+    };
+    const first = await runGameBoard(board({ requestId: "deliberate-attempt" }), {
+      store,
+      drafter: broken,
+      model: captured(scriptedModel({ home: { win: 0.6, loss: 0.4, push: 0 } })),
+    });
+    expect(first.board).toBeDefined();
+    const automatic = await explainBoard(store, first.board!, broken);
+    expect(automatic.ok).toBe(false);
+    expect(outgoing).toBe(1);
+    const retried = await explainBoard(store, first.board!, fixture, {
+      newAttempt: true,
+      attemptId: "confirmed-submission",
+    });
+    expect(retried.ok).toBe(true);
+    expect(retried.board?.markets).toEqual(first.board?.markets);
+    expect(retried.board?.completedAt).toBe(first.board?.completedAt);
+    const events = await store.listBoardExplanationEvents(first.board!.id);
+    expect(new Set(events.map((event) => event.attemptId)).size).toBe(2);
+    expect(events.some((event) => event.kind === "ambiguous")).toBe(true);
+    const repeated = await explainBoard(store, first.board!, fixture, {
+      newAttempt: true,
+      attemptId: "confirmed-submission",
+    });
+    expect(repeated.ok).toBe(true);
+    expect(await store.listBoardExplanationEvents(first.board!.id)).toEqual(events);
+  });
+  it("rejects inline drafter results that bypass durable request hooks", async () => {
+    const store = createMemoryStore();
+    const fixture = createFixtureDrafter();
+    const result = await runGameBoard(board(), {
+      store,
+      model: captured(scriptedModel({ home: { win: 0.6, loss: 0.4, push: 0 } })),
+      drafter: {
+        ...fixture,
+        draftPickExplanation: (input) =>
+          fixture.draftPickExplanation({
+            ...input,
+            beforeRequest: undefined,
+            afterResponse: undefined,
+          }),
+      },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.board?.status).toBe("completed");
+    expect(result.board?.explanationState?.kind).toBe("failed");
+    if (!result.ok) expect(result.error).toContain("request hooks");
+    expect(result.board?.providerRequests).toEqual([]);
+    expect(result.board?.markets[0]?.pick?.role.role).toBe("primary");
+  });
+  for (const durableRepair of [false, true]) {
+    it(`recovers repair interruption with durable response ${durableRepair} without duplicate transport`, async () => {
+      const store = createMemoryStore();
+      const request = board({ requestId: `repair-${durableRepair}` });
+      const model = captured(scriptedModel({ home: { win: 0.6, loss: 0.4, push: 0 } }));
+      const fixture = createFixtureDrafter();
+      const outgoing = { draft: 0, repair: 0 };
+      let interrupt = true;
+      const drafter = {
+        ...fixture,
+        draftPickExplanation: async (input: Parameters<typeof fixture.draftPickExplanation>[0]) => {
+          const valid = await fixture.draftPickExplanation({
+            ...input,
+            beforeRequest: undefined,
+            afterResponse: undefined,
+          });
+          for (const role of ["draft", "repair"] as const) {
+            const reused = await input.beforeRequest?.({ role, body: `${role}-body` });
+            if (!reused) {
+              outgoing[role]++;
+              if (role === "repair" && interrupt && !durableRepair) {
+                interrupt = false;
+                throw new Error("before repair response");
+              }
+              await input.afterResponse?.({
+                requestId: `provider-${role}`,
+                role,
+                outcome: "completed",
+                response: role === "repair" ? JSON.stringify(valid.report) : "invalid",
+                promptTokens: 1,
+                completionTokens: 1,
+                totalTokens: 2,
+                costUsd: 0.01,
+                costKnown: true,
+              });
+              if (role === "repair" && interrupt) {
+                interrupt = false;
+                throw new Error("after repair response");
+              }
+            }
+          }
+          return valid;
+        },
+      };
+      const first = await runGameBoard(request, { store, model, drafter });
+      expect(first.ok).toBe(false);
+      const retries = await Promise.all([
+        runGameBoard(request, { store, model, drafter }),
+        runGameBoard(request, { store, model, drafter }),
+      ]);
+      const retry = retries[0]!;
+      expect(retries.every((result) => result.ok === durableRepair)).toBe(true);
+      expect(outgoing).toEqual({ draft: 1, repair: 1 });
+      expect(retry.board?.markets).toEqual(first.board?.markets);
+      expect(retry.board?.completedAt).toBe(first.board?.completedAt);
+    });
+  }
+  it("completes and freezes the primary before drafting, even when explanation fails", async () => {
+    const store = createMemoryStore();
+    const model = captured(scriptedModel({ home: { win: 0.6, loss: 0.4, push: 0 } }));
+    const fixture = createFixtureDrafter();
+    const capturedBoard: { frozen: Awaited<ReturnType<typeof store.getBoard>> } = { frozen: null };
+    const result = await runGameBoard(board(), {
+      store,
+      model,
+      drafter: {
+        ...fixture,
+        draftPickExplanation: async () => {
+          const saved = await store.exportJournal();
+          expect(saved.gameBoards).toHaveLength(1);
+          capturedBoard.frozen = await store.getBoard(saved.gameBoards![0]!.id);
+          throw new Error("explanation interrupted");
+        },
+      },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.board?.status).toBe("completed");
+    expect(result.board?.explanationState?.kind).toBe("failed");
+    expect(capturedBoard.frozen?.status).toBe("completed");
+    expect(result.board?.markets).toEqual(capturedBoard.frozen?.markets);
+    expect(result.board?.completedAt).toBe(capturedBoard.frozen?.completedAt);
+    expect(result.board?.markets[0]?.pick?.role.role).toBe("primary");
+  });
+
+  it("reuses a durable response after interruption without another outgoing request", async () => {
+    const store = createMemoryStore();
+    const request = board({ requestId: "durable-response-retry" });
+    const model = captured(scriptedModel({ home: { win: 0.6, loss: 0.4, push: 0 } }));
+    let interrupted = true;
+    let reservations = 0;
+    const wrapped = {
+      ...store,
+      reserveBoardExplanationRequest: async (
+        input: Parameters<typeof store.reserveBoardExplanationRequest>[0],
+      ) => {
+        const result = await store.reserveBoardExplanationRequest(input);
+        if (result.kind === "acquired") reservations++;
+        return result;
+      },
+      finishBoardExplanation: async (input: Parameters<typeof store.finishBoardExplanation>[0]) => {
+        if (interrupted) {
+          interrupted = false;
+          throw new Error("interrupted after durable response");
+        }
+        return store.finishBoardExplanation(input);
+      },
+    };
+    const first = await runGameBoard(request, { store: wrapped, model });
+    expect(first.ok).toBe(false);
+    const second = await runGameBoard(request, { store: wrapped, model });
+    expect(second.ok).toBe(true);
+    expect(reservations).toBe(1);
+    expect(second.board?.markets).toEqual(first.board?.markets);
+    expect(second.board?.completedAt).toBe(first.board?.completedAt);
+  });
+
+  it("never replays a reserved request without a durable response under concurrent retries", async () => {
+    const store = createMemoryStore();
+    const request = board({ requestId: "reserved-response-retry" });
+    const model = captured(scriptedModel({ home: { win: 0.6, loss: 0.4, push: 0 } }));
+    const fixture = createFixtureDrafter();
+    let outgoing = 0;
+    const drafter = {
+      ...fixture,
+      draftPickExplanation: async (input: Parameters<typeof fixture.draftPickExplanation>[0]) => {
+        await input.beforeRequest?.({ role: "draft", body: "stable-request" });
+        outgoing++;
+        throw new Error("interrupted before response persistence");
+      },
+    };
+    const first = await runGameBoard(request, { store, model, drafter });
+    const retries = await Promise.all([
+      runGameBoard(request, { store, model, drafter }),
+      runGameBoard(request, { store, model, drafter }),
+    ]);
+    expect(outgoing).toBe(1);
+    expect(retries.every((result) => !result.ok && result.board?.status === "completed")).toBe(
+      true,
+    );
+    expect(retries[0]?.board?.markets).toEqual(first.board?.markets);
+    expect(retries[0]?.board?.explanationState?.kind).toBe("ambiguous");
+  });
+  it("rejects incompatible registered artifacts before begin or drafting", async () => {
+    const store = createMemoryStore({ now: () => "2026-10-26T12:00:00.000Z" });
+    const registration = await store.recordProtocolRegistration({
+      id: "mismatch",
+      cohort: "primary-model-picks",
+      protocol: { ...PROSPECTIVE_PROTOCOL, artifactChecksum: "a".repeat(64) },
+    });
+    let began = false;
+    let drafted = false;
+    const drafter = createFixtureDrafter();
+    const result = await runGameBoard(
+      board({ protocolRegistrationId: registration.id, nowIso: "2026-10-26T13:00:00.000Z" }),
+      {
+        store: {
+          ...store,
+          beginBoard: async (input) => {
+            began = true;
+            return store.beginBoard(input);
+          },
+        },
+        model: captured(scriptedModel({ home: { win: 0.6, loss: 0.4, push: 0 } })),
+        registration,
+        drafter: {
+          ...drafter,
+          draftPickExplanation: async (input) => {
+            drafted = true;
+            return drafter.draftPickExplanation(input);
+          },
+        },
+      },
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      field: "protocolRegistrationId",
+      error: expect.stringMatching(/artifact/),
+    });
+    expect(began).toBe(false);
+    expect(drafted).toBe(false);
+    expect((await store.exportJournal()).gameBoards).toEqual([]);
+  });
+
+  it("returns expected store begin registration failures as typed input rejections", async () => {
+    const store = createMemoryStore();
+    const result = await runGameBoard(board(), {
+      store: {
+        ...store,
+        beginBoard: async () => {
+          throw new BoardBeginError("Registration changed before insertion.");
+        },
+      },
+    });
+    expect(result).toEqual({
+      ok: false,
+      field: "protocolRegistrationId",
+      error: "Registration changed before insertion.",
+    });
+  });
   it("rejects prices observed after the decision cutoff before saving a board", async () => {
     for (const overrides of [
       { observedAt: "2026-10-25T16:01:00.000Z" },
@@ -74,7 +368,7 @@ describe("game board run", () => {
   });
   it("freezes the selected registration with the submission and rejects a retry with another registration", async () => {
     const store = createMemoryStore({ now: () => "2026-10-26T12:00:00.000Z" });
-    await store.recordProtocolRegistration({
+    const registration = await store.recordProtocolRegistration({
       id: "protocol-one",
       cohort: "primary-model-picks",
       protocol: { ...PROSPECTIVE_PROTOCOL, artifactChecksum: "f".repeat(64) },
@@ -87,7 +381,8 @@ describe("game board run", () => {
     const deps = {
       store,
       collect: quiet,
-      model: scriptedModel({ home: { win: 0.62, loss: 0.36, push: 0.02 } }),
+      model: captured(scriptedModel({ home: { win: 0.62, loss: 0.36, push: 0.02 } })),
+      registration,
     };
     const first = await runGameBoard(
       board({ ...registeredBoard, protocolRegistrationId: "protocol-one" }),
@@ -239,9 +534,9 @@ describe("shopped prices on a game board", () => {
       home: { win: 0.55, loss: 0.43, push: 0.02 },
     });
     const anchors: unknown[] = [];
-    const source: ModelSource = async (game, cutoff, offer, anchor) => {
+    const source: ModelSource = async ({ game, cutoffAt: cutoff, offer, anchor, evidence }) => {
       anchors.push(anchor);
-      return scripted(game, cutoff, offer);
+      return scripted({ game, cutoffAt: cutoff, offer, anchor, evidence });
     };
     return Object.assign(source, { anchors });
   }

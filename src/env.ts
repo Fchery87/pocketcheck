@@ -4,6 +4,19 @@ const optional = (value: string | undefined) => (value === "" ? undefined : valu
 
 // Server-only. Read through $app/env/private in src/lib/server/config.ts.
 export const variables = defineEnvVars({
+  POCKETCHECK_ACCESS_SECRET: {
+    schema: optional,
+    description: "High-entropy shared sign-in secret. Server-only, never journaled.",
+  },
+  POCKETCHECK_UNSAFE_LAN: {
+    schema: optional,
+    description: "Set to 1 to deliberately allow unauthenticated non-loopback listening.",
+  },
+  POCKETCHECK_RELEASE_ATTESTATION: {
+    schema: optional,
+    description:
+      "Local immutable release attestation file, verified against the configured predictor and complete evidence.",
+  },
   POCKETCHECK_TEST_MODE: {
     schema: optional,
     description: "fixture-browser enables strict offline acceptance verification.",

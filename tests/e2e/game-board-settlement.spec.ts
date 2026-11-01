@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixture.ts";
 import { browserPorts } from "../../scripts/browser-port.ts";
 
 const origin = browserPorts(process.env).origin;
@@ -13,7 +13,7 @@ async function freezeBoard(
   sportsbook: string,
 ) {
   await page.goto("/board");
-  await page.waitForLoadState("networkidle");
+  await expect(page.getByTestId("board-game")).toBeEnabled();
   await page.getByTestId("board-game").selectOption(game);
   await page.getByTestId("board-sportsbook").fill(sportsbook);
   await page.getByTestId("board-observed-at").fill("2026-10-25T11:30");
@@ -32,7 +32,7 @@ test("a final score grades the model pick and a correction regrades it with hist
   const card = page.getByTestId("model-pick-moneyline");
   await expect(card.getByTestId("picked-side")).toHaveText("DAL moneyline +130");
   await expect(card.getByTestId("pick-result")).toContainText("Not settled");
-  await page.waitForLoadState("networkidle");
+  await expect(page.getByTestId("settle-event")).toBeEnabled();
 
   // PHI (home) wins, so the DAL (away) pick loses.
   await page.getByTestId("settle-event").fill("pick-final-dal-phi");
@@ -53,7 +53,7 @@ test("a final score grades the model pick and a correction regrades it with hist
   await page.getByTestId("settle-event").fill("pick-final-dal-phi-corrected");
   await page.getByTestId("settle-home").fill("17");
   await page.getByTestId("settle-away").fill("20");
-  await page.getByTestId("settle-corrects").fill(firstId!.trim());
+  await page.getByTestId("settle-corrects").selectOption(firstId!.trim());
   await page.getByTestId("settle-reason").fill("Official score changed");
   await page.getByTestId("settle-submit").click();
   await expect(card.getByTestId("pick-result")).toHaveText("Won");
@@ -69,7 +69,7 @@ test("a postponed notice leaves the pick unresolved and a reused event is refuse
 }) => {
   await freezeBoard(page, "2026_08_BAL_BUF", "Postponed Book");
   const card = page.getByTestId("model-pick-moneyline");
-  await page.waitForLoadState("networkidle");
+  await expect(page.getByTestId("settle-event")).toBeEnabled();
   await page.getByTestId("settle-event").fill("pick-postponed-bal-buf");
   await page.getByTestId("settle-kind").selectOption("postponed");
   await page.getByTestId("settle-submit").click();

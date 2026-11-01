@@ -97,7 +97,7 @@ it("pins the checked-in fixture forecasting model", () => {
   );
   expect(browserFixtureModel()).toEqual({
     artifact: "tests/fixtures/models/browser-forecasting-model.json",
-    checksum: "a9f3e3e2effcd0317019712ce997ee63229b29221bd589fa8aecd109ecbd976b",
+    checksum: "2572f1c211ce3fb42cf8c5ec81d6b133cd3f1b9ebffe976c25756ca3b6e9b6c2",
     releaseStatus: "unreleased",
     trainingCutoff: "2024-09-22T17:00:00Z",
   });

@@ -35,13 +35,14 @@ export function predictGame(
     marginAnchor?: { mean: number; adjustment: number };
     totalAnchor?: { mean: number; adjustment: number };
   },
+  totalRow: FeatureRow = row,
 ): GameProbabilities {
   const marginMean = anchor?.marginAnchor
     ? anchor.marginAnchor.mean + anchor.marginAnchor.adjustment
     : (anchor?.marginMean ?? predictMean(artifact.margin.model, row));
   const totalMean = anchor?.totalAnchor
     ? anchor.totalAnchor.mean + anchor.totalAnchor.adjustment
-    : (anchor?.totalMean ?? predictMean(artifact.total.model, row));
+    : (anchor?.totalMean ?? predictMean(artifact.total.model, totalRow));
   const marginBins = anchor?.marginAnchor
     ? anchoredMass(
         artifact.margin.residuals,
@@ -64,7 +65,7 @@ export function predictGame(
     total: (line) => totalFromDistribution(totalBins, line),
     drivers: {
       margin: meanContributions(artifact.margin.model, row),
-      total: meanContributions(artifact.total.model, row),
+      total: meanContributions(artifact.total.model, totalRow),
     },
   };
 }
@@ -80,11 +81,13 @@ export function predictWithoutGroup(
   anchor?: { marginMean?: number; totalMean?: number },
 ): GameProbabilities {
   const neutralized = { ...row, features: { ...row.features } };
+  const total = { ...row, features: { ...row.features } };
   for (const feature of features) {
     if (feature in artifact.margin.model.featureMeans) {
       const name = feature as keyof typeof row.features;
       neutralized.features[name] = artifact.margin.model.featureMeans[name];
+      total.features[name] = artifact.total.model.featureMeans[name];
     }
   }
-  return predictGame(artifact, neutralized, anchor);
+  return predictGame(artifact, neutralized, anchor, total);
 }

@@ -11,6 +11,7 @@ import { PROSPECTIVE_PROTOCOL } from "#lib/server/models/release.ts";
 import { parseOffer } from "#lib/domain/offer.ts";
 import { anchorPairOf } from "#lib/domain/board.ts";
 import { quiet, scriptedModel } from "./board-fixtures.ts";
+import { lifecycleInput, exchange } from "./board-explanation-contract.ts";
 
 const NOW = "2026-10-25T16:00:00.000Z";
 const game = loadFixtureGames("tests/fixtures/sources/games-minimized.csv", NOW).find(
@@ -323,6 +324,69 @@ export function describeJournalBackupContract(
   const scope = () => `${name}:${expect.getState().currentTestName ?? "case"}`;
 
   describe(`${name} journal backup`, () => {
+    it(`keeps failed and ambiguous explanation history through ${peer.name} and back`, async () => {
+      const source = await makeStore();
+      const ids: string[] = [];
+      for (const outcome of ["failed", "ambiguous"] as const) {
+        const begun = await source.beginBoard(lifecycleInput(`${scope()}:${outcome}`));
+        if (begun.kind === "conflict") throw new Error(begun.error);
+        const boardId = begun.board.id;
+        ids.push(boardId);
+        await source.completeBoardForecast({
+          boardId,
+          evidence: [],
+          gaps: [],
+          markets: [{ market: "moneyline", noPickReason: "Unavailable" }],
+        });
+        const attemptId = `${scope()}:${outcome}:attempt`;
+        const requestId = `${attemptId}:original`;
+        await source.beginBoardExplanation({
+          boardId,
+          attemptId,
+          drafter: { id: "fixture", modelId: "test" },
+        });
+        await source.reserveBoardExplanationRequest({
+          boardId,
+          attemptId,
+          requestId,
+          role: "original",
+          bodyHash: "a".repeat(64),
+        });
+        if (outcome === "failed") {
+          await source.recordBoardExplanationResponse({ boardId, attemptId, requestId, exchange });
+          await source.finishBoardExplanation({
+            boardId,
+            attemptId,
+            outcome: { kind: "failed", reasons: ["Contradiction"] },
+          });
+        } else {
+          await source.finishBoardExplanation({
+            boardId,
+            attemptId,
+            outcome: { kind: "ambiguous", reason: "No durable response" },
+          });
+        }
+      }
+      const original = await source.exportJournal();
+      expect(original.explanationEvents).toHaveLength(7);
+      const other = await peer.makeStore();
+      await other.restoreJournal(JSON.parse(encodeJournalBackup(original, { secrets: [] })));
+      expect(await other.exportJournal()).toEqual(original);
+      const back = await makeStore();
+      await back.restoreJournal(
+        JSON.parse(encodeJournalBackup(await other.exportJournal(), { secrets: [] })),
+      );
+      expect(await back.exportJournal()).toEqual(original);
+      for (const id of ids) expect(await back.getBoard(id)).toEqual(await source.getBoard(id));
+      const failed = await back.getBoard(ids[0]!);
+      expect(failed?.status).toBe("completed");
+      expect(failed?.usage).toMatchObject({ promptTokens: 2, costUsd: null, partial: true });
+      expect((await back.getBoard(ids[1]!))?.providerOutcomeAmbiguous).toBe(true);
+      const broken = structuredClone(original);
+      broken.explanationEvents![1]!.sequence = 999;
+      await expect(back.restoreJournal(broken)).rejects.toThrow();
+      expect(await back.exportJournal()).toEqual(original);
+    });
     afterEach(() => {
       vi.unstubAllGlobals();
     });

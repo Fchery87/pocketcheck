@@ -18,6 +18,7 @@ import {
   type ModelCatalogEntry,
   type ProviderOptions,
   type ProviderRequestRecord,
+  type ProviderRequestHooks,
   type ThesisPacket,
   type ThesisProvider,
   type UsageRecord,
@@ -289,12 +290,14 @@ export function createChatProvider(input: {
    * One draft and at most one repair, with no provider fallback. Every exchange becomes a
    * request record, including a repair that fails in transit.
    */
-  async function draftJson<Report>(args: {
-    modelId: string;
-    catalog: ModelCatalogEntry[];
-    body: (rejected?: string[]) => string;
-    validate: (value: unknown) => { ok: true; report: Report } | { ok: false; reasons: string[] };
-  }): Promise<DraftCore<Report>> {
+  async function draftJson<Report>(
+    args: ProviderRequestHooks & {
+      modelId: string;
+      catalog: ModelCatalogEntry[];
+      body: (rejected?: string[]) => string;
+      validate: (value: unknown) => { ok: true; report: Report } | { ok: false; reasons: string[] };
+    },
+  ): Promise<DraftCore<Report>> {
     const status = selectionStatus(args.modelId, args.catalog);
     if (status.status !== "available") {
       return failedDraft(args.modelId, {
@@ -310,8 +313,43 @@ export function createChatProvider(input: {
       });
     }
 
-    const first = await complete(args.body());
-    const firstRecord = requestRecord("draft", first);
+    async function exchange(role: ProviderRequestRecord["role"], body: string) {
+      const reserved = await args.beforeRequest?.({ role, body });
+      if (reserved) {
+        const record = reserved.response;
+        if (record.role !== role)
+          throw new Error("Saved provider response role does not match reservation");
+        const result: Exchange =
+          record.outcome === "completed"
+            ? {
+                ok: true,
+                requestId: record.requestId,
+                payload: {
+                  content: typeof record.response === "string" ? record.response : null,
+                  usage: {
+                    promptTokens: record.promptTokens,
+                    completionTokens: record.completionTokens,
+                    totalTokens: record.totalTokens,
+                  },
+                  usageCost: record.costKnown ? record.costUsd : null,
+                },
+              }
+            : {
+                ok: false,
+                requestId: record.requestId,
+                kind: record.outcome === "ambiguous" ? "timeout" : "transport",
+                status: null,
+                message: "Saved provider request did not complete",
+              };
+        return { result, record };
+      }
+      const result = await complete(body);
+      const record = requestRecord(role, result);
+      await args.afterResponse?.(record);
+      return { result, record };
+    }
+
+    const { result: first, record: firstRecord } = await exchange("draft", args.body());
     if (!first.ok) {
       return failedDraft(args.modelId, {
         error: { kind: first.kind, status: first.status, message: first.message },
@@ -340,8 +378,7 @@ export function createChatProvider(input: {
       : validated && !validated.ok
         ? validated.reasons
         : ["malformed report"];
-    const second = await complete(args.body(rejected));
-    const secondRecord = requestRecord("repair", second);
+    const { result: second, record: secondRecord } = await exchange("repair", args.body(rejected));
     if (!second.ok) {
       return failedDraft(args.modelId, {
         repairAttempted: true,
@@ -395,12 +432,16 @@ export function createChatProvider(input: {
     return { ...core, packet: draftInput.packet };
   }
 
-  async function draftPickExplanation(draftInput: {
-    modelId: string;
-    catalog: ModelCatalogEntry[];
-    packet: PickExplanationPacket;
-  }): Promise<DraftPickExplanationResult> {
+  async function draftPickExplanation(
+    draftInput: ProviderRequestHooks & {
+      modelId: string;
+      catalog: ModelCatalogEntry[];
+      packet: PickExplanationPacket;
+    },
+  ): Promise<DraftPickExplanationResult> {
     const core = await draftJson({
+      beforeRequest: draftInput.beforeRequest,
+      afterResponse: draftInput.afterResponse,
       modelId: draftInput.modelId,
       catalog: draftInput.catalog,
       body: (rejected) =>

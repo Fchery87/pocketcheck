@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixture.ts";
 import { browserPorts } from "../../scripts/browser-port.ts";
 
 const THEMES = ["light", "dark"] as const;

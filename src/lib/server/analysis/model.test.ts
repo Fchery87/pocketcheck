@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vite-plus/test";
@@ -12,11 +12,19 @@ import { fitArtifact } from "#lib/server/models/train.ts";
 import type { ScheduledGame } from "#lib/server/sources/contracts.ts";
 import {
   createArtifactForecast,
-  createArtifactModel,
+  createArtifactModel as artifactModel,
   forDisplay,
-  noModel,
+  noModel as unavailableModel,
   quarterbackInjuries,
 } from "./model.ts";
+
+const createArtifactModel = (input: Parameters<typeof artifactModel>[0]) => {
+  const source = artifactModel(input);
+  return (game: ScheduledGame, cutoffAt: string, offer: Offer) =>
+    source({ game, cutoffAt, offer, evidence: [] });
+};
+const noModel = (game: ScheduledGame, cutoffAt: string, offer: Offer) =>
+  unavailableModel({ game, cutoffAt, offer, evidence: [] });
 
 const HEADER =
   "game_id,season,game_type,week,gameday,weekday,gametime,away_team,away_score,home_team,home_score,location,result,total,overtime,old_game_id,gsis,nfl_detail_id,pfr,pff,espn,ftn,away_rest,home_rest,away_moneyline,home_moneyline,spread_line,away_spread_odds,home_spread_odds,total_line,under_odds,over_odds,div_game,roof,surface,temp,wind,away_qb_id,home_qb_id,away_qb_name,home_qb_name,away_coach,home_coach,referee,stadium_id,stadium";
@@ -127,6 +135,62 @@ function saved(name: string, value: ModelArtifact): string {
 }
 
 describe("the model a run uses", () => {
+  it("pins one validated artifact for every side in a submission", async () => {
+    const artifactPath = saved("pinned-submission.json", artifact);
+    const source = artifactModel({ artifactPath, schedulePath });
+    const pinned = source.pin!();
+    unlinkSync(artifactPath);
+    const home = await pinned({
+      game,
+      cutoffAt: CUTOFF,
+      offer: spreadOffer("home", -3),
+      evidence: [],
+    });
+    const away = await pinned({
+      game,
+      cutoffAt: CUTOFF,
+      offer: spreadOffer("away", 3),
+      evidence: [],
+    });
+    expect(home.status).toBe("computed");
+    expect(away.status).toBe("computed");
+    expect(pinned.identity?.checksum).toBe(artifact.checksum);
+    if (home.status === "computed" && away.status === "computed") {
+      expect(home.artifact.checksum).toBe(away.artifact.checksum);
+      expect(home.forecast?.probabilities.win).toBeCloseTo(away.forecast!.probabilities.loss, 10);
+    }
+  });
+  it("freezes evidence once and extracts the same probabilities after the artifact disappears", async () => {
+    const artifactPath = saved("single-calculation.json", artifact);
+    const offer = spreadOffer("home", -3);
+    const request = {
+      game,
+      cutoffAt: CUTOFF,
+      offer,
+      evidence: [
+        {
+          id: "weather",
+          sourceId: "manual",
+          url: null,
+          retrievedAt: CUTOFF,
+          publishedAt: "2024-12-07T11:00:00.000Z",
+          origin: "manual" as const,
+          facts: { wind: "18 mph", temperatureF: 42, precipitationChancePercent: 30 },
+          excerpt: null,
+          checksum: null,
+          factKey: "weather:kickoff",
+        },
+      ],
+    };
+    const result = await artifactModel({ artifactPath, schedulePath })(request);
+    if (result.status !== "computed") throw new Error(result.reason);
+    expect(result.forecast?.probabilities).toEqual(result.probabilities);
+    expect(result.forecast?.uncertainty).toEqual(result.uncertainty);
+    expect(result.forecast?.weather?.snapshot).toMatchObject({ windMph: 18, temperatureF: 42 });
+    unlinkSync(artifactPath);
+    const extracted = await createArtifactForecast({ artifactPath, schedulePath })(request, result);
+    expect(extracted).toBe(result.forecast);
+  });
   it("says no model is configured by default", async () => {
     expect(await noModel(game, CUTOFF, spreadOffer("home", -3))).toEqual({
       status: "unavailable",
@@ -301,13 +365,13 @@ describe("the model a run uses", () => {
     expect(win + loss + push).toBeCloseTo(1, 10);
     expect(result.artifact).toEqual({
       checksum: artifact.checksum,
-      version: 6,
+      version: artifact.version,
       trainingCutoff: artifact.trainingCutoff,
       releaseStatus: "unreleased",
       releasedMarkets: [],
     });
     expect(result.eligible).toBe(false);
-    expect(result.reason).toMatch(/Unreleased/);
+    expect(result.reason).toMatch(/Unreleased|attestation/);
     expect(result.protocol).toMatchObject({
       id: "prospective-2026-10-26",
       role: "independent",
@@ -319,7 +383,7 @@ describe("the model a run uses", () => {
     const forecast = await createArtifactForecast({
       artifactPath: path,
       schedulePath,
-    })(game, CUTOFF, spreadOffer("home", -3), result);
+    })({ game, cutoffAt: CUTOFF, offer: spreadOffer("home", -3), evidence: [] }, result);
     // 2024 depth charts carry no timestamp, so each starter is the team's most frequent recent one.
     for (const side of ["home", "away"] as const) {
       expect(forecast?.starters[side]).toMatchObject({
@@ -352,7 +416,7 @@ describe("the model a run uses", () => {
     }
   });
 
-  it("is eligible only for a market released by the prospective protocol", async () => {
+  it("does not authorize release from mutable released-market labels alone", async () => {
     const { checksum: _checksum, ...body } = artifact;
     const releasedFor = (market: "moneyline" | "spread") =>
       withChecksum({ ...body, releaseStatus: "released-experimental", releasedMarkets: [market] });
@@ -362,7 +426,7 @@ describe("the model a run uses", () => {
     })(game, CUTOFF, spreadOffer("home", -3));
     expect(spread).toMatchObject({
       status: "computed",
-      eligible: true,
+      eligible: false,
       protocol: { id: "prospective-2026-10-26" },
     });
     const moneylineOnly = await createArtifactModel({

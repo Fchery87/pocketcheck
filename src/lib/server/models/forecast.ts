@@ -47,7 +47,7 @@ export type ProspectiveForecast = {
   version: typeof FORECAST_RECORD_VERSION;
   decisionCutoff: string;
   inputAvailability: typeof INPUT_AVAILABILITY;
-  artifact: { checksum: string; version: ModelArtifact["version"] };
+  artifact: { checksum: string; version: number };
   features: FeatureRow["features"];
   featureVersion: typeof FORECAST_RECORD_VERSION;
   starters: { home: StarterAssumption; away: StarterAssumption };
@@ -186,7 +186,9 @@ export function freezeProspectiveForecast(input: ForecastInputs): ProspectiveFor
   const anchor = anchorFromQuote(
     input.offer.market,
     { sportsbook: input.offer.sportsbook, ...input.anchorQuote },
-    input.artifact.margin.residuals,
+    input.offer.market === "total"
+      ? input.artifact.total.residuals
+      : input.artifact.margin.residuals,
   );
   const unanchored = predictGame(input.artifact, row);
   const adjustment = input.offer.market === "total" ? unanchored.totalMean : unanchored.marginMean;

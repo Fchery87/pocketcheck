@@ -20,7 +20,7 @@ try {
   }
   if (args.length !== 4)
     throw new Error(
-      "Usage: model:release <artifact> <journal-v1.json> <protocol.json> <new-artifact>",
+      "Usage: model:release <artifact> <journal-v1.json> <protocol.json> <new-attestation>",
     );
   const journalPath = args[1]!;
   const protocolPath = args[2]!;

@@ -137,7 +137,7 @@ function isModelArtifact(value: unknown): value is ModelArtifact {
   const artifact = record(value, "artifact");
   requireValue(artifact.kind === "pocketcheck-baseline", "artifact.kind", "unsupported model kind");
   requireValue(
-    artifact.version === 6,
+    artifact.version === 7,
     "artifact.version",
     `version ${String(artifact.version)} is not supported. Refit required: run npm run model:fit`,
   );

@@ -344,7 +344,12 @@ describe("thesis drafting", () => {
       { market: "spread" as const, selection: "home" as const, pointLine: -7.5 },
       { market: "total" as const, selection: "under" as const, pointLine: 45.5 },
     ]) {
-      const offer = parseOffer({ ...thesisOffer, ...terms });
+      const offer = parseOffer({
+        ...thesisOffer,
+        ...terms,
+        pointLine: "pointLine" in terms ? terms.pointLine : undefined,
+        opposing: thesisOffer.opposing ?? undefined,
+      });
       const input = buildThesisPacket({ ...packet(), offer, gaps: ["Lineup unavailable"] });
       let attempts = 0;
       const { provider, calls } = providerWith(() =>
@@ -441,6 +446,7 @@ describe("thesis drafting", () => {
       packet(),
     );
     expect(invented.ok).toBe(false);
+    if (invented.ok) throw new Error("Invented evidence unexpectedly passed validation");
     expect(invented.reasons.join(" ")).toMatch(/ev-missing/);
 
     const probability = validateThesisReport(
@@ -459,6 +465,7 @@ describe("thesis drafting", () => {
       packet(),
     );
     expect(probability.ok).toBe(false);
+    if (probability.ok) throw new Error("Invented probability unexpectedly passed validation");
     expect(probability.reasons.join(" ")).toMatch(/probabilit/i);
   });
 

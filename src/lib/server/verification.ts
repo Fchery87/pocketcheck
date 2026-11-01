@@ -4,7 +4,7 @@ import { artifactChecksum } from "./models/artifact.ts";
 /** Checked-in deterministic forecasting model. Fitted from tests/model/fixtures/synthetic-games.json. */
 const FIXTURE_MODEL = {
   artifact: "tests/fixtures/models/browser-forecasting-model.json",
-  checksum: "a9f3e3e2effcd0317019712ce997ee63229b29221bd589fa8aecd109ecbd976b",
+  checksum: "2572f1c211ce3fb42cf8c5ec81d6b133cd3f1b9ebffe976c25756ca3b6e9b6c2",
   releaseStatus: "unreleased",
   trainingCutoff: "2024-09-22T17:00:00Z",
 } as const;
@@ -17,6 +17,7 @@ export const browserFixture = {
   POCKETCHECK_INJURY_CSV: "tests/fixtures/sources/injuries-2026-live-sample.csv",
   POCKETCHECK_WEATHER: "off",
   POCKETCHECK_MODEL_ARTIFACT: FIXTURE_MODEL.artifact,
+  POCKETCHECK_RELEASE_ATTESTATION: "",
   DATABASE_URL: "",
   THECLAWBAY_API_KEY: "",
   DEEPSEEK_API_KEY: "",

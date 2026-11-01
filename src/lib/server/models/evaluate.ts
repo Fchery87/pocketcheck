@@ -1,6 +1,6 @@
 import { americanToDecimal, expectedValue, proportionalMargin } from "../../domain/odds.ts";
 import { VALUE_THRESHOLD } from "../../domain/threshold.ts";
-import { anchorFromQuote, marginFromHomeLine } from "./anchor.ts";
+import { anchorFromQuote } from "./anchor.ts";
 import type { ModelArtifact } from "./artifact.ts";
 import type { SideProbability } from "./distribution.ts";
 import type { FeatureRow } from "./features.ts";
@@ -206,7 +206,18 @@ export function scoreHoldout(
           artifact.margin.residuals,
         ).mean
       : null;
-    const totalAnchor = prices?.total?.line ?? null;
+    const totalAnchor = prices?.total
+      ? anchorFromQuote(
+          "total",
+          {
+            sportsbook: "close",
+            line: prices.total.line,
+            homeAmerican: prices.total.over.american,
+            awayAmerican: prices.total.under.american,
+          },
+          artifact.total.residuals,
+        ).mean
+      : null;
     const predicted =
       marginAnchor === null && totalAnchor === null
         ? predictedRaw
@@ -242,7 +253,17 @@ export function scoreHoldout(
     });
     if (prices?.spread) {
       const spread = predict(artifact, row, {
-        marginMean: marginFromHomeLine(prices.spread.line) + predictedRaw.marginMean,
+        marginMean:
+          anchorFromQuote(
+            "spread",
+            {
+              sportsbook: "close",
+              line: prices.spread.line,
+              homeAmerican: prices.spread.home.american,
+              awayAmerican: prices.spread.away.american,
+            },
+            artifact.margin.residuals,
+          ).mean + predictedRaw.marginMean,
       }).spread(prices.spread.line).home;
       forecasts.push({
         gameId: game.id,

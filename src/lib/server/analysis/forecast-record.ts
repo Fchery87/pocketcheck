@@ -3,6 +3,7 @@ import type { UncertaintyAssessment } from "../models/uncertainty.ts";
 import type { StarterAssumption } from "../models/forecast.ts";
 import type { WeatherAdjustment } from "../models/forecast.ts";
 import type { MeanContributions } from "../models/fit.ts";
+import type { AnchorLine } from "../models/anchor.ts";
 
 export const FORECAST_PROVENANCE = {
   captured: "captured",
@@ -25,10 +26,15 @@ export type SavedForecast = {
   protocolRegistrationId?: string;
   features: Record<string, number>;
   starters: { home: StarterAssumption; away: StarterAssumption };
-  marketEligibility: { market: "moneyline" | "spread" | "total"; eligible: boolean };
+  marketEligibility: {
+    market: "moneyline" | "spread" | "total";
+    eligible: boolean;
+    attestationChecksum?: string;
+  };
   probabilities: OutcomeProbabilities;
   uncertainty: UncertaintyAssessment;
   policyVersion: string;
+  anchor?: AnchorLine;
   /**
    * What moved the predicted margin (moneyline, spread) and total, in points. Absent on
    * forecasts frozen before drivers were recorded.

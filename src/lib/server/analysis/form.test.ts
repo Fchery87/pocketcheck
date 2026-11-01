@@ -8,8 +8,8 @@ import {
 } from "#lib/server/analysis/form.ts";
 
 describe("observed time input", () => {
-  it("reads a browser datetime-local value as this computer's local time", () => {
-    expect(parseObservedAt("2026-10-25T11:30")).toBe(new Date(2026, 9, 25, 11, 30).toISOString());
+  it("reads a browser datetime-local value in America/New_York", () => {
+    expect(parseObservedAt("2026-10-25T11:30")).toBe("2026-10-25T15:30:00.000Z");
   });
 
   it("accepts a full ISO timestamp unchanged in meaning", () => {
@@ -82,6 +82,22 @@ describe("parseRefreshContract", () => {
     };
   }
 
+  it("parses the opposing price on the mirrored refreshed spread contract", () => {
+    const parsed = parseRefreshContract(fields({ opposingAmericanOdds: "-115" }), parent);
+    expect(parsed).toMatchObject({
+      ok: true,
+      contract: {
+        opposing: {
+          sportsbook: "Other Book",
+          pointLine: 2.5,
+          americanOdds: -115,
+          observedAt: "2026-10-25T15:50:00.000Z",
+        },
+      },
+    });
+    expect(parseRefreshContract(fields({ opposingAmericanOdds: "bad" }), parent).ok).toBe(false);
+  });
+
   it("accepts a changed line, book, odds, and observation time while keeping the parent market and selection", () => {
     const parsed = parseRefreshContract(fields(), parent);
     expect(parsed.ok).toBe(true);
@@ -92,7 +108,7 @@ describe("parseRefreshContract", () => {
       pointLine: -2.5,
       sportsbook: "Other Book",
       americanOdds: -105,
-      observedAt: new Date(2026, 9, 25, 11, 50).toISOString(),
+      observedAt: "2026-10-25T15:50:00.000Z",
       tieRule: undefined,
     });
   });
@@ -174,7 +190,7 @@ describe("parseManualEvidence", () => {
       {
         text: "",
         url: "https://example.test/only-a-link",
-        sourceTime: new Date(2026, 9, 25, 9, 15).toISOString(),
+        sourceTime: "2026-10-25T13:15:00.000Z",
       },
     ]);
   });

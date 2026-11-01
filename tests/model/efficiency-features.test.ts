@@ -296,7 +296,7 @@ describe("play-by-play join", () => {
   });
 
   it("attaches both sides, defense as what the opponent was held to", () => {
-    const [game] = attachEfficiency(
+    const [game] = attachEfficiency<CompletedGame>(
       [{ ...played(1, "AAA", "BBB"), id: "G1", efficiency: undefined, homeQb: "qa", awayQb: "qb" }],
       read,
     );

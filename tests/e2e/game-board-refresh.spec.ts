@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixture.ts";
 
 test.beforeEach(async ({ request }) => {
   const response = await request.get("/__verification");
@@ -8,7 +8,7 @@ test.beforeEach(async ({ request }) => {
 
 async function freezeParent(page: Page, book: string) {
   await page.goto("/board");
-  await page.waitForLoadState("networkidle");
+  await expect(page.getByTestId("board-game")).toBeEnabled();
   await page.getByTestId("board-game").selectOption("2026_07_DAL_PHI");
   await page.getByTestId("board-sportsbook").fill(book);
   await page.getByTestId("board-observed-at").fill("2026-10-25T11:30");
@@ -28,7 +28,6 @@ test("refreshing a game board links a child to its unchanged parent", async ({ p
   const parentTotal = await page.getByTestId("model-pick-total").innerText();
 
   await page.getByTestId("refresh-board").click();
-  await page.waitForLoadState("networkidle");
   await expect(page.getByTestId("board-sportsbook")).toHaveValue("Refresh Parent Book");
   await expect(page.getByTestId("moneyline-home")).toHaveValue("-150");
   await expect(page.getByTestId("total-line")).toHaveValue("44.5");
@@ -63,7 +62,7 @@ test("refreshing a game board links a child to its unchanged parent", async ({ p
 test("a rejected refresh keeps every typed value and stays a refresh", async ({ page }) => {
   await freezeParent(page, "Rejected Refresh Book");
   await page.getByTestId("refresh-board").click();
-  await page.waitForLoadState("networkidle");
+  await expect(page.getByTestId("moneyline-home")).toBeEnabled();
   await page.getByTestId("moneyline-home").fill("-50");
   await page.getByTestId("freeze-board").click();
   await expect(page.getByTestId("board-error")).toBeVisible();

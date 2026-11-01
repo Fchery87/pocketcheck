@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { networkInterfaces } from "node:os";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixture.ts";
 import { browserFixture } from "../../src/lib/server/verification.ts";
 import { verificationEnv } from "../../scripts/verification-env.ts";
 import { browserPorts } from "../../scripts/browser-port.ts";
@@ -97,7 +97,11 @@ test("the opt-in network run warns and accepts forms from its network origin", a
   let started: Started | undefined;
   const request = await playwright.request.newContext({ baseURL: `http://127.0.0.1:${port}` });
   try {
-    started = await startServer({ HOST: "0.0.0.0", PORT: String(port) });
+    started = await startServer({
+      HOST: "0.0.0.0",
+      PORT: String(port),
+      POCKETCHECK_UNSAFE_LAN: "1",
+    });
     // stderr and stdout are separate pipes, so the warning may arrive just after "Listening".
     const log = started;
     await expect.poll(() => log.stderr).toContain("no login");
@@ -134,6 +138,7 @@ test("the Node command refuses a host name it does not know", async ({ playwrigh
       HOST: "0.0.0.0",
       PORT: String(port),
       ALLOWED_HOSTS: "pocketcheck.local",
+      POCKETCHECK_UNSAFE_LAN: "1",
     });
     expect(started.stdout).toContain("pocketcheck.local");
 

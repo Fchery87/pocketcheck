@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { explainBoard } from "./board-explain.ts";
 import {
   BoardError,
   parseGameBoard,
@@ -10,7 +11,12 @@ import {
 } from "#lib/domain/board.ts";
 import type { Market, Offer } from "#lib/domain/offer.ts";
 import type { ScheduledGame } from "../sources/contracts.ts";
-import type { FrozenMarketResult, GameBoard, GameBoardStore } from "./board-store.ts";
+import {
+  BoardBeginError,
+  type FrozenMarketResult,
+  type GameBoard,
+  type GameBoardStore,
+} from "./board-store.ts";
 import type { PickDrafter } from "../providers/contracts.ts";
 import { createFixtureDrafter } from "./fixture-drafter.ts";
 import {
@@ -26,13 +32,7 @@ import { validateProtocolRegistration, type ProtocolRegistration } from "../mode
 import { calculateModelPick } from "./model-pick.ts";
 import type { AnchorQuote } from "../models/anchor.ts";
 import { redactText } from "./redact.ts";
-import {
-  combineProviderUsage,
-  providerRequestsOf,
-  snapshot,
-  type ForecastSource,
-  type ManualEvidenceInput,
-} from "./run.ts";
+import { snapshot, type ForecastSource, type ManualEvidenceInput } from "./run.ts";
 import type { PrivateLean } from "./store.ts";
 import { createManualEvidence } from "../sources/manual.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
@@ -77,10 +77,7 @@ export type GameBoardOutcome =
 
 type Computed = Extract<RunModel, { status: "computed" }>;
 
-async function price(
-  model: ModelSource,
-  request: ForecastRequest,
-): Promise<RunModel> {
+async function price(model: ModelSource, request: ForecastRequest): Promise<RunModel> {
   try {
     return await model(request);
   } catch (error) {
@@ -124,14 +121,18 @@ async function pickMarket(input: {
   model: ModelSource;
   forecast?: ForecastSource;
   evidence: EvidenceItem[];
-  pinned?: RunModel[];
+  registration?: ProtocolRegistration;
 }): Promise<FrozenMarketResult> {
   const { market, offers, game, nowIso } = input;
   const anchor = anchorQuoteOf(input.pricing);
-  const requests = offers.map((offer): ForecastRequest => ({ game, cutoffAt: nowIso, offer, evidence: input.evidence, anchor }));
-  const priced = input.pinned ?? await Promise.all(
-    requests.map((request) => price(input.model, request)),
-  );
+  const requests = offers.map((offer): ForecastRequest => ({
+    game,
+    cutoffAt: nowIso,
+    offer,
+    evidence: input.evidence,
+    anchor,
+  }));
+  const priced = await Promise.all(requests.map((request) => price(input.model, request)));
   const [first, second] = priced;
   if (first!.status !== "computed") return { market, noPickReason: first!.reason };
   if (second!.status !== "computed") return { market, noPickReason: second!.reason };
@@ -145,12 +146,21 @@ async function pickMarket(input: {
   if (leaked) return { market, noPickReason: leaked };
   // Each side is priced by its frozen forecast when one is configured, so the side is chosen with
   // the same starters, injuries, and anchor that are recorded with the pick.
-  const forecasts = await Promise.all(requests.map(async (request, index) => {
-    const result = priced[index]!;
-    return result.status === "computed" && result.forecast
-      ? result.forecast
-      : input.forecast ? input.forecast(request, result) : null;
-  }));
+  const forecasts = await Promise.all(
+    requests.map(async (request, index) => {
+      const result = priced[index]!;
+      return result.status === "computed" && result.forecast
+        ? result.forecast
+        : input.forecast
+          ? input.forecast(request, result)
+          : null;
+    }),
+  );
+  if (input.registration) {
+    for (const saved of forecasts) {
+      if (saved) saved.protocolRegistrationId = input.registration.id;
+    }
+  }
   if (input.forecast && (forecasts[0] === null || forecasts[1] === null)) {
     return {
       market,
@@ -278,6 +288,7 @@ export async function runGameBoard(
     drafter = createFixtureDrafter(),
   }: GameBoardDependencies,
 ): Promise<GameBoardOutcome> {
+  model = model.pin?.() ?? model;
   if (gameHasStarted(request.game, request.nowIso)) {
     return { ok: false, error: "The game has already started" };
   }
@@ -357,8 +368,6 @@ export async function runGameBoard(
     leanText || leanRationale ? { text: leanText, rationale: leanRationale } : parentLean;
 
   const scheduleRetrievedAt = request.scheduleRetrievedAt ?? request.nowIso;
-  let gatheredBeforeBegin: Awaited<ReturnType<typeof gatherEvidence>> | undefined;
-  const pinned = new Map<Market, RunModel[]>();
   if (request.protocolRegistrationId) {
     try {
       if (!registration || registration.id !== request.protocolRegistrationId) {
@@ -366,32 +375,34 @@ export async function runGameBoard(
       }
       validateProtocolRegistration(registration);
       const protocol = registration.protocol;
-      if (cutoff <= Date.parse(registration.registeredAt) || cutoff < Date.parse(protocol.period.start) ||
-          (protocol.period.end !== null && cutoff >= Date.parse(protocol.period.end)) ||
-          markets.some((entry) => !protocol.markets.includes(entry.market))) {
-        throw new Error("The board must be after registration and within the evaluation period for every entered market.");
+      if (
+        cutoff <= Date.parse(registration.registeredAt) ||
+        cutoff < Date.parse(protocol.period.start) ||
+        (protocol.period.end !== null && cutoff >= Date.parse(protocol.period.end)) ||
+        markets.some((entry) => !protocol.markets.includes(entry.market))
+      ) {
+        throw new Error(
+          "The board must be after registration and within the evaluation period for every entered market.",
+        );
       }
-      gatheredBeforeBegin = await gatherEvidence({ game: request.game, nowIso: request.nowIso, scheduleRetrievedAt, collect, carried, manual });
-      for (const entry of markets) {
-        const results = await Promise.all(entry.offers.map((offer) => price(model, {
-          game: request.game, cutoffAt: request.nowIso, offer,
-          evidence: gatheredBeforeBegin!.items, anchor: anchorQuoteOf(entry.pricing),
-        })));
-        for (const result of results) {
-          if (result.status !== "computed") throw new Error(result.reason);
-          const saved = result.forecast;
-          if (result.artifact.checksum !== protocol.artifactChecksum || !saved ||
-              saved.artifact.checksum !== protocol.artifactChecksum ||
-              saved.inputAvailability.version !== protocol.inputAvailability ||
-              saved.decisionCutoff !== request.nowIso || leakReason(result, request.game, request.nowIso)) {
-            throw new Error("This forecasting artifact or input availability does not match the selected evaluation registration.");
-          }
-          result.forecast = { ...saved, protocolRegistrationId: registration.id };
-        }
-        pinned.set(entry.market, results);
+      const identity = model.identity;
+      if (
+        !identity ||
+        identity.checksum !== protocol.artifactChecksum ||
+        identity.inputAvailability !== protocol.inputAvailability ||
+        Date.parse(identity.trainingCutoff) > cutoff ||
+        Date.parse(identity.trainingCutoff) >= Date.parse(request.game.kickoff)
+      ) {
+        throw new Error(
+          "This forecasting artifact or input availability does not match the selected evaluation registration.",
+        );
       }
     } catch (error) {
-      return { ok: false, field: "protocolRegistrationId", error: redactText(error instanceof Error ? error.message : String(error)) };
+      return {
+        ok: false,
+        field: "protocolRegistrationId",
+        error: redactText(error instanceof Error ? error.message : String(error)),
+      };
     }
   }
   const identity = {
@@ -400,6 +411,7 @@ export async function runGameBoard(
     lean,
     game: snapshot(request.game),
     parentId: request.parentId ?? null,
+    lifecycleFormat: "forecast-first-v1" as const,
     explanationFormatVersion: 2 as const,
     ...(request.protocolRegistrationId
       ? { protocolRegistrationId: request.protocolRegistrationId }
@@ -414,25 +426,26 @@ export async function runGameBoard(
   let begun;
   try {
     begun = await store.beginBoard({
-    request: {
-      id: request.requestId ?? randomUUID(),
-      hash,
-      explanationFormatVersion: 2,
-      ...(request.protocolRegistrationId
-        ? { protocolRegistrationId: request.protocolRegistrationId }
-        : {}),
-    },
-    parentId: identity.parentId,
-    game: identity.game,
-    sportsbook: request.sportsbook,
-    observedAt: request.observedAt,
-    cutoffAt: request.nowIso,
-    markets,
-    lean,
-    drafter: { id: drafter.id, modelId: drafter.modelId },
+      request: {
+        id: request.requestId ?? randomUUID(),
+        hash,
+        lifecycleFormat: "forecast-first-v1",
+        explanationFormatVersion: 2,
+        ...(request.protocolRegistrationId
+          ? { protocolRegistrationId: request.protocolRegistrationId }
+          : {}),
+      },
+      parentId: identity.parentId,
+      game: identity.game,
+      sportsbook: request.sportsbook,
+      observedAt: request.observedAt,
+      cutoffAt: request.nowIso,
+      markets,
+      lean,
+      drafter: { id: drafter.id, modelId: drafter.modelId },
     });
   } catch (error) {
-    if (error instanceof Error && error.name === "BoardBeginError") {
+    if (error instanceof BoardBeginError) {
       return { ok: false, field: "protocolRegistrationId", error: error.message };
     }
     throw error;
@@ -440,6 +453,8 @@ export async function runGameBoard(
   if (begun.kind === "conflict") return { ok: false, error: begun.error };
   if (begun.kind === "existing") {
     const board = begun.board;
+    if (board.request.lifecycleFormat && board.status === "completed")
+      return explainBoard(store, board, drafter);
     if (board.status === "completed") return { ok: true, board };
     if (board.status !== "failed") {
       // A saved provider response is finalized without another paid request.
@@ -456,9 +471,9 @@ export async function runGameBoard(
   }
 
   const boardId = begun.board.id;
-  let durableSaved = false;
+  let forecastCompleted = false;
   try {
-    const gathered = gatheredBeforeBegin ?? await gatherEvidence({
+    const gathered = await gatherEvidence({
       game: request.game,
       nowIso: request.nowIso,
       scheduleRetrievedAt,
@@ -478,7 +493,7 @@ export async function runGameBoard(
         model,
         forecast,
         evidence: gathered.items,
-        pinned: pinned.get(entry.market),
+        registration,
       });
       results.push(
         picked.pick
@@ -492,51 +507,22 @@ export async function runGameBoard(
           : picked,
       );
     }
-    const frozen = await store.freezeModelPicks({
+    const frozen = await store.completeBoardForecast({
       boardId,
       evidence: gathered.items,
       gaps: gathered.gaps,
       markets: results,
     });
-    const packet = packetOf(frozen);
-    if (packet.picks.length === 0) {
-      const board = await store.finishBoard({
-        boardId,
-        status: "completed",
-        failureReason: null,
-      });
-      return { ok: true, board };
-    }
-
-    const drafted = await drafter.draftPickExplanation({
-      modelId: drafter.modelId,
-      catalog: [],
-      packet,
-    });
-    const providerRequests = providerRequestsOf(drafted);
-    const ambiguous = providerRequests.some((item) => item.outcome === "ambiguous");
-    const withDraft = await store.saveBoardDraft({
-      boardId,
-      providerRequests,
-      providerOutcomeAmbiguous: ambiguous,
-      usage: combineProviderUsage(providerRequests),
-    });
-    durableSaved = durableExplanation(withDraft) !== null;
-    if (ambiguous || drafted.draftingFailed || !drafted.report) {
-      const reason = ambiguous
-        ? AMBIGUOUS
-        : redactText(drafted.error?.message ?? "The drafter returned no explanation.");
-      const board = await store.finishBoard({
-        boardId,
-        status: "failed",
-        failureReason: reason,
-      });
-      return { ok: false, error: reason, board };
-    }
-    return await finishWithExplanation(store, withDraft, drafted.report);
+    forecastCompleted = true;
+    return await explainBoard(store, frozen, drafter);
   } catch (error) {
     // A saved provider response survives for a retry with the same submission identifier.
-    if (durableSaved) throw error;
+    if (forecastCompleted)
+      return {
+        ok: false,
+        error: redactText(error instanceof Error ? error.message : String(error)),
+        board: (await store.getBoard(boardId))!,
+      };
     const reason = redactText(error instanceof Error ? error.message : String(error));
     const board = await store.finishBoard({
       boardId,

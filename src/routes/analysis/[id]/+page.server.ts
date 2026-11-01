@@ -65,7 +65,9 @@ export const actions = {
       sportsbook: field("sportsbook").trim() || parent.offer.sportsbook,
       pointLine: field("pointLine"),
       americanOdds: field("americanOdds"),
+      opposingAmericanOdds: field("opposingAmericanOdds"),
       observedAt: field("observedAt"),
+      timeOccurrence: field("timeOccurrence"),
       market: field("market") || parent.offer.market,
       selection: field("selection") || parent.offer.selection,
     };
@@ -100,6 +102,7 @@ export const actions = {
         pointLine: parsed.contract.pointLine,
         americanOdds: parsed.contract.americanOdds,
         observedAt: parsed.contract.observedAt,
+        opposing: parsed.contract.opposing,
         tieRule: parsed.contract.tieRule,
         lean: parent.lean?.text,
         rationale: parent.lean?.rationale,

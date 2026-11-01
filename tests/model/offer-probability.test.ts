@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
+import type { Offer, TieRule } from "../../src/lib/domain/offer.ts";
 import type { MassBin } from "../../src/lib/server/models/distribution.ts";
 import {
   moneylineFromMargin,
@@ -25,6 +26,10 @@ const predicted: GameProbabilities = {
   gameId: "g",
   marginMean: 3,
   totalMean: 44,
+  drivers: {
+    margin: { intercept: 3, contributions: [] },
+    total: { intercept: 44, contributions: [] },
+  },
   marginBins,
   totalBins,
   moneyline: moneylineFromMargin(marginBins),
@@ -34,10 +39,22 @@ const predicted: GameProbabilities = {
 
 const offer = (
   market: "moneyline" | "spread" | "total",
-  selection: string,
+  selection: Offer["selection"],
   pointLine: number | null,
-  tie: string | null = null,
-) => ({ market, selection, pointLine, rules: { tie } }) as Parameters<typeof offerProbabilities>[1];
+  tie: TieRule | null = null,
+): Offer => ({
+  gameId: "g",
+  sportsbook: "Book",
+  market,
+  selection,
+  pointLine,
+  americanOdds: -110,
+  decimalOdds: 1.9090909090909092,
+  observedAt: "2024-09-28T16:00:00Z",
+  kickoffAt: "2024-09-29T17:00:00Z",
+  opposing: null,
+  rules: { period: "full-game", overtime: "included", tie },
+});
 
 describe("probabilities for the recorded offer", () => {
   it("settles a moneyline tie by the offer's tie rule", () => {

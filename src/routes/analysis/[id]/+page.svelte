@@ -17,34 +17,7 @@
     (report?.missingInputs ?? []).filter((note) => !run.gaps.includes(note)),
   );
   const published = (at: string) => (at === "unknown" ? "unknown" : easternTime(at));
-  const submitRefresh = (event: Event) => {
-    event.preventDefault();
-    const target = event.currentTarget;
-    const form =
-      target instanceof HTMLFormElement
-        ? target
-        : target instanceof HTMLButtonElement
-          ? target.form
-          : null;
-    if (!form || form.dataset.submitting === "true" || !form.reportValidity()) return;
-    form.dataset.submitting = "true";
-    const odds = form.querySelector<HTMLInputElement>('[data-testid="refresh-odds"]');
-    const observed = form.querySelector<HTMLInputElement>('[data-testid="refresh-observed-at"]');
-    const line = form.querySelector<HTMLInputElement>('[data-testid="refresh-line"]');
-    const book = form.querySelector<HTMLInputElement>('[data-testid="refresh-book"]');
-    const copy = (display: HTMLInputElement | null, name: string) => {
-      const submitted = form.elements.namedItem(name);
-      if (display && submitted instanceof HTMLInputElement) submitted.value = display.value;
-    };
-    copy(odds, "americanOdds");
-    copy(observed, "observedAt");
-    copy(line, "pointLine");
-    copy(book, "sportsbook");
-    const button = form.querySelector<HTMLButtonElement>('[data-testid="refresh"]');
-    if (button) button.disabled = true;
-    form.querySelector<HTMLElement>('[data-testid="submission-pending"]')?.removeAttribute("hidden");
-    window.setTimeout(() => HTMLFormElement.prototype.submit.call(form), 50);
-  };
+  let refreshForm: HTMLFormElement | undefined = $state();
 
   // The frozen stamp animates once, right after the analysis was frozen.
   let justFrozen = $state(false);
@@ -57,6 +30,14 @@
     }
   });
 </script>
+
+<svelte:window onpageshow={() => {
+  if (!refreshForm) return;
+  delete refreshForm.dataset.submitting;
+  const button = refreshForm.querySelector<HTMLButtonElement>('[data-testid="refresh"]');
+  if (button) button.disabled = false;
+  refreshForm.querySelector<HTMLElement>('[data-testid="submission-pending"]')?.setAttribute("hidden", "");
+}} />
 
 <main class="pc-page pc-report">
   <h1 class="pc-report-title">
@@ -389,10 +370,21 @@
   </ol>
 
   <form
+    bind:this={refreshForm}
     method="POST"
     action="?/refresh"
     class="pc-form pc-refresh"
-    onsubmit={submitRefresh}
+    onsubmit={(event) => {
+      const target = event.currentTarget;
+      if (target.dataset.submitting === "true") {
+        event.preventDefault();
+        return;
+      }
+      target.dataset.submitting = "true";
+      const button = target.querySelector<HTMLButtonElement>('[data-testid="refresh"]');
+      if (button) button.disabled = true;
+      target.querySelector<HTMLElement>('[data-testid="submission-pending"]')?.removeAttribute("hidden");
+    }}
   >
     <input
       type="hidden"
@@ -404,10 +396,6 @@
       name="scheduleRetrievedAt"
       value={refreshValue("scheduleRetrievedAt", data.refreshScheduleRetrievedAt)}
     />
-    <input type="hidden" name="americanOdds" value={run.offer.americanOdds} />
-    <input type="hidden" name="observedAt" value={data.refreshObservedDefault} />
-    <input type="hidden" name="pointLine" value={run.offer.pointLine ?? ""} />
-    <input type="hidden" name="sportsbook" value={run.offer.sportsbook} />
     <input type="hidden" name="market" value={run.offer.market} />
     <input type="hidden" name="selection" value={run.offer.selection} />
     <p role="status" data-testid="submission-pending" hidden>Saving your new attempt…</p>
@@ -418,7 +406,7 @@
     <label>
       Sportsbook
       <input
-        name="displaySportsbook"
+        name="sportsbook"
         value={refreshValue("sportsbook", run.offer.sportsbook)}
         required
         data-testid="refresh-book"
@@ -428,7 +416,7 @@
       <label>
         {run.offer.market === "spread" ? "Selected-side line" : "Total line"}
         <input
-          name="displayPointLine"
+          name="pointLine"
           value={refreshValue("pointLine", run.offer.pointLine ?? "")}
           required
           inputmode="decimal"
@@ -444,22 +432,30 @@
     <label>
       American odds
       <input
-        name="displayAmericanOdds"
+        name="americanOdds"
         value={refreshValue("americanOdds", run.offer.americanOdds)}
         required
         data-testid="refresh-odds"
       />
     </label>
     <label>
-      When you saw the new price
+      When you saw the new price (America/New_York)
       <input
         type="datetime-local"
-        name="displayObservedAt"
+        name="observedAt"
         value={refreshValue("observedAt", data.refreshObservedDefault)}
         required
         data-testid="refresh-observed-at"
       />
     </label>
+    <label>Repeated Eastern time
+      <select name="timeOccurrence" value={refreshValue("timeOccurrence", "")}><option value="">choose if time occurs twice</option><option value="earlier">earlier occurrence</option><option value="later">later occurrence</option></select>
+    </label>
+    <label>
+      Opposing American odds, same sportsbook and observation time
+      <input name="opposingAmericanOdds" value={refreshValue("opposingAmericanOdds", run.offer.opposing?.americanOdds ?? "")} inputmode="numeric" data-testid="refresh-opposing-odds" />
+    </label>
+    <p class="pc-hint">Both sides are needed for a forecast. A blank opposing price leaves the forecast unavailable.</p>
     <Button type="submit" variant="default" size="lg" class="justify-self-start" data-testid="refresh">
       {run.status === "completed" ? "Refresh" : "Start new attempt"}
     </Button>

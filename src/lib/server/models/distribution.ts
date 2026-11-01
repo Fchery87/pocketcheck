@@ -112,13 +112,21 @@ function densityGrid(distribution: ResidualDistribution): DensityGrid {
   const end = Math.max(...distribution.residuals) + reach;
   const values = new Float64Array(Math.ceil((end - start) / GRID_STEP) + 2);
   const sorted = [...distribution.residuals].sort((a, b) => a - b);
+  const groups: { residual: number; count: number }[] = [];
+  for (const residual of sorted) {
+    const last = groups.at(-1);
+    if (last && last.residual === residual) last.count += 1;
+    else groups.push({ residual, count: 1 });
+  }
   for (let index = 0; index < values.length; index += 1) {
     const x = start + index * GRID_STEP;
     let sum = 0;
-    for (const residual of sorted) {
+    for (const { residual, count } of groups) {
       if (residual < x - reach) continue;
       if (residual > x + reach) break;
-      sum += kernel(x - residual, distribution.bandwidth);
+      const weight = kernel(x - residual, distribution.bandwidth);
+      // Repeated addition retains the original sorted sum's floating-point rounding.
+      for (let repeat = 0; repeat < count; repeat += 1) sum += weight;
     }
     values[index] = sum;
   }
@@ -204,18 +212,57 @@ export function moneylineFromMargin(bins: readonly MassBin[]): {
  * so a moneyline price and a spread line live on the same scale.
  */
 export function marginMeanForHomeWin(distribution: ResidualDistribution, homeWin: number): number {
-  let best = 0;
-  let bestGap = Infinity;
-  for (let mean = -30; mean <= 30; mean += 0.25) {
-    const side = moneylineFromMargin(integerMass(distribution, mean)).home;
-    const win = side.win / (side.win + side.loss);
-    const gap = Math.abs(win - homeWin);
-    if (gap < bestGap) {
-      best = mean;
-      bestGap = gap;
-    }
+  return meanForDecisiveProbability(
+    distribution,
+    homeWin,
+    0,
+    (bins) => moneylineFromMargin(bins).home,
+  );
+}
+
+export const ANCHOR_MAPPING = "probability-matched-discrete-v1";
+export const ANCHOR_PROBABILITY_TOLERANCE = 1e-8;
+
+export class AnchorUnavailableError extends Error {
+  constructor(reason: string) {
+    super(`Anchor unavailable: ${reason}`);
+    this.name = "AnchorUnavailableError";
   }
-  return best;
+}
+
+/** Match the final weighted integer distribution, conditioning on non-push outcomes. */
+export function meanForDecisiveProbability(
+  distribution: ResidualDistribution,
+  target: number,
+  center: number,
+  sideOf: (bins: readonly MassBin[]) => SideProbability,
+): number {
+  if (!Number.isFinite(target) || target <= 0 || target >= 1 || !Number.isFinite(center)) {
+    throw new AnchorUnavailableError("invalid decisive probability or line");
+  }
+  const probability = (mean: number) => {
+    const side = sideOf(integerMass(distribution, mean));
+    const decisive = side.win + side.loss;
+    if (decisive <= 0) throw new AnchorUnavailableError("no decisive mass");
+    return side.win / decisive;
+  };
+  let low = center - 128;
+  let high = center + 128;
+  const lower = probability(low);
+  const upper = probability(high);
+  if (lower > target || upper < target) {
+    throw new AnchorUnavailableError("target outside bounded mean bracket");
+  }
+  for (let iteration = 0; iteration < 80; iteration += 1) {
+    const mean = (low + high) / 2;
+    const value = probability(mean);
+    if (Math.abs(value - target) <= ANCHOR_PROBABILITY_TOLERANCE) return mean;
+    if (value < target) low = mean;
+    else high = mean;
+  }
+  throw new AnchorUnavailableError(
+    "discrete mapping did not converge within probability tolerance",
+  );
 }
 
 export function spreadFromMargin(

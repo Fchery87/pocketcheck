@@ -10,10 +10,16 @@ import {
 import type { ProviderRequestRecord } from "../providers/contracts.ts";
 import type { AttemptRequest } from "./attempt.ts";
 import type { GameBoard } from "./board-store.ts";
+import {
+  decideExplanationWrite,
+  type ExplanationEvent,
+  type ExplanationCommand,
+} from "./board-explanation.ts";
 import { containsSecret } from "./redact.ts";
 import type { SavedForecast } from "./forecast-record.ts";
 import type { StoredNotice } from "./store.ts";
 import { decodeMemoryV1, MEMORY_V1_FIELDS } from "./journal-backup-legacy.ts";
+import { explanationShapeProblems } from "./pick-explanation.ts";
 
 export type GameRecord = {
   id: string;
@@ -201,6 +207,7 @@ export type JournalExport = {
    * A missing list restores as empty. Version 1 remains the only restorable backup.
    */
   gameBoards?: GameBoard[];
+  explanationEvents?: ExplanationEvent[];
   protocolRegistrations?: ProtocolRegistration[];
   closingMarketSnapshots?: ClosingMarketSnapshot[];
   gameSettlementNotices?: StoredNotice[];
@@ -234,7 +241,11 @@ type FieldKind =
 
 type RecordCollection = Exclude<
   keyof JournalExport,
-  "version" | "gameBoards" | "protocolRegistrations" | "closingMarketSnapshots"
+  | "version"
+  | "gameBoards"
+  | "protocolRegistrations"
+  | "closingMarketSnapshots"
+  | "explanationEvents"
 >;
 
 const GAME_FIELDS = {
@@ -423,6 +434,7 @@ const BOARD_REQUEST_FIELDS = new Set<string>([
   "hash",
   "protocolRegistrationId",
   "explanationFormatVersion",
+  "lifecycleFormat",
 ] satisfies (keyof GameBoard["request"])[]);
 const BOARD_MARKET_FIELDS = new Set<string>([
   "market",
@@ -457,6 +469,7 @@ const BACKUP_COLLECTIONS = [
   "closings",
   "settlementNotices",
   "gameBoards",
+  "explanationEvents",
   "protocolRegistrations",
   "closingMarketSnapshots",
   "gameSettlementNotices",
@@ -514,7 +527,9 @@ export function decodeJournalBackup(input: unknown): RestorableJournal {
     parsed[collection] =
       collection === "gameBoards"
         ? rows.map(parseBoard)
-        : collection === "protocolRegistrations" || collection === "closingMarketSnapshots"
+        : collection === "protocolRegistrations" ||
+            collection === "closingMarketSnapshots" ||
+            collection === "explanationEvents"
           ? rows.map((row) => structuredClone(row))
           : rows.map((row) => parseRecord(collection, row));
   }
@@ -633,6 +648,8 @@ function parseBoard(value: unknown): GameBoard {
     throw new Error(`Game board ${id} has a malformed request.`);
   }
   requireKnownFields(request, BOARD_REQUEST_FIELDS, `Game board ${id} request`);
+  if (request.lifecycleFormat !== undefined && request.lifecycleFormat !== "forecast-first-v1")
+    throw new Error(`Game board ${id} has an unsupported lifecycle format.`);
   if (!EXPLANATION_FORMAT_VERSIONS.includes(request.explanationFormatVersion)) {
     throw new Error(`Game board ${id} has an unsupported explanation format.`);
   }
@@ -745,6 +762,10 @@ export function canonicalOrder(backup: JournalExport): JournalExport {
       backup.gameBoards,
       byTimeThenId((row: GameBoard) => row.createdAt),
     ),
+    explanationEvents: sorted(
+      backup.explanationEvents,
+      (a, b) => a.boardId.localeCompare(b.boardId) || a.sequence - b.sequence,
+    ),
     protocolRegistrations: sorted(
       backup.protocolRegistrations,
       byTimeThenId((row: ProtocolRegistration) => row.registeredAt),
@@ -769,6 +790,25 @@ export function canonicalOrder(backup: JournalExport): JournalExport {
  * identifier, snapshot, and relationship is present and internally consistent.
  */
 export function assertRestorable(snapshot: JournalExport): void {
+  const forecasts = [
+    ...(snapshot.analyses ?? []).map((analysis) => ({
+      id: analysis.id,
+      forecast: analysis.snapshot.forecast,
+    })),
+    ...(snapshot.gameBoards ?? []).flatMap((board) =>
+      board.markets.flatMap((market) =>
+        market.pick ? [{ id: market.pick.id, forecast: market.pick.forecast }] : [],
+      ),
+    ),
+  ];
+  for (const { id, forecast } of forecasts) {
+    const checksum = forecast?.marketEligibility?.attestationChecksum;
+    if (
+      checksum !== undefined &&
+      (typeof checksum !== "string" || !/^[a-f0-9]{64}$/.test(checksum))
+    )
+      throw new Error(`Forecast ${id} has an invalid release attestation checksum.`);
+  }
   if (snapshot?.version !== SUPPORTED_JOURNAL_BACKUP_VERSION) {
     throw new Error(
       `Unsupported journal backup version. Version ${SUPPORTED_JOURNAL_BACKUP_VERSION} is the only supported backup.`,
@@ -1064,6 +1104,116 @@ function assertStorableIdentities(snapshot: JournalExport): void {
   requireUnique(snapshot.userResearch, (row) => row.analysisId, "user research analysis");
   requireUnique(snapshot.bets, (row) => row.submissionId, "bet submission identifier");
   assertBoardGraph(snapshot.gameBoards ?? []);
+  assertExplanationGraph(snapshot.gameBoards ?? [], snapshot.explanationEvents ?? []);
+}
+
+export function assertExplanationGraph(boards: GameBoard[], events: ExplanationEvent[]): void {
+  const ids = new Set<string>();
+  const requestIds = new Set<string>();
+  const attempts = new Map<string, string>();
+  const histories = new Map<string, ExplanationEvent[]>();
+  for (const event of [...events].sort(
+    (a, b) => a.boardId.localeCompare(b.boardId) || a.sequence - b.sequence,
+  )) {
+    if (
+      !isObject(event) ||
+      typeof event.id !== "string" ||
+      !UUID.test(event.id) ||
+      typeof event.boardId !== "string" ||
+      typeof event.attemptId !== "string" ||
+      !event.attemptId.trim() ||
+      !Number.isInteger(event.sequence) ||
+      !Number.isFinite(Date.parse(event.recordedAt))
+    )
+      throw new Error("Journal backup has a malformed explanation event.");
+    if (ids.has(event.id)) throw new Error(`Journal backup repeats explanation event ${event.id}.`);
+    ids.add(event.id);
+    const board = boards.find((item) => item.id === event.boardId);
+    if (!board) throw new Error(`Explanation event ${event.id} references a missing board.`);
+    const history = histories.get(board.id) ?? [];
+    if (
+      event.sequence !== history.length + 1 ||
+      Date.parse(event.recordedAt) <
+        Date.parse(history.at(-1)?.recordedAt ?? board.completedAt ?? board.createdAt)
+    )
+      throw new Error(`Explanation event ${event.id} has invalid chronology or sequence.`);
+    const base = ["id", "boardId", "attemptId", "sequence", "recordedAt", "kind"];
+    const fields: Record<string, string[]> = {
+      started: ["drafter"],
+      "request-intent": ["requestId", "role", "bodyHash"],
+      response: ["requestId", "exchange"],
+      completed: ["report"],
+      failed: ["reasons"],
+      ambiguous: ["reason"],
+    };
+    if (!fields[event.kind])
+      throw new Error(`Explanation event ${event.id} has an unsupported kind.`);
+    requireKnownFields(
+      event,
+      new Set([...base, ...fields[event.kind]!]),
+      `Explanation event ${event.id}`,
+    );
+    if (attempts.has(event.attemptId) && attempts.get(event.attemptId) !== board.id)
+      throw new Error(`Explanation attempt ${event.attemptId} belongs to another board.`);
+    attempts.set(event.attemptId, board.id);
+    if (
+      event.kind === "started" &&
+      (!isObject(event.drafter) ||
+        typeof event.drafter.id !== "string" ||
+        typeof event.drafter.modelId !== "string")
+    )
+      throw new Error(`Explanation event ${event.id} has no valid drafter.`);
+    if (
+      (event.kind === "request-intent" || event.kind === "response") &&
+      (typeof event.requestId !== "string" || !event.requestId.trim())
+    )
+      throw new Error(`Explanation event ${event.id} has no request identity.`);
+    if (event.kind === "request-intent") {
+      if (!["original", "repair"].includes(event.role) || requestIds.has(event.requestId))
+        throw new Error(`Explanation event ${event.id} repeats a request identity or role.`);
+      requestIds.add(event.requestId);
+    }
+    if (
+      event.kind === "response" &&
+      (!isObject(event.exchange) ||
+        !["draft", "repair"].includes(event.exchange.role) ||
+        !["completed", "failed", "ambiguous"].includes(event.exchange.outcome) ||
+        typeof event.exchange.requestId !== "string" ||
+        !event.exchange.requestId.trim() ||
+        typeof event.exchange.costKnown !== "boolean" ||
+        !("response" in event.exchange) ||
+        ["promptTokens", "completionTokens", "totalTokens", "costUsd"].some((key) => {
+          const value = event.exchange[key as keyof ProviderRequestRecord];
+          return (
+            value !== null && (typeof value !== "number" || !Number.isFinite(value) || value < 0)
+          );
+        }) ||
+        (event.exchange.costKnown && event.exchange.costUsd === null))
+    )
+      throw new Error(`Explanation event ${event.id} has a malformed response.`);
+    if (
+      event.kind === "failed" &&
+      (!Array.isArray(event.reasons) ||
+        !event.reasons.length ||
+        event.reasons.some((reason) => typeof reason !== "string" || !reason.trim()))
+    )
+      throw new Error(`Explanation event ${event.id} has no failure reason.`);
+    if (event.kind === "ambiguous" && (typeof event.reason !== "string" || !event.reason.trim()))
+      throw new Error(`Explanation event ${event.id} has no ambiguous reason.`);
+    if (
+      event.kind === "completed" &&
+      (!isObject(event.report) || explanationShapeProblems(event.report).length > 0)
+    )
+      throw new Error(`Explanation event ${event.id} has no report.`);
+    const { id: _id, sequence: _sequence, recordedAt: _at, ...command } = event;
+    const result = decideExplanationWrite(board, history, command as ExplanationCommand);
+    if (result.kind !== "acquired")
+      throw new Error(
+        `Explanation event ${event.id} has an invalid transition${result.kind === "conflict" ? `: ${result.error}` : "."}`,
+      );
+    history.push(event);
+    histories.set(board.id, history);
+  }
 }
 
 function requireUnique<T>(rows: T[], key: (row: T) => string | null, label: string): void {

@@ -23,6 +23,7 @@ import type { EvidenceItem } from "../sources/contracts.ts";
 import type { AttemptRequest } from "./attempt.ts";
 import {
   canonicalOrder,
+  assertExplanationGraph,
   decodeJournalBackup,
   sameRecord,
   type AnalysisRecord,
@@ -185,6 +186,8 @@ export type AssessmentRole =
   | { role: "unclassified"; reason: string };
 
 export type RunSummary = {
+  frozenForecast?: SavedForecast | null;
+  frozenOffer?: Offer;
   id: string;
   parentId: string | null;
   snapshotProvenance: SnapshotProvenance;
@@ -199,6 +202,8 @@ export type RunSummary = {
 
 export function summarize(run: ResearchRun): Omit<RunSummary, "assessmentRole"> {
   return {
+    frozenForecast: run.forecast,
+    frozenOffer: run.offer,
     id: run.id,
     parentId: run.parentId,
     snapshotProvenance: run.snapshotProvenance,
@@ -460,7 +465,7 @@ export function createMemoryStore(options: { now?: () => string } = {}): Journal
   const notices: StoredNotice[] = [];
   const registrations: ProtocolRegistration[] = [];
   const marketSnapshots: ClosingMarketSnapshot[] = [];
-  const boardStore = createMemoryBoardStore(notices, registrations);
+  const boardStore = createMemoryBoardStore(notices, registrations, { now });
   let betWrites: Promise<unknown> = Promise.resolve();
 
   function analysisRecords(analysis: AnalysisRecord): AnalysisRecords {
@@ -579,6 +584,7 @@ export function createMemoryStore(options: { now?: () => string } = {}): Journal
           .filter((notice) => notice.gameId === null)
           .map(({ gameId: _gameId, ...notice }) => notice),
         gameBoards: [...boardStore.boards.values()],
+        explanationEvents: [...boardStore.explanationEvents.values()],
         protocolRegistrations: registrations,
         closingMarketSnapshots: marketSnapshots,
         gameSettlementNotices: notices.filter((notice) => notice.gameId !== null),
@@ -816,6 +822,7 @@ export function createMemoryStore(options: { now?: () => string } = {}): Journal
           registrations,
           marketSnapshots,
           boards: boardStore.boards,
+          explanationEvents: boardStore.explanationEvents,
         },
         backup,
       );
@@ -827,6 +834,7 @@ export function createMemoryStore(options: { now?: () => string } = {}): Journal
         );
       }
       replaceMap(boardStore.boards, staged.boards);
+      replaceMap(boardStore.explanationEvents, staged.explanationEvents);
       boardStore.submissions.clear();
       for (const board of staged.boards.values()) {
         boardStore.submissions.set(board.request.id, board.id);
@@ -851,6 +859,7 @@ type MemoryJournalState = {
   registrations: ProtocolRegistration[];
   marketSnapshots: ClosingMarketSnapshot[];
   boards: Map<string, GameBoard>;
+  explanationEvents: Map<string, import("./board-explanation.ts").ExplanationEvent>;
 };
 
 function conflict(label: string, id: string): never {
@@ -870,6 +879,7 @@ function stageRestore(live: MemoryJournalState, backup: RestorableJournal): Memo
     ]),
   ) as unknown as MemoryRecords;
   const boards = new Map(structuredClone([...live.boards]));
+  const explanationEvents = new Map(structuredClone([...live.explanationEvents]));
   const notices = structuredClone(live.notices);
   const registrations = structuredClone(live.registrations);
   const marketSnapshots = structuredClone(live.marketSnapshots);
@@ -933,6 +943,12 @@ function stageRestore(live: MemoryJournalState, backup: RestorableJournal): Memo
   merge(records.reports, backup.reports, "report", (row) => row.analysisId);
   merge(records.userResearch, backup.userResearch, "user research", (row) => row.analysisId);
   merge(boards, backup.gameBoards ?? [], "game board", (row) => row.request.id);
+  merge(
+    explanationEvents,
+    backup.explanationEvents ?? [],
+    "explanation event",
+    (row) => `${row.boardId}/${row.sequence}`,
+  );
   merge(records.bets, backup.bets, "bet", (row) => row.submissionId);
   merge(records.settlements, backup.settlements, "settlement");
   merge(records.closings, backup.closings, "closing observation");
@@ -963,7 +979,8 @@ function stageRestore(live: MemoryJournalState, backup: RestorableJournal): Memo
       primaryPicks.add(key);
     }
   }
-  return { records, notices, registrations, marketSnapshots, boards };
+  assertExplanationGraph([...boards.values()], [...explanationEvents.values()]);
+  return { records, notices, registrations, marketSnapshots, boards, explanationEvents };
 }
 
 function recordMemoryBet(

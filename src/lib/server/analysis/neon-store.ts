@@ -57,6 +57,7 @@ export function createNeonStore(sql: Sql): JournalStore {
       canonicalOrder({
         ...(await readJournalRecords(tx)),
         gameBoards: await boardStore.readBoards(tx),
+        explanationEvents: await boardStore.readExplanationEvents(tx),
       }),
     );
   }
@@ -193,20 +194,26 @@ export function createNeonStore(sql: Sql): JournalStore {
       };
     },
     async listClosings() {
-      const [records, runs, bets] = await Promise.all([
-        journal.listClosings(),
-        journal.listCompletedSummaries(),
-        journal.listBets(),
+      const records = await journal.listClosings();
+      if (records.length === 0) return [];
+      const active = records.filter(
+        (row) => row.provenance !== "archived-untimestamped" && row.observedAt !== null,
+      );
+      const bets = await journal.findClosingBets(
+        active.flatMap((row) => (row.betId ? [row.betId] : [])),
+      );
+      const [analyses, picks] = await Promise.all([
+        journal.findClosingAnalysisContracts([
+          ...active.flatMap((row) => (row.analysisId ? [row.analysisId] : [])),
+          ...bets.flatMap((row) => (row.analysisId ? [row.analysisId] : [])),
+        ]),
+        journal.findPickContracts([
+          ...active.flatMap((row) => (row.modelPickId ? [row.modelPickId] : [])),
+          ...bets.flatMap((row) => (row.modelPickId ? [row.modelPickId] : [])),
+        ]),
       ]);
-      const analyses = new Map<string, Awaited<ReturnType<typeof getRun>>>();
-      for (const summary of runs) {
-        analyses.set(summary.id, await getRun(summary.id));
-      }
       const betById = new Map(bets.map((bet) => [bet.id, bet]));
-      const closings = [];
-      for (const record of records)
-        closings.push(await toClosing(record, analyses, betById, journal));
-      return closings;
+      return records.map((record) => toClosing(record, analyses, betById, picks));
     },
     async recordArchivedClosing(input) {
       return persistClosing(
@@ -224,9 +231,10 @@ export function createNeonStore(sql: Sql): JournalStore {
     async restoreJournal(input) {
       const backup = decodeJournalBackup(input);
       await sql.begin((tx) =>
-        journal.restoreJournal(tx, backup, () =>
-          boardStore.restoreBoards(tx, backup.gameBoards ?? []),
-        ),
+        journal.restoreJournal(tx, backup, async () => {
+          await boardStore.restoreBoards(tx, backup.gameBoards ?? []);
+          await boardStore.restoreExplanationEvents(tx, backup.explanationEvents ?? []);
+        }),
       );
       return exportJournal();
     },
@@ -339,6 +347,12 @@ async function persistClosing(
       comparison: { available: false, reason: "archived-untimestamped" },
     };
   }
+  if (!input.observedAt || !Number.isFinite(Date.parse(input.observedAt))) {
+    throw new Error("A closing observation requires a valid observation time.");
+  }
+  if (!open.kickoffAt || !Number.isFinite(Date.parse(open.kickoffAt))) {
+    throw new Error("A closing observation requires a recorded kickoff time.");
+  }
   const contract = parseOffer({
     gameId: open.gameId,
     sportsbook: input.sportsbook,
@@ -441,12 +455,12 @@ async function openSide(
   };
 }
 
-async function toClosing(
+function toClosing(
   record: Awaited<ReturnType<JournalRepository["listClosings"]>>[number],
-  analyses: Map<string, ResearchRun | null>,
+  analyses: Awaited<ReturnType<JournalRepository["findClosingAnalysisContracts"]>>,
   bets: Map<string, Awaited<ReturnType<JournalRepository["listBets"]>>[number]>,
-  journal: JournalRepository,
-): Promise<ClosingObservation> {
+  picks: Awaited<ReturnType<JournalRepository["findPickContracts"]>>,
+): ClosingObservation {
   const subject = record.modelPickId
     ? { kind: "model-pick" as const, id: record.modelPickId }
     : record.analysisId
@@ -469,12 +483,10 @@ async function toClosing(
     };
   }
   const betForClosing = subject.kind === "bet" ? bets.get(subject.id) : undefined;
-  const betPick = betForClosing?.modelPickId
-    ? await journal.findPickContract(betForClosing.modelPickId)
-    : null;
+  const betPick = betForClosing?.modelPickId ? picks.get(betForClosing.modelPickId) : null;
   const openContract =
     subject.kind === "model-pick"
-      ? await journal.findPickContract(subject.id)
+      ? picks.get(subject.id)
       : subject.kind === "bet"
         ? (() => {
             const bet = bets.get(subject.id);
@@ -489,26 +501,12 @@ async function toClosing(
                   observedAt: bet.placedAt,
                   kickoffAt:
                     (bet.analysisId
-                      ? analyses.get(bet.analysisId)?.game.kickoff
+                      ? analyses.get(bet.analysisId)?.kickoffAt
                       : betPick?.kickoffAt) ?? null,
                 }
               : null;
           })()
-        : (() => {
-            const analysis = analyses.get(subject.id);
-            return analysis
-              ? {
-                  market: analysis.offer.market,
-                  selection: analysis.offer.selection,
-                  pointLine: analysis.offer.pointLine,
-                  sportsbook: analysis.offer.sportsbook,
-                  rules: analysis.offer.rules,
-                  americanOdds: analysis.offer.americanOdds,
-                  observedAt: analysis.offer.observedAt,
-                  kickoffAt: analysis.game.kickoff,
-                }
-              : null;
-          })();
+        : analyses.get(subject.id);
   const comparison = openContract
     ? compareClosing(
         {

@@ -11,7 +11,7 @@ export type TeamGameSummary = {
   week: number;
   team: string;
   opponent: string;
-  /** Plays the team ran on offense. The denominator for the offensive rates. */
+  /** Eligible scrimmage plays. Individual rates use their available-value sample. */
   offensivePlays: number;
   /** Plays the team faced on defense. */
   defensivePlays: number;
@@ -19,10 +19,10 @@ export type TeamGameSummary = {
   defenseEpaPerPlay: number | null;
   passEpaPerPlay: number | null;
   rushEpaPerPlay: number | null;
-  /** Share of offensive plays with epa above zero. */
+  /** Share of eligible offensive plays with available EPA above zero. */
   successRate: number | null;
   earlyDownEpaPerPlay: number | null;
-  /** Share of offensive plays gaining at least 20 yards. */
+  /** Share of eligible offensive plays with available yards gaining at least 20. */
   explosiveRate: number | null;
   /** Seconds between the team's offensive snaps. Null when the file has no snap times. */
   secondsPerPlay: number | null;
@@ -57,6 +57,14 @@ export const PLAY_BY_PLAY_LICENSE = {
   url: "https://github.com/nflverse/nflverse-data",
 } as const;
 
+export const PLAY_SAMPLE = {
+  version: "scrimmage-v2",
+  eligible:
+    "pass or run, excluding no-play, kneels and spikes; dropbacks and scrambles count as pass",
+  rates:
+    "EPA and success use available EPA; explosives use available yards; PROE uses all available pass_oe on eligible plays",
+} as const;
+
 const EXPLOSIVE_YARDS = 20;
 
 /** One season file becomes one summary per team per game. A bad file is a gap, not a guess. */
@@ -86,6 +94,7 @@ export function teamSummariesFromPlayByPlay(csv: string): PlayByPlayRead {
     }
   >();
   for (const row of rows) {
+    if (!eligiblePlay(row)) continue;
     const passer = passerOf(row);
     if (passer && row.game_id && row.posteam) {
       const key = `${row.game_id}|${passer}`;
@@ -190,7 +199,7 @@ export function teamSummariesFromSeasonFiles(
 }
 
 type SummaryCache = {
-  version: 1;
+  version: 2;
   sourceSize: number;
   sourceModifiedMs: number;
   summaries: TeamGameSummary[];
@@ -206,7 +215,7 @@ function cachedSummaries(path: string): SummaryCache | null {
     const source = statSync(path);
     const cache = JSON.parse(readFileSync(cachePath(path), "utf8")) as SummaryCache;
     const current =
-      cache.version === 1 &&
+      cache.version === 2 &&
       cache.sourceSize === source.size &&
       cache.sourceModifiedMs === source.mtimeMs &&
       Array.isArray(cache.summaries) &&
@@ -221,7 +230,7 @@ function saveSummaries(path: string, read: PlayByPlayRead): void {
   try {
     const source = statSync(path);
     const cache: SummaryCache = {
-      version: 1,
+      version: 2,
       sourceSize: source.size,
       sourceModifiedMs: source.mtimeMs,
       summaries: read.summaries,
@@ -257,8 +266,20 @@ function passerOf(row: Record<string, string>): string | null {
   return id ? id : null;
 }
 
+function eligiblePlay(row: Record<string, string>): boolean {
+  return (
+    (row.play_type === "pass" || row.play_type === "run") &&
+    row.no_play !== "1" &&
+    row.qb_kneel !== "1" &&
+    row.qb_spike !== "1"
+  );
+}
+
 function playOf(row: Record<string, string>): Play {
-  const kind = row.play_type === "pass" ? "pass" : row.play_type === "run" ? "rush" : "other";
+  const kind =
+    row.play_type === "pass" || row.qb_dropback === "1" || row.qb_scramble === "1"
+      ? "pass"
+      : "rush";
   return {
     season: Number(row.season),
     week: Number(row.week),
@@ -289,6 +310,7 @@ function summarize(
   const early = rated.filter((play) => play.down === 1 || play.down === 2);
   const faced = defense.filter((play) => play.epa !== null);
   const first = offense[0];
+  const withYards = offense.filter((play) => play.yards !== null);
   return {
     gameId,
     season: first?.season ?? 0,
@@ -305,12 +327,12 @@ function summarize(
       rated.length === 0 ? null : rated.filter((play) => (play.epa ?? 0) > 0).length / rated.length,
     earlyDownEpaPerPlay: perPlay(early),
     explosiveRate:
-      offense.length === 0
+      withYards.length === 0
         ? null
-        : offense.filter((play) => (play.yards ?? 0) >= EXPLOSIVE_YARDS).length / offense.length,
+        : withYards.filter((play) => play.yards! >= EXPLOSIVE_YARDS).length / withYards.length,
     secondsPerPlay: average(snapGaps(offense)),
     passRateOverExpected: average(
-      passes.flatMap((play) => (play.passOverExpected === null ? [] : [play.passOverExpected])),
+      offense.flatMap((play) => (play.passOverExpected === null ? [] : [play.passOverExpected])),
     ),
     turnovers: offense.filter((play) => play.turnover).length,
     fumbleRecoveries: defense.filter((play) => play.fumbleLost).length,

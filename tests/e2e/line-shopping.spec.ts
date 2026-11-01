@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixture.ts";
 
 test.beforeEach(async ({ request }) => {
   const response = await request.get("/__verification");
@@ -26,7 +26,7 @@ test("a future-dated shopped quote cannot enter a board", async ({ page }) => {
 
 test("a board shops the best price and a bet starts from it", async ({ page }) => {
   await page.goto("/board");
-  await page.waitForLoadState("networkidle");
+  await expect(page.getByTestId("board-game")).toBeEnabled();
   await page.getByTestId("board-game").selectOption("2026_07_DAL_PHI");
   await page.getByTestId("board-sportsbook").fill("Anchor Book");
   await page.getByTestId("board-observed-at").fill("2026-10-25T11:30");
@@ -76,7 +76,7 @@ test("spread and total shops execute only on their own contract and leave the an
   page,
 }) => {
   await page.goto("/board");
-  await page.waitForLoadState("networkidle");
+  await expect(page.getByTestId("board-game")).toBeEnabled();
   await page.getByTestId("board-game").selectOption("2026_07_DAL_PHI");
   await page.getByTestId("board-sportsbook").fill("Anchor Book");
   await page.getByTestId("board-observed-at").fill("2026-10-25T11:30");

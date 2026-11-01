@@ -4,6 +4,7 @@ import type {
   EvaluationSummary,
 } from "../../src/lib/server/models/evaluate.ts";
 import { RELEASE_GATE, releaseDecision } from "../../src/lib/server/models/release.ts";
+import { valueEligibility } from "../../src/lib/server/models/artifact.ts";
 
 function comparison(
   market: BaselineComparison["market"],
@@ -78,6 +79,14 @@ function summary(baselines: BaselineComparison[]): EvaluationSummary {
 }
 
 describe("release gate", () => {
+  it("does not authorize raw historical release flags", () => {
+    expect(
+      valueEligibility(
+        { releaseStatus: "released-experimental", releasedMarkets: ["moneyline"] },
+        "moneyline",
+      ).eligible,
+    ).toBe(false);
+  });
   it("labels a clean historical comparison as development evidence and does not release it", () => {
     const decision = releaseDecision(
       summary([

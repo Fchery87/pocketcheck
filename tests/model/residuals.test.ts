@@ -6,7 +6,7 @@ import { fitArtifact } from "../../src/lib/server/models/train.ts";
 
 // A deterministic league of 8 teams over 60 games with noisy scores.
 function league(count: number): PricedGame[] {
-  const games: CompletedGame[] = [];
+  const games: PricedGame[] = [];
   let seed = 7;
   const next = () => {
     seed = (seed * 1103515245 + 12345) % 2147483648;

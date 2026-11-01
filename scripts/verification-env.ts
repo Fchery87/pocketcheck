@@ -11,6 +11,8 @@ export function verificationEnv(source: NodeJS.ProcessEnv = process.env): NodeJS
     DEEPSEEK_API_KEY: "",
     THECLAWBAY_API_KEY: "",
     NWS_USER_AGENT: "",
+    POCKETCHECK_ACCESS_SECRET: "",
+    POCKETCHECK_UNSAFE_LAN: "",
     POCKETCHECK_TEST_MODE: "",
     POCKETCHECK_TEST_JOURNAL_ID: "",
     POCKETCHECK_JOURNAL: "",
@@ -19,6 +21,7 @@ export function verificationEnv(source: NodeJS.ProcessEnv = process.env): NodeJS
     POCKETCHECK_INJURY_CSV: "",
     POCKETCHECK_WEATHER: "",
     POCKETCHECK_MODEL_ARTIFACT: "",
+    POCKETCHECK_RELEASE_ATTESTATION: "",
     TZ: "America/New_York",
   };
 }

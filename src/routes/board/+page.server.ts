@@ -1,6 +1,7 @@
 import { fail, redirect } from "@sveltejs/kit";
 import { randomUUID } from "node:crypto";
 import { easternTime } from "#lib/format.ts";
+import { parseEasternTime } from "#lib/time.ts";
 import {
   localInputValue,
   parseManualEvidence,
@@ -27,6 +28,7 @@ const FIELDS = [
   "gameId",
   "sportsbook",
   "observedAt",
+  "timeOccurrence",
   "moneylineHome",
   "moneylineAway",
   "tieRule",
@@ -248,8 +250,14 @@ export const actions = {
     const game = schedule.games.find((item) => item.id === values.gameId);
     if (!game) return refuse(400, "Choose a game");
     if (!upcomingGames([game], nowIso).length) return refuse(400, "The game has already started");
-    const observedAt = parseObservedAt(values.observedAt ?? "");
-    if (!observedAt) return refuse(400, "Enter when you observed these prices");
+    const parsedTime = parseEasternTime(
+      values.observedAt ?? "",
+      values.timeOccurrence === "earlier" || values.timeOccurrence === "later"
+        ? values.timeOccurrence
+        : undefined,
+    );
+    if (!parsedTime.ok) return refuse(400, parsedTime.error);
+    const observedAt = parsedTime.iso;
     const parsed = {
       moneylineHome: odds(values.moneylineHome ?? ""),
       moneylineAway: odds(values.moneylineAway ?? ""),
@@ -330,30 +338,14 @@ export const actions = {
         store,
         collect: evidenceCollector(),
         model: modelSource(),
-        forecast: freezeForecast
-          ? async (...args) => {
-              const saved = await freezeForecast(...args);
-              if (!saved || !registration) return saved;
-              const market = args[2].market;
-              if (
-                saved.artifact.checksum !== registration.protocol.artifactChecksum ||
-                saved.inputAvailability.version !== registration.protocol.inputAvailability ||
-                !registration.protocol.markets.includes(market) ||
-                Date.parse(saved.decisionCutoff) < Date.parse(registration.protocol.period.start) ||
-                (registration.protocol.period.end !== null &&
-                  Date.parse(saved.decisionCutoff) >= Date.parse(registration.protocol.period.end))
-              ) {
-                throw new Error(
-                  "This forecasting artifact or market does not match the selected evaluation registration.",
-                );
-              }
-              return { ...saved, protocolRegistrationId: registration.id };
-            }
-          : undefined,
+        forecast: freezeForecast,
+        registration,
         drafter: drafting.drafter,
       },
     );
     if (result.board) redirect(303, `/board/${result.board.id}`);
+    if (!result.ok && result.field)
+      return fail(400, { error: result.error, field: result.field, values, manual: manual.rows });
     return refuse(400, result.ok ? "The board was not saved" : result.error);
   },
 } satisfies Actions;

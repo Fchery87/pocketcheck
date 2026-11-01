@@ -2,21 +2,28 @@ import { describe, expect, it } from "vite-plus/test";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { parseOffer } from "../../src/lib/domain/offer.ts";
+import { FORECAST_PROVENANCE } from "../../src/lib/server/analysis/forecast-record.ts";
 import {
   buildProspectiveSample,
   closeAgeByMarket,
 } from "../../src/lib/server/analysis/prospective-sample.ts";
 import type { JournalExport } from "../../src/lib/server/analysis/journal-backup.ts";
-import { parseArtifact } from "../../src/lib/server/models/inputs.ts";
-import { PROSPECTIVE_PROTOCOL, releaseFromJournal } from "../../src/lib/server/models/release.ts";
+import {
+  PROSPECTIVE_PROTOCOL,
+  releaseFromJournal,
+  verifyReleaseAttestation,
+} from "../../src/lib/server/models/release.ts";
+import {
+  datasetHash,
+  valueEligibility,
+  type ModelArtifact,
+} from "../../src/lib/server/models/artifact.ts";
 import { createMemoryStore } from "../../src/lib/server/analysis/store.ts";
 import { parseProtocolRegistration } from "../../src/lib/server/models/protocol.ts";
 
-const artifact = parseArtifact(
-  JSON.parse(
-    readFileSync("tests/fixtures/models/browser-forecasting-model.json", "utf8"),
-  ) as unknown,
-);
+const artifact = JSON.parse(
+  readFileSync("tests/fixtures/models/browser-forecasting-model.json", "utf8"),
+) as ModelArtifact;
 const registeredAt = "2026-10-27T00:00:00.000Z";
 const registration = {
   id: "prospective-registered",
@@ -170,6 +177,49 @@ describe("prospective journal qualification", () => {
         .releasedMarkets,
     ).toEqual(["moneyline"]);
   }, 30_000);
+  it("verifies separate evidence without changing prediction identity and rejects rehashed forgeries", () => {
+    const before = structuredClone(artifact);
+    const attestation = releaseFromJournal({
+      artifact,
+      journal: journal(500),
+      registrationId: registration.id,
+    });
+    expect(artifact).toEqual(before);
+    expect(attestation.artifactChecksum).toBe(artifact.checksum);
+    expect(attestation).not.toHaveProperty("releaseStatus");
+    const verified = verifyReleaseAttestation(artifact, JSON.parse(JSON.stringify(attestation)));
+    expect(valueEligibility(artifact, "moneyline", verified).eligible).toBe(true);
+    expect(valueEligibility(artifact, "spread", verified).eligible).toBe(false);
+    expect(
+      valueEligibility({ ...artifact, checksum: "f".repeat(64) }, "moneyline", verified).eligible,
+    ).toBe(false);
+    expect(valueEligibility(artifact, "moneyline", { ...verified }).eligible).toBe(false);
+    const rehash = (changed: typeof attestation) => {
+      changed.evidence.checksum = datasetHash(changed.evidence.journal);
+      const { checksum: _checksum, ...body } = changed;
+      changed.checksum = datasetHash(body);
+      return changed;
+    };
+    const alteredVerdict = structuredClone(attestation);
+    alteredVerdict.releasedMarkets.push("spread");
+    expect(() => verifyReleaseAttestation(artifact, rehash(alteredVerdict))).toThrow(/altered/);
+    const alteredEvidence = structuredClone(attestation);
+    alteredEvidence.evidence.journal.gameSettlementNotices!.forEach((notice) => {
+      notice.homeScore = 0;
+      notice.awayScore = 50;
+    });
+    expect(() => verifyReleaseAttestation(artifact, rehash(alteredEvidence))).toThrow(
+      /No market passed/,
+    );
+    const changedBinding = structuredClone(attestation);
+    changedBinding.registration.id = "different-registration";
+    expect(() => verifyReleaseAttestation(artifact, rehash(changedBinding))).toThrow(
+      /registration/,
+    );
+    expect(() =>
+      verifyReleaseAttestation({ ...artifact, datasetHash: "altered" }, attestation),
+    ).toThrow(/checksum/);
+  }, 60_000);
   it("keeps a frozen primary after a later withdrawal", () => {
     const backup = journal(1);
     backup.gameBoards![0]!.withdrawal = { at: "2030-01-01T00:00:00Z", reason: "later withdrawal" };
@@ -253,7 +303,7 @@ describe("prospective journal qualification", () => {
     const board = backup.gameBoards![0]!;
     const pick = board.markets[0]!.pick!;
     if (defect === "refresh") board.parentId = board.id;
-    if (defect === "legacy") pick.forecast!.provenance = "legacy-unknown";
+    if (defect === "legacy") pick.forecast!.provenance = FORECAST_PROVENANCE.legacyMissing;
     if (defect === "input-version")
       Object.assign(pick.forecast!.inputAvailability, { version: "wrong-version" });
     if (defect === "completed-after-kickoff") board.completedAt = board.game.kickoff;
@@ -300,7 +350,9 @@ describe("prospective journal qualification", () => {
       const close = backup.closingMarketSnapshots![index]!;
       const kickoff = Date.parse(backup.gameBoards![index]!.game.kickoff);
       close.observedAt = new Date(kickoff - minutesBeforeKickoff * 60000).toISOString();
-      close.offers = close.offers.map((offer) => ({ ...offer, observedAt: close.observedAt }));
+      close.offers.forEach((offer) => {
+        offer.observedAt = close.observedAt;
+      });
     };
     reobserve(1, 90);
     reobserve(2, 45);

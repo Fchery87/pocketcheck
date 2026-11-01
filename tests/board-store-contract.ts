@@ -826,7 +826,14 @@ export function describeGameBoardContract(
       ): PickDrafter => ({
         id: "scripted",
         modelId: "scripted-model",
-        draftPickExplanation: async ({ packet }) => answer(packet),
+        draftPickExplanation: async ({ packet, beforeRequest, afterResponse }) => {
+          const drafted = await answer(packet);
+          for (const record of drafted.providerRequests ?? []) {
+            await beforeRequest?.({ role: record.role, body: JSON.stringify(packet) });
+            await afterResponse?.(record);
+          }
+          return drafted;
+        },
       });
       const fixture = (packet: PickExplanationPacket) =>
         createFixtureDrafter().draftPickExplanation({
@@ -898,9 +905,13 @@ export function describeGameBoardContract(
         });
         expect(outcome.ok).toBe(false);
         const saved = (await store.getBoard(outcome.board!.id))!;
-        expect(saved.status).toBe("failed");
+        expect(saved.status).toBe("completed");
         expect(saved.explanation).toBeNull();
-        expect(saved.failureReason).toMatch(/frozen side/);
+        expect(saved.failureReason).toBeNull();
+        expect(saved.explanationState).toMatchObject({
+          kind: "failed",
+          reasons: expect.arrayContaining([expect.stringMatching(/frozen side/)]),
+        });
         expect(saved.markets[0]!.pick!.calculation.pickedSelection).toBe("home");
         expect(saved.providerRequests).toHaveLength(1);
         expect(saved.usage).toMatchObject({ totalTokens: 150 });
@@ -966,16 +977,20 @@ export function describeGameBoardContract(
           const drafted = await fixture(packet);
           return { ...drafted, providerRequests: [exchange("kept", "draft", drafted.report)] };
         });
-        const finish = store.finishBoard.bind(store);
+        const finish = store.finishBoardExplanation.bind(store);
         let failures = 1;
-        store.finishBoard = async (input) => {
+        store.finishBoardExplanation = async (input) => {
           if (failures-- > 0) throw new Error("connection lost");
           return finish(input);
         };
         const input = ask({ requestId: "recover" });
-        await expect(
-          runGameBoard(input, { store, collect: quiet, model: model(), drafter }),
-        ).rejects.toThrow("connection lost");
+        const interrupted = await runGameBoard(input, {
+          store,
+          collect: quiet,
+          model: model(),
+          drafter,
+        });
+        expect(interrupted).toMatchObject({ ok: false, error: "connection lost" });
         const retried = await runGameBoard(input, {
           store,
           collect: quiet,

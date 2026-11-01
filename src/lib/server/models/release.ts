@@ -2,9 +2,81 @@ import type { EvaluationSummary } from "./evaluate.ts";
 import { evaluateProspectiveForecasts } from "./prospective.ts";
 import { buildProspectiveSample } from "../analysis/prospective-sample.ts";
 import type { JournalExport } from "../analysis/journal-backup.ts";
-import { INPUT_AVAILABILITY } from "./forecast.ts";
 import type { Market } from "./games.ts";
-import { withChecksum, type ModelArtifact } from "./artifact.ts";
+import { artifactChecksum, datasetHash, type ModelArtifact } from "./artifact.ts";
+import { isDeepStrictEqual } from "node:util";
+import type { ProtocolRegistration } from "./protocol.ts";
+import type { ProspectiveEvaluation } from "./prospective.ts";
+
+export type ReleaseAttestation = {
+  kind: "pocketcheck-release-attestation";
+  version: 1;
+  artifactChecksum: string;
+  registration: ProtocolRegistration;
+  releasedMarkets: Market[];
+  evidence: { checksum: string; journal: JournalExport };
+  evaluation: ProspectiveEvaluation;
+  checksum: string;
+};
+
+const verified = new WeakMap<object, { artifactChecksum: string; markets: readonly Market[] }>();
+declare const verification: unique symbol;
+export type VerifiedReleaseAttestation = Readonly<{
+  checksum: string;
+  artifactChecksum: string;
+  releasedMarkets: readonly Market[];
+  readonly [verification]: true;
+}>;
+
+export function hasVerifiedRelease(
+  value: VerifiedReleaseAttestation | undefined,
+  checksum: string | undefined,
+  market: Market,
+): boolean {
+  const binding = value && verified.get(value);
+  return !!binding && binding.artifactChecksum === checksum && binding.markets.includes(market);
+}
+
+export function verifyReleaseAttestation(
+  artifact: ModelArtifact,
+  value: unknown,
+): VerifiedReleaseAttestation {
+  if (!value || typeof value !== "object" || !("registration" in value) || !("evidence" in value))
+    throw new Error("A complete release attestation is required.");
+  const candidate = value as ReleaseAttestation;
+  if (
+    candidate.kind !== "pocketcheck-release-attestation" ||
+    candidate.version !== 1 ||
+    !candidate.evidence?.journal ||
+    typeof candidate.registration?.id !== "string"
+  )
+    throw new Error("A complete version 1 release attestation is required.");
+  const expected = releaseFromJournal({
+    artifact,
+    journal: candidate.evidence?.journal,
+    registrationId: candidate.registration?.id,
+  });
+  if (!isDeepStrictEqual(candidate, expected))
+    throw new Error("Release attestation evidence, identity, or verdict was altered.");
+  const capability = Object.freeze({
+    checksum: expected.checksum,
+    artifactChecksum: artifact.checksum,
+    releasedMarkets: Object.freeze([...expected.releasedMarkets]),
+  }) as VerifiedReleaseAttestation;
+  verified.set(capability, {
+    artifactChecksum: artifact.checksum,
+    markets: capability.releasedMarkets,
+  });
+  return capability;
+}
+
+function freezeEvidence<T>(value: T): T {
+  if (value && typeof value === "object") {
+    Object.values(value).forEach(freezeEvidence);
+    Object.freeze(value);
+  }
+  return value;
+}
 
 /**
  * A market is released only when the model is no worse than the no-vig closing price on both
@@ -21,7 +93,7 @@ export const RELEASE_GATE = {
 export const PROSPECTIVE_PROTOCOL = {
   id: "prospective-2026-10-26",
   role: "independent" as const,
-  inputAvailability: INPUT_AVAILABILITY.version,
+  inputAvailability: "decision-time-starters-v1",
   markets: ["moneyline", "spread", "total"] as const,
   period: { start: "2026-10-26T00:00:00Z", end: null as string | null },
   minimumPricedGames: RELEASE_GATE.minimumPricedGames,
@@ -94,9 +166,13 @@ export function releaseFromJournal(input: {
   artifact: ModelArtifact;
   journal: JournalExport;
   registrationId: string;
-}): ModelArtifact {
+}): ReleaseAttestation {
+  const { checksum, ...predictor } = input.artifact;
+  if (artifactChecksum(predictor) !== checksum)
+    throw new Error("The predictive artifact checksum is invalid.");
+  const journal = structuredClone(input.journal);
   const sample = buildProspectiveSample({
-    journal: input.journal,
+    journal,
     registrationId: input.registrationId,
   });
   const protocol = sample.protocol.protocol;
@@ -118,6 +194,14 @@ export function releaseFromJournal(input: {
   const releasedMarkets = MARKETS.filter((market) => evaluation.markets[market].release.released);
   if (releasedMarkets.length === 0)
     throw new Error("No market passed the prospective release gate.");
-  const { checksum: _previous, ...body } = input.artifact;
-  return withChecksum({ ...body, releaseStatus: "released-experimental", releasedMarkets });
+  const body: Omit<ReleaseAttestation, "checksum"> = {
+    kind: "pocketcheck-release-attestation",
+    version: 1,
+    artifactChecksum: checksum,
+    registration: sample.protocol,
+    releasedMarkets,
+    evidence: { checksum: datasetHash(journal), journal },
+    evaluation,
+  };
+  return freezeEvidence({ ...body, checksum: datasetHash(body) });
 }

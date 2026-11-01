@@ -1,5 +1,6 @@
-// The Node adapter listens on every interface unless HOST is set. PocketCheck
-// has no login, so the launcher keeps it on loopback unless the user opts in.
+import { accessConfiguration } from "./access.ts";
+
+// The launcher keeps the journal on loopback unless the user opts in.
 export const LOOPBACK_HOST = "127.0.0.1";
 
 export interface ListenPlan {
@@ -61,11 +62,19 @@ export function describeHosts(allowed: Set<string>): string {
 
 export function listenPlan(env: Record<string, string | undefined>): ListenPlan {
   const host = env.HOST || LOOPBACK_HOST;
+  const access = accessConfiguration(env);
   if (isLoopback(host)) return { host, warning: null };
+  if (access.mode === "disabled" && env.POCKETCHECK_UNSAFE_LAN !== "1") {
+    throw new Error(
+      "Network binding requires POCKETCHECK_ACCESS_SECRET or explicit POCKETCHECK_UNSAFE_LAN=1.",
+    );
+  }
   return {
     host,
     warning:
       `Warning: PocketCheck is listening on ${host}, beyond this computer. ` +
-      "The journal has no login. Anyone who can reach this address on the network can read and change it.",
+      (access.mode === "protected"
+        ? "Sign-in is enabled, but plain HTTP does not keep the access secret or session private. Use only a trusted LAN or an HTTPS proxy."
+        : "The journal has no login. Anyone who can reach this address on the network can read and change it."),
   };
 }

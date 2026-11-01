@@ -82,6 +82,13 @@
   ];
 </script>
 
+<svelte:window onpageshow={() => {
+  if (!formElement) return;
+  delete formElement.dataset.submitting;
+  const button = formElement.querySelector<HTMLButtonElement>('[data-testid="freeze-board"]');
+  if (button) { button.disabled = !selected; button.textContent = isRefresh ? "Freeze refreshed board" : "Freeze board"; }
+}} />
+
 {#snippet oddsStepper(name: string, testId: string, role: string)}
   <span class="pc-stepper">
     <button type="button" aria-label="Lower the {role} odds by 5" onclick={() => step(name, -1)}>−</button>
@@ -177,7 +184,7 @@
           />
         </label>
         <label class="pc-field">
-          When you saw these prices
+          When you saw these prices (America/New_York)
           <input
             type="datetime-local"
             name="observedAt"
@@ -185,6 +192,9 @@
             defaultValue={value("observedAt", data.observedDefault)}
             required
           />
+        </label>
+        <label class="pc-field">Repeated Eastern time
+          <select name="timeOccurrence" value={value("timeOccurrence", "")}><option value="">choose if time occurs twice</option><option value="earlier">earlier occurrence</option><option value="later">later occurrence</option></select>
         </label>
       </div>
       {#if data.registrations.length > 0}

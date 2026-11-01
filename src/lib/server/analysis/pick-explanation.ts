@@ -264,6 +264,18 @@ function escaped(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function nonFactProse(text: string, packet: PickExplanationPacket): string {
+  let prose = text.replace(/\{\{[^{}]+\}\}/g, "");
+  const teams = [packet.game.home, packet.game.away];
+  if (teams.some((team) => /^(?:SF|SFO|49ers|San Francisco 49ers)$/i.test(team))) {
+    prose = prose.replace(/\b49ers\b/gi, "team");
+  }
+  return prose
+    .replace(/\bQB1\b/g, "starting quarterback")
+    .replace(/\b(?:1st|2nd|3rd|4th)(?=[ -]downs?\b)/gi, "ordinary")
+    .replace(/\b[1-4](?=[ -]downs?\b)/gi, "ordinary");
+}
+
 function problemsInProse(
   entry: PickExplanationEntry,
   facts: PickExplanationFacts,
@@ -451,11 +463,14 @@ export function validatePickExplanation(
         ...entry.missingInputs,
       ];
       for (const text of prose) {
-        const literal = text.replace(/\{\{[^{}]+\}\}/g, "");
+        const literal = nonFactProse(text, packet);
         SIGNED.lastIndex = 0;
         PERCENTAGE.lastIndex = 0;
         if (
-          /\d/.test(literal) ||
+          /\d|[{}]/.test(literal) ||
+          /\bweek\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen)\b/i.test(
+            literal,
+          ) ||
           WRITTEN_NUMBER.test(literal) ||
           SIGNED.test(literal) ||
           PERCENTAGE.test(literal) ||

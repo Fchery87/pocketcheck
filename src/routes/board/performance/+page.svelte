@@ -64,6 +64,26 @@
   <section class="pc-section" data-testid="model-pick-summary" aria-labelledby="overall-title">
     <h2 id="overall-title">All primary model picks</h2>
     {@render counts(performance.overall, "overall")}
+    <h3>Descriptive same-contract price movement</h3>
+    {#if performance.descriptive.rawSameContractPriceMovement.available}
+      <p>Mean decimal odds change {performance.descriptive.rawSameContractPriceMovement.meanDecimalOddsChange.toFixed(4)}
+        across {performance.descriptive.rawSameContractPriceMovement.denominator} primary model picks.</p>
+    {:else}
+      <p class="pc-unknown">Unavailable. No comparable later closing prices.</p>
+    {/if}
+    <p class="pc-hint">Raw price movement is not a no-vig edge or a profitability measure.</p>
+    <h3>Two-sided no-vig forecast comparison</h3>
+    {#if performance.descriptive.twoSidedNoVigCalibration.available}
+      {@const metric = performance.descriptive.twoSidedNoVigCalibration}
+      <p>{metric.denominator} settled primary model picks with frozen forecasts and qualified later two-sided observations.</p>
+      <p>Model Brier {metric.model.brier.toFixed(4)}, closing Brier {metric.closing.brier.toFixed(4)}.
+        Model log loss {metric.model.logLoss.toFixed(4)}, closing log loss {metric.closing.logLoss.toFixed(4)}.</p>
+      <p>Mean frozen win probability minus no-vig close {metric.meanWinProbabilityDifference.toFixed(4)}.</p>
+      <p>Mean frozen win probability minus observed win rate {metric.modelWinCalibrationBias.toFixed(4)}.</p>
+    {:else}
+      <p class="pc-unknown">Unavailable. No qualified frozen forecast, later two-sided close, and settled outcome denominator.</p>
+    {/if}
+    <p class="pc-hint">Closing probabilities reuse the frozen forecast's push mass. These descriptive scores do not release a market.</p>
   </section>
 
   {#each slices as slice (slice.key)}

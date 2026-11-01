@@ -11,6 +11,10 @@ export const load: PageServerLoad = async () => {
     if (cause instanceof ConfigError) error(503, cause.message);
     throw cause;
   }
-  const [picks, closings] = await Promise.all([journal.listModelPicks(), journal.listClosings()]);
-  return { performance: modelPickPerformance(picks, closings) };
+  const [picks, closings, snapshots] = await Promise.all([
+    journal.listModelPicks(),
+    journal.listClosings(),
+    journal.listClosingMarketSnapshots(),
+  ]);
+  return { performance: modelPickPerformance(picks, closings, snapshots) };
 };

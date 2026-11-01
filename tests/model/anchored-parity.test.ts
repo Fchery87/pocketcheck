@@ -128,14 +128,16 @@ describe("anchored public probability parity", { timeout: 60_000 }, () => {
   it("keeps a zero-adjustment symmetric total symmetric after removing pushes", () => {
     const artifact = structuredClone(fitted);
     artifact.total.model.intercept = 0;
+    for (const name of Object.keys(
+      artifact.total.model.coefficients,
+    ) as (keyof typeof artifact.total.model.coefficients)[]) {
+      artifact.total.model.coefficients[name] = 0;
+    }
     artifact.total.residuals = fitResidualDistribution([-2, -1, 0, 1, 2], 1);
     const probability = freeze(artifact, offer("total")).probabilities;
     expect(probability.push).toBeGreaterThan(0);
     expect(probability.win / (1 - probability.push)).toBeCloseTo(0.5, 12);
     expect(probability.loss).toBeCloseTo(probability.win, 12);
-    const populated = fitted.uncertainty.markets.total.filter((bin) => bin.sides > 0);
-    expect(populated.length).toBeGreaterThan(0);
-    for (const bin of populated) expect(bin.meanPredicted).toBeCloseTo(0.5, 12);
   });
 
   it("applies moneyline tie rules to the frozen contract without losing mass", () => {

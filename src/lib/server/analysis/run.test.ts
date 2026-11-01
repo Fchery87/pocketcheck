@@ -44,6 +44,36 @@ function capturingDrafter(): ThesisDrafter & { packets: ThesisPacket[] } {
 }
 
 describe("research run", () => {
+  it("passes gathered evidence and paired prices to one named forecast request", async () => {
+    const seen: unknown[] = [];
+    const outcome = await runAnalysis(
+      request({
+        opposing: {
+          sportsbook: "Example Book",
+          americanOdds: -110,
+          observedAt: "2026-10-25T15:30:00.000Z",
+        },
+      }),
+      {
+        store: createMemoryStore(),
+        model: async (input) => {
+          seen.push(input);
+          return { status: "unavailable", reason: "Test forecast unavailable." };
+        },
+      },
+    );
+    expect(outcome.ok).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({
+      game: { id: game.id },
+      cutoffAt: NOW,
+      offer: { opposing: { sportsbook: "Example Book", americanOdds: -110 } },
+      evidence: expect.arrayContaining([
+        expect.objectContaining({ sourceId: "nflverse-schedule" }),
+      ]),
+    });
+    expect(outcome.run?.offer.opposing?.americanOdds).toBe(-110);
+  });
   it("saves code-rendered research facts alongside the provider commentary", async () => {
     const inner = createFixtureDrafter();
     const drafter: ThesisDrafter = {

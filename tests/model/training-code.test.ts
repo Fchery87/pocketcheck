@@ -5,8 +5,8 @@ import { describe, expect, it } from "vite-plus/test";
 import { TRAINING_CODE } from "../../src/lib/server/models/training-code.ts";
 
 const pin = {
-  trainingCode: "training-2026-10-29",
-  sourceHash: "e2d2ce8c6fe3b21211530697a1aaa0a17a411ad29555a0e2db405a9d822b5614",
+  trainingCode: "training-2026-11-01",
+  sourceHash: "e36b3ea9385677749e79c48e344374ebc202912aef94bdabd1264f660dda291d",
 };
 
 const excluded = resolve("src/lib/server/models/training-code.ts");

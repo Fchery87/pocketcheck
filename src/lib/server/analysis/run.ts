@@ -1,14 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { AnchorQuote } from "../models/anchor.ts";
 import type { ManualEvidenceInput } from "./attempt.ts";
 import { americanToDecimal, breakEven } from "#lib/domain/odds.ts";
-import {
-  OfferError,
-  parseOffer,
-  type Offer,
-  type OfferInput,
-  type TieRule,
-} from "#lib/domain/offer.ts";
+import { OfferError, parseOffer, type OfferInput, type TieRule } from "#lib/domain/offer.ts";
 import { buildThesisPacket, thesisRequestBody } from "./packet.ts";
 import { redactText } from "./redact.ts";
 import { renderResearchClaim, validateThesisReport } from "./report-validation.ts";
@@ -29,7 +22,7 @@ import type {
   ThesisReport,
 } from "../providers/contracts.ts";
 import type { RunUsage } from "./store.ts";
-import { noModel, type ModelSource, type RunModel } from "./model.ts";
+import { noModel, type ForecastRequest, type ModelSource, type RunModel } from "./model.ts";
 import type { SavedForecast } from "./forecast-record.ts";
 import { decidePolicy } from "./policy.ts";
 import { createManualEvidence } from "../sources/manual.ts";
@@ -53,6 +46,7 @@ export type AnalysisRequest = {
   pointLine?: number;
   americanOdds: number;
   observedAt: string;
+  opposing?: OfferInput["opposing"];
   tieRule?: TieRule;
   lean?: string;
   rationale?: string;
@@ -66,12 +60,8 @@ export type AnalysisRequest = {
 export type { ManualEvidenceInput } from "./attempt.ts";
 
 export type ForecastSource = (
-  game: ScheduledGame,
-  cutoffIso: string,
-  offer: Offer,
+  request: ForecastRequest,
   model: RunModel,
-  evidence?: EvidenceItem[],
-  anchor?: AnchorQuote,
 ) => Promise<SavedForecast | null>;
 
 export type AnalysisDependencies = {
@@ -223,9 +213,18 @@ export async function runAnalysis(
     forecast,
   }: AnalysisDependencies,
 ): Promise<AnalysisOutcome> {
+  model = model.pin?.() ?? model;
   const cutoff = Date.parse(request.nowIso);
   const observed = Date.parse(request.observedAt);
-  if (!Number.isFinite(cutoff) || !Number.isFinite(observed) || observed > cutoff) {
+  const opposingObserved = request.opposing ? Date.parse(request.opposing.observedAt) : observed;
+  if (
+    !Number.isFinite(cutoff) ||
+    !Number.isFinite(observed) ||
+    observed > cutoff ||
+    !Number.isFinite(opposingObserved) ||
+    opposingObserved > cutoff ||
+    opposingObserved >= Date.parse(request.game.kickoff)
+  ) {
     return { ok: false, error: "The price must be observed at or before the decision cutoff." };
   }
   const requestId = request.requestId ?? randomUUID();
@@ -246,6 +245,7 @@ export async function runAnalysis(
       americanOdds: request.americanOdds,
       observedAt: request.observedAt,
       kickoffAt: request.game.kickoff,
+      opposing: request.opposing,
       rules: {
         period: "full-game",
         overtime: "included",
@@ -368,8 +368,14 @@ export async function runAnalysis(
     const decimalOdds = americanToDecimal(offer.americanOdds);
     const decisiveBreakEven = breakEven(decimalOdds).decisive;
     let probabilityModel: RunModel;
+    const forecastRequest: ForecastRequest = {
+      game: request.game,
+      cutoffAt: request.nowIso,
+      offer,
+      evidence: gathered.items,
+    };
     try {
-      probabilityModel = await model(request.game, request.nowIso, offer);
+      probabilityModel = await model(forecastRequest);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       probabilityModel = {
@@ -378,9 +384,20 @@ export async function runAnalysis(
       };
     }
     const eligible = probabilityModel.status === "computed" && probabilityModel.eligible;
-    const forecastRecord = forecast
-      ? await forecast(request.game, request.nowIso, offer, probabilityModel)
-      : null;
+    const forecastRecord =
+      probabilityModel.status === "computed" && probabilityModel.forecast
+        ? probabilityModel.forecast
+        : forecast
+          ? await forecast(forecastRequest, probabilityModel)
+          : null;
+    if (forecastRecord && probabilityModel.status === "computed") {
+      const { forecast: _forecast, ...projection } = probabilityModel;
+      probabilityModel = {
+        ...projection,
+        probabilities: forecastRecord.probabilities,
+        uncertainty: forecastRecord.uncertainty,
+      };
+    }
     const policy = decidePolicy({
       offerValid: true,
       gameStarted: false,

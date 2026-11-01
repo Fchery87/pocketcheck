@@ -1,6 +1,17 @@
 import { error, fail } from "@sveltejs/kit";
+import { randomUUID } from "node:crypto";
 import { validFinalScores } from "#lib/domain/settlement.ts";
-import { ConfigError, now, researchStore } from "#lib/server/config.ts";
+import {
+  ConfigError,
+  now,
+  researchStore,
+  schedulePath,
+  thesisDrafter,
+} from "#lib/server/config.ts";
+import { explainBoard } from "#lib/server/analysis/board-explain.ts";
+import { readSchedule } from "#lib/server/analysis/schedule.ts";
+import { settlementPrefill } from "#lib/server/analysis/settlement-prefill.ts";
+import { readDownloadRecord } from "#lib/server/sources/download-record.ts";
 import type { SettlementNoticeKind } from "#lib/server/analysis/store.ts";
 import type { Actions, PageServerLoad } from "./$types";
 
@@ -16,6 +27,19 @@ function store() {
   }
 }
 
+function resultCandidate(game: { id: string; home: string; away: string; kickoff: string }) {
+  const path = schedulePath();
+  const schedule = readSchedule(path);
+  if (!schedule.ok) return null;
+  const { source } = readDownloadRecord(path);
+  return settlementPrefill({
+    game,
+    schedule,
+    now: now(),
+    source: source ?? `Local schedule ${path}`,
+  });
+}
+
 export const load: PageServerLoad = async ({ params }) => {
   const journal = store();
   const board = uuid.test(params.id) ? await journal.getBoard(params.id) : null;
@@ -25,7 +49,16 @@ export const load: PageServerLoad = async ({ params }) => {
   const refreshes = await journal.listRefreshes(board.id);
   return {
     board,
+    explanationAttemptId: randomUUID(),
     settlement,
+    resultCandidate: resultCandidate(board.game),
+    correctionNotices: [
+      ...new Map(
+        settlement.markets.flatMap((market) =>
+          (market.grade?.history ?? []).map((notice) => [notice.id, notice] as const),
+        ),
+      ).values(),
+    ],
     parent,
     refreshes: refreshes.map((item) => ({
       id: item.id,
@@ -36,6 +69,67 @@ export const load: PageServerLoad = async ({ params }) => {
 };
 
 export const actions = {
+  explain: async ({ request, params }) => {
+    const data = await request.formData();
+    const attemptId = String(data.get("attemptId") ?? "");
+    if (data.get("confirmed") !== "yes" || !uuid.test(attemptId)) {
+      return fail(400, {
+        explanationError:
+          "Confirm that this is a deliberate new explanation request. It may incur provider charges.",
+      });
+    }
+    const journal = store();
+    const board = uuid.test(params.id) ? await journal.getBoard(params.id) : null;
+    if (!board) error(404, "Game board not found");
+    if (board.status !== "completed" || board.request.lifecycleFormat !== "forecast-first-v1") {
+      return fail(400, {
+        explanationError: "Only a completed forecast-first board can start another explanation.",
+      });
+    }
+    const selected = await thesisDrafter();
+    if (!selected.ok) return fail(400, { explanationError: selected.error });
+    const outcome = await explainBoard(journal, board, selected.drafter, {
+      newAttempt: true,
+      attemptId,
+    });
+    if (!outcome.ok) return fail(400, { explanationError: outcome.error });
+    return { explanationRecorded: true };
+  },
+  confirmResult: async ({ request, params }) => {
+    const data = await request.formData();
+    const journal = store();
+    const board = uuid.test(params.id) ? await journal.getBoard(params.id) : null;
+    if (!board) error(404, "Game board not found");
+    const candidate = resultCandidate(board.game);
+    if (
+      !candidate ||
+      data.get("identity") !== candidate.identity ||
+      data.get("confirmed") !== "yes"
+    ) {
+      return fail(400, {
+        settled: false,
+        error: "Review the current sourced result and explicitly confirm it before recording.",
+      });
+    }
+    try {
+      const result = await journal.recordGameSettlement({
+        eventId: `schedule-result-${candidate.identity}`,
+        gameId: board.game.id,
+        kind: "final",
+        homeScore: candidate.homeScore,
+        awayScore: candidate.awayScore,
+        recordedAt: now(),
+        source: `${candidate.source}, retrieved ${candidate.retrievedAt}`,
+      });
+      if (result.kind === "conflict") return fail(409, { settled: false, error: result.error });
+      return { settled: true, duplicate: result.kind === "duplicate", error: null };
+    } catch (cause) {
+      return fail(400, {
+        settled: false,
+        error: cause instanceof Error ? cause.message : "Settlement was not saved",
+      });
+    }
+  },
   settle: async ({ request, params }) => {
     const data = await request.formData();
     const eventId = String(data.get("eventId") ?? "").trim();

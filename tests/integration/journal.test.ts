@@ -362,6 +362,7 @@ describe("immutable journal", () => {
           sportsbook: "ExampleBook",
           market: "moneyline",
           selection: "away",
+          pointLine: null,
           americanOdds: 130,
           observedAt: "2026-11-01T18:00:00.000Z",
           enteredAt: "2026-11-01T18:05:00.000Z",

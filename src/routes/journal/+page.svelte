@@ -7,6 +7,8 @@
 
   let { data, form }: PageProps = $props();
   const start = $derived(data.pickBet);
+  const value = (action: string, name: string, fallback: string | number | null = "") =>
+    form?.action === action ? (form.values[name] ?? "") : (fallback ?? "");
   const label = (assessment: (typeof data.assessments)[number]) =>
     `${assessment.game.away} at ${assessment.game.home}: ${assessment.offer.market} ${assessment.offer.selection} ${signedLine(assessment.offer.pointLine)} ${assessment.offer.americanOdds}`;
   const pickBetGrade = (betId: string) =>
@@ -19,6 +21,17 @@
     ].filter((id) => !data.closings.some((closing) => closing.subject.id === id)).length,
   );
 </script>
+
+{#snippet occurrenceInput(action: string)}
+  <label>
+    Repeated Eastern time (only when clocks move back)
+    <select name="timeOccurrence" value={value(action, "timeOccurrence")}>
+      <option value="">choose if the time occurs twice</option>
+      <option value="earlier">earlier occurrence (daylight time)</option>
+      <option value="later">later occurrence (standard time)</option>
+    </select>
+  </label>
+{/snippet}
 
 <main class="pc-page pc-journal">
   <h1>Journal</h1>
@@ -36,13 +49,39 @@
     </label>
     <Button type="submit">Restore journal</Button>
   </form>
-  {#if form?.restored}
+  {#if form?.action === "restore" && form.outcome === "success"}
     <p class="pc-success" data-testid="restore-recorded">Journal restored. Pending attempts stay readable and are not replayed.</p>
-  {:else if form?.error && form?.restored === false}
+  {:else if form?.action === "restore" && form.error}
     <Alert data-testid="form-error">{form.error}</Alert>
   {/if}
   <h2>Assessments</h2>
   <p>Every completed assessment is listed, including passes. Refreshes are listed separately from their originals.</p>
+  {#each [data.performance.descriptive.assessments, data.performance.descriptive.bets] as metrics (metrics.cohort)}
+    <section class="pc-section" aria-label={metrics.cohort}>
+      <h3>{metrics.cohort === "primary-assessments" ? "Primary assessment" : "Actual bet"} descriptive metrics</h3>
+      <h4>Raw same-contract price movement</h4>
+      {#if metrics.rawSameContractPriceMovement.available}
+        <p>Mean decimal odds change {metrics.rawSameContractPriceMovement.meanDecimalOddsChange.toFixed(4)}.
+          Denominator {metrics.rawSameContractPriceMovement.denominator} distinct records.</p>
+      {:else}
+        <p class="pc-unknown">Unavailable. No comparable later price denominator.</p>
+      {/if}
+      <h4>Two-sided no-vig calibration</h4>
+      {#if metrics.twoSidedNoVigCalibration.available}
+        {@const metric = metrics.twoSidedNoVigCalibration}
+        <p>Denominator {metric.denominator} settled records with captured forecasts and qualified later closes.</p>
+        <p>Frozen model Brier {metric.model.brier.toFixed(4)}, no-vig close Brier {metric.closing.brier.toFixed(4)}.
+          Frozen model log loss {metric.model.logLoss.toFixed(4)}, no-vig close log loss {metric.closing.logLoss.toFixed(4)}.</p>
+        <p>Mean frozen win probability minus no-vig close {metric.meanWinProbabilityDifference.toFixed(4)}.
+          Mean frozen win probability minus observed win rate {metric.modelWinCalibrationBias.toFixed(4)}.</p>
+      {:else}
+        <p class="pc-unknown">Unavailable. No qualified frozen forecast, later two-sided close, and outcome denominator.</p>
+      {/if}
+      <p class="pc-hint">Raw price movement is not a no-vig edge or profitability measure. Closing probabilities reuse frozen push mass.
+        Actual bets use a linked frozen forecast only when their own saved market, side, line, sportsbook, and rules match.</p>
+    </section>
+  {/each}
+
   <ul class="pc-ledger pc-entries" data-testid="assessments">
     {#each data.assessments as assessment (assessment.id)}
       <li>
@@ -137,7 +176,7 @@
     {:else}
       <label>
         Analysis
-        <select name="analysisId" required data-testid="bet-analysis">
+        <select name="analysisId" value={value("bet", "analysisId")} required data-testid="bet-analysis">
           <option value="">choose an analysis</option>
           {#each data.assessments as assessment (assessment.id)}
             <option value={assessment.id}>{label(assessment)}</option>
@@ -147,54 +186,54 @@
     {/if}
     <label>
       Submission identifier
-      <input name="submissionId" required data-testid="bet-submission" value={start?.submissionId ?? ""} />
+      <input name="submissionId" required data-testid="bet-submission" value={value("bet", "submissionId", start?.submissionId)} />
     </label>
     <label>
       Sportsbook you used
-      <input name="sportsbook" required data-testid="bet-sportsbook" value={start?.sportsbook ?? ""} />
+      <input name="sportsbook" required data-testid="bet-sportsbook" value={value("bet", "sportsbook", start?.sportsbook)} />
     </label>
     <label>
       Market you placed
-      <select name="market" data-testid="bet-market">
+      <select name="market" value={value("bet", "market", start?.market ?? "moneyline")} data-testid="bet-market">
         {#each ["moneyline", "spread", "total"] as option (option)}
-          <option value={option} selected={start?.market === option}>{option}</option>
+          <option value={option}>{option}</option>
         {/each}
       </select>
     </label>
     <label>
       Selection you placed
-      <select name="selection" data-testid="bet-selection">
+      <select name="selection" value={value("bet", "selection", start?.selection ?? "home")} data-testid="bet-selection">
         {#each ["home", "away", "over", "under"] as option (option)}
-          <option value={option} selected={start?.selection === option}>{option}</option>
+          <option value={option}>{option}</option>
         {/each}
       </select>
     </label>
     <label>
       Line you placed (selected side, spread or total)
-      <input name="pointLine" inputmode="decimal" data-testid="bet-line" value={start?.pointLine ?? ""} />
+      <input name="pointLine" inputmode="decimal" data-testid="bet-line" value={value("bet", "pointLine", start?.pointLine)} />
     </label>
     <label>
       Tie rule (moneyline)
-      <select name="tie" data-testid="bet-tie">
-        <option value="" selected={!start?.tie}>not a moneyline</option>
+      <select name="tie" value={value("bet", "tie", start?.tie)} data-testid="bet-tie">
+        <option value="">not a moneyline</option>
         {#each ["push", "loss", "win", "void"] as option (option)}
-          <option value={option} selected={start?.tie === option}>{option}</option>
+          <option value={option}>{option}</option>
         {/each}
       </select>
     </label>
     <label>
       American odds you got
-      <input name="americanOdds" required data-testid="bet-odds" value={start?.americanOdds ?? ""} />
+      <input name="americanOdds" required data-testid="bet-odds" value={value("bet", "americanOdds", start?.americanOdds)} />
     </label>
     <label>
       Stake units
-      <input name="stakeUnits" required inputmode="decimal" />
+      <input name="stakeUnits" value={value("bet", "stakeUnits")} required inputmode="decimal" />
     </label>
     <Button type="submit">Record bet</Button>
   </form>
-  {#if form?.recorded && !form?.closingId}
+  {#if form?.action === "bet" && form.outcome === "success"}
     <p class="pc-success" data-testid="bet-recorded">Bet recorded</p>
-  {:else if form?.error && !form?.closingId}
+  {:else if form?.action === "bet" && form.error}
     <Alert data-testid="form-error">{form.error}</Alert>
   {/if}
   <ul class="pc-ledger" data-testid="bets">
@@ -239,7 +278,7 @@
   <form class="pc-form" method="POST" action="?/settle">
     <label>
       Analysis
-      <select name="analysisId" data-testid="settle-analysis">
+      <select name="analysisId" value={value("settle", "analysisId")} data-testid="settle-analysis">
         <option value="">choose an analysis</option>
         {#each data.assessments as assessment (assessment.id)}
           <option value={assessment.id}>{label(assessment)}</option>
@@ -248,7 +287,7 @@
     </label>
     <label>
       Actual bet (optional, for the record reference)
-      <select name="betId" data-testid="settle-bet">
+      <select name="betId" value={value("settle", "betId")} data-testid="settle-bet">
         <option value="">research assessment only</option>
         {#each data.bets as bet (bet.id)}
           <option value={bet.id}>{bet.sportsbook} {bet.market} {signedLine(bet.pointLine)}</option>
@@ -257,11 +296,11 @@
     </label>
     <label>
       Event identifier
-      <input name="eventId" required data-testid="settle-event" />
+      <input name="eventId" value={value("settle", "eventId")} required data-testid="settle-event" />
     </label>
     <label>
       Kind
-      <select name="kind" data-testid="settle-kind">
+      <select name="kind" value={value("settle", "kind", "final")} data-testid="settle-kind">
         <option value="final">final score</option>
         <option value="postponed">postponed</option>
         <option value="void">void</option>
@@ -270,24 +309,31 @@
     </label>
     <label>
       Home score
-      <input name="homeScore" inputmode="numeric" data-testid="settle-home" />
+      <input name="homeScore" value={value("settle", "homeScore")} inputmode="numeric" data-testid="settle-home" />
     </label>
     <label>
       Away score
-      <input name="awayScore" inputmode="numeric" data-testid="settle-away" />
+      <input name="awayScore" value={value("settle", "awayScore")} inputmode="numeric" data-testid="settle-away" />
     </label>
     <label>
       Corrects notice
-      <input name="correctsNoticeId" data-testid="settle-corrects" />
+      <select name="correctsNoticeId" value={value("settle", "correctsNoticeId")} data-testid="settle-corrects">
+        <option value="">new notice, not a correction</option>
+        {#each [...new Map([...data.settlements.flatMap((row) => [...row.assessment.history, ...row.bets.flatMap((bet) => bet.grade?.history ?? [])]), ...data.pickBetGrades.flatMap((row) => row.grade?.history ?? [])].map((notice) => [notice.id, notice])).values()] as notice (notice.id)}
+          <option value={notice.id}>{notice.id} · {notice.result} · {easternTime(notice.recordedAt)}</option>
+        {/each}
+      </select>
     </label>
     <label>
       Reason
-      <input name="reason" data-testid="settle-reason" />
+      <input name="reason" value={value("settle", "reason")} data-testid="settle-reason" />
     </label>
     <Button type="submit">Record settlement</Button>
   </form>
-  {#if form?.settled}
+  {#if form?.action === "settle" && form.outcome === "success"}
     <p class="pc-success" data-testid="settlement-recorded">{form.duplicate ? "Settlement already recorded" : "Settlement recorded"}</p>
+  {:else if form?.action === "settle" && form.error}
+    <Alert data-testid="settlement-form-error">{form.error}</Alert>
   {/if}
   <ul class="pc-ledger" data-testid="settlements">
     {#each data.settlements as row (row.analysisId)}
@@ -318,11 +364,12 @@
   <form class="pc-form" method="POST" action="?/registerProtocol" data-testid="protocol-form">
     <label>
       Forecasting artifact checksum
-      <input name="artifactChecksum" required pattern={"[0-9a-fA-F]{64}"} data-testid="protocol-checksum" />
+      <input name="artifactChecksum" value={value("registerProtocol", "artifactChecksum")} required pattern={"[0-9a-fA-F]{64}"} data-testid="protocol-checksum" />
     </label>
     <Button type="submit">Register evaluation</Button>
   </form>
-  {#if form?.protocolRecorded}<p class="pc-success" data-testid="protocol-recorded">Evaluation registered</p>{/if}
+  {#if form?.action === "registerProtocol" && form.outcome === "success"}<p class="pc-success" data-testid="protocol-recorded">Evaluation registered</p>{/if}
+  {#if form?.action === "registerProtocol" && form.error}<Alert data-testid="protocol-form-error">{form.error}</Alert>{/if}
   <ul class="pc-ledger" data-testid="protocol-registrations">
     {#each data.registrations as registration (registration.id)}
       <li><span class="pc-figure">{registration.protocol.artifactChecksum}</span> registered {easternTime(registration.registeredAt)}</li>
@@ -334,28 +381,28 @@
   <form class="pc-form" method="POST" action="?/closingMarket" data-testid="closing-market-form">
     <label>
       Game
-      <select name="gameId" required data-testid="closing-market-game">
+      <select name="gameId" value={value("closingMarket", "gameId")} required data-testid="closing-market-game">
         <option value="">choose a game</option>
         {#each [...new Map(data.modelPicks.map((item) => [item.game.id, item.game])).values()] as game (game.id)}
           <option value={game.id}>{game.away} at {game.home}</option>
         {/each}
       </select>
     </label>
-    <label>Sportsbook <input name="sportsbook" required data-testid="closing-market-book" /></label>
+    <label>Sportsbook <input name="sportsbook" value={value("closingMarket", "sportsbook")} required data-testid="closing-market-book" /></label>
     <label>
       Market
-      <select name="market" data-testid="closing-market-type">
+      <select name="market" value={value("closingMarket", "market", "moneyline")} data-testid="closing-market-type">
         <option value="moneyline">moneyline</option>
         <option value="spread">spread</option>
         <option value="total">total</option>
       </select>
     </label>
-    <label>Home spread or total line <input name="pointLine" inputmode="decimal" data-testid="closing-market-line" /></label>
-    <label>Home or over American odds <input name="firstOdds" inputmode="numeric" required data-testid="closing-market-first" /></label>
-    <label>Away or under American odds <input name="secondOdds" inputmode="numeric" required data-testid="closing-market-second" /></label>
+    <label>Home spread or total line <input name="pointLine" value={value("closingMarket", "pointLine")} inputmode="decimal" data-testid="closing-market-line" /></label>
+    <label>Home or over American odds <input name="firstOdds" value={value("closingMarket", "firstOdds")} inputmode="numeric" required data-testid="closing-market-first" /></label>
+    <label>Away or under American odds <input name="secondOdds" value={value("closingMarket", "secondOdds")} inputmode="numeric" required data-testid="closing-market-second" /></label>
     <label>
       Moneyline tie rule
-      <select name="tie" data-testid="closing-market-tie">
+      <select name="tie" value={value("closingMarket", "tie")} data-testid="closing-market-tie">
         <option value="">choose for a moneyline</option>
         <option value="push">push</option>
         <option value="loss">loss</option>
@@ -363,12 +410,13 @@
         <option value="void">void</option>
       </select>
     </label>
-    <label>Observed at <input name="observedAt" type="datetime-local" required data-testid="closing-market-time" /></label>
-    <label>Source <input name="source" required data-testid="closing-market-source" /></label>
+    <label>Observed at (America/New_York) <input name="observedAt" value={value("closingMarket", "observedAt")} type="datetime-local" required data-testid="closing-market-time" /></label>
+    {@render occurrenceInput("closingMarket")}
+    <label>Source <input name="source" value={value("closingMarket", "source")} required data-testid="closing-market-source" /></label>
     <Button type="submit">Record closing market</Button>
   </form>
-  {#if form?.closingMarketRecorded}<p class="pc-success" data-testid="closing-market-recorded">Closing market recorded</p>{/if}
-  {#if form?.error && (form?.closingMarketRecorded === false || form?.protocolRecorded === false)}
+  {#if form?.action === "closingMarket" && form.outcome === "success"}<p class="pc-success" data-testid="closing-market-recorded">Closing market recorded</p>{/if}
+  {#if form?.action === "closingMarket" && form.error}
     <Alert data-testid="prospective-form-error">{form.error}</Alert>
   {/if}
   <ul class="pc-ledger" data-testid="closing-markets">
@@ -387,7 +435,7 @@
   <form class="pc-form" method="POST" action="?/closing" data-testid="closing-form">
     <label>
       This close belongs to
-      <select name="subjectKind" data-testid="closing-subject-kind">
+      <select name="subjectKind" value={value("closing", "subjectKind", "analysis")} data-testid="closing-subject-kind">
         <option value="analysis">researched offer</option>
         <option value="bet">actual bet</option>
         <option value="model-pick">model pick</option>
@@ -395,7 +443,7 @@
     </label>
     <label>
       Record
-      <select name="subjectId" required data-testid="closing-subject">
+      <select name="subjectId" value={value("closing", "subjectId")} required data-testid="closing-subject">
         <option value="">choose a record</option>
         {#each data.assessments as assessment (assessment.id)}
           <option value={assessment.id}>research: {label(assessment)}</option>
@@ -414,11 +462,11 @@
     </label>
     <label>
       Sportsbook
-      <input name="sportsbook" required data-testid="closing-book" />
+      <input name="sportsbook" value={value("closing", "sportsbook")} required data-testid="closing-book" />
     </label>
     <label>
       Market
-      <select name="market" data-testid="closing-market">
+      <select name="market" value={value("closing", "market", "moneyline")} data-testid="closing-market">
         <option value="moneyline">moneyline</option>
         <option value="spread">spread</option>
         <option value="total">total</option>
@@ -426,7 +474,7 @@
     </label>
     <label>
       Selection
-      <select name="selection" data-testid="closing-selection">
+      <select name="selection" value={value("closing", "selection", "home")} data-testid="closing-selection">
         <option value="home">home</option>
         <option value="away">away</option>
         <option value="over">over</option>
@@ -435,11 +483,11 @@
     </label>
     <label>
       Point line
-      <input name="pointLine" inputmode="decimal" data-testid="closing-line" />
+      <input name="pointLine" value={value("closing", "pointLine")} inputmode="decimal" data-testid="closing-line" />
     </label>
     <label>
       Tie rule (moneyline)
-      <select name="tie" data-testid="closing-tie">
+      <select name="tie" value={value("closing", "tie")} data-testid="closing-tie">
         <option value="">not a moneyline</option>
         <option value="push">push</option>
         <option value="loss">loss</option>
@@ -449,21 +497,22 @@
     </label>
     <label>
       American odds
-      <input name="americanOdds" required data-testid="closing-odds" />
+      <input name="americanOdds" value={value("closing", "americanOdds")} required data-testid="closing-odds" />
     </label>
     <label>
-      Observed at
-      <input name="observedAt" type="datetime-local" required data-testid="closing-time" />
+      Observed at (America/New_York)
+      <input name="observedAt" value={value("closing", "observedAt")} type="datetime-local" required data-testid="closing-time" />
     </label>
+    {@render occurrenceInput("closing")}
     <label>
       Source
-      <input name="source" required data-testid="closing-source" />
+      <input name="source" value={value("closing", "source")} required data-testid="closing-source" />
     </label>
     <Button type="submit">Record closing observation</Button>
   </form>
-  {#if form?.recorded}
+  {#if form?.action === "closing" && form.outcome === "success"}
     <p class="pc-success" data-testid="closing-recorded">Closing observation recorded</p>
-  {:else if form?.error}
+  {:else if form?.action === "closing" && form.error}
     <Alert data-testid="form-error">{form.error}</Alert>
   {/if}
   <ul class="pc-ledger" data-testid="closings">
