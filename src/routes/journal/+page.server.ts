@@ -14,7 +14,7 @@ import { journalSummaries } from "#lib/server/analysis/summary.ts";
 import { parseObservedAt } from "#lib/server/analysis/form.ts";
 import { PROSPECTIVE_PROTOCOL } from "#lib/server/models/release.ts";
 import type { SettlementNoticeKind } from "#lib/server/analysis/store.ts";
-import type { JournalExport } from "#lib/server/db/repository.ts";
+import type { JournalExport } from "#lib/server/analysis/journal-backup.ts";
 import type { Actions, PageServerLoad } from "./$types";
 
 function store() {

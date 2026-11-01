@@ -1,4 +1,11 @@
 import { expect, test } from "@playwright/test";
+import { browserPorts } from "../../scripts/browser-port.ts";
+
+const origin = browserPorts(process.env).origin;
+
+test.afterEach(async ({ request }) => {
+  expect((await request.post("/__verification", { headers: { origin } })).ok()).toBe(true);
+});
 
 async function freezeBoard(
   page: import("@playwright/test").Page,
@@ -36,6 +43,12 @@ test("a final score grades the model pick and a correction regrades it with hist
   await expect(card.getByTestId("pick-result")).toHaveText("Lost");
   const firstId = await card.getByTestId("pick-notice-id").first().textContent();
 
+  // A correction is recorded later than the notice it corrects, as a backup requires.
+  const advanced = await page.request.patch("/__verification", {
+    headers: { origin },
+    data: { now: "2026-10-25T16:00:01.000Z" },
+  });
+  expect(advanced.ok()).toBe(true);
   // A correction names the earlier notice, gives a reason, and regrades the pick.
   await page.getByTestId("settle-event").fill("pick-final-dal-phi-corrected");
   await page.getByTestId("settle-home").fill("17");

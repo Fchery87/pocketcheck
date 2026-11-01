@@ -1,6 +1,6 @@
 import { proportionalMargin } from "#lib/domain/odds.ts";
 import type { Offer } from "#lib/domain/offer.ts";
-import { assertRestorable, type JournalExport } from "../db/repository.ts";
+import { assertRestorable, type JournalExport } from "./journal-backup.ts";
 import { slateOf } from "../models/uncertainty.ts";
 import { validateProtocolRegistration, type ProtocolRegistration } from "../models/protocol.ts";
 import type { Market } from "../models/games.ts";

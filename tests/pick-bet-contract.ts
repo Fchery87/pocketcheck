@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { loadFixtureGames } from "#lib/server/analysis/games.ts";
 import { runGameBoard } from "#lib/server/analysis/board-run.ts";
+import { encodeJournalBackup } from "#lib/server/analysis/journal-backup.ts";
 import type { JournalStore, NewActualBet } from "#lib/server/analysis/store.ts";
 import { quiet, scriptedModel } from "./board-fixtures.ts";
 
@@ -193,6 +194,81 @@ export function describePickBetContract(
       });
       const graded = await store.readSettlement({ betId: recorded.bet.id });
       expect(graded.bet?.effective).toBe("void");
+    });
+
+    it("restores board quotes, a pick bet's own contract, and its settlement history from a backup file", async () => {
+      const store = await makeStore();
+      const outcome = await runGameBoard(
+        {
+          game,
+          nowIso: NOW,
+          scheduleRetrievedAt: "2026-10-25T12:00:00.000Z",
+          sportsbook: "Board Book",
+          observedAt: "2026-10-25T15:30:00.000Z",
+          moneyline: { home: -150, away: 130, tieRule: "push" },
+          extraQuotes: [
+            {
+              sportsbook: "Shop Book",
+              market: "moneyline",
+              selection: "home",
+              americanOdds: -135,
+              pointLine: null,
+              observedAt: "2026-10-25T15:20:00.000Z",
+            },
+          ],
+          requestId: `${scope()}:quoted-board`,
+        },
+        {
+          store,
+          collect: quiet,
+          model: scriptedModel({
+            home: { win: 0.64, loss: 0.36, push: 0 },
+            conservativeHome: { win: 0.62, loss: 0.38, push: 0 },
+          }),
+        },
+      );
+      if (!outcome.ok) throw new Error(outcome.error);
+      const board = (await store.getBoard(outcome.board.id))!;
+      expect(board.markets[0]!.quotes).toEqual([
+        expect.objectContaining({ sportsbook: "Shop Book", americanOdds: -135, best: true }),
+      ]);
+      const pick = board.markets[0]!.pick!;
+      const recorded = await store.recordBet(
+        placed(pick.id, { sportsbook: "Shop Book", americanOdds: -135 }),
+      );
+      if (recorded.kind !== "created") throw new Error("bet was not created");
+      const final = await store.recordSettlement({
+        eventId: `${scope()}:final`,
+        betId: recorded.bet.id,
+        kind: "final",
+        homeScore: 24,
+        awayScore: 21,
+        recordedAt: "2026-10-26T04:00:00.000Z",
+        source: "box score",
+      });
+      if (final.kind !== "recorded") throw new Error("notice was not recorded");
+      await store.recordSettlement({
+        eventId: `${scope()}:correction`,
+        betId: recorded.bet.id,
+        kind: "final",
+        homeScore: 21,
+        awayScore: 24,
+        recordedAt: "2026-10-26T05:00:00.000Z",
+        source: "league",
+        reason: "The first score was reversed.",
+        correctsNoticeId: final.noticeId,
+      });
+      const settlement = await store.readSettlement({ betId: recorded.bet.id });
+      expect(settlement.bet?.history.map((notice) => notice.result)).toEqual(["win", "loss"]);
+
+      const file = encodeJournalBackup(await store.exportJournal());
+      const restored = await makeStore();
+      await restored.restoreJournal(JSON.parse(file));
+      await restored.restoreJournal(JSON.parse(file));
+
+      expect(await restored.getBoard(board.id)).toEqual(board);
+      expect(await restored.listBets()).toEqual([recorded.bet]);
+      expect(await restored.readSettlement({ betId: recorded.bet.id })).toEqual(settlement);
     });
 
     it("records a comparable close for a pick bet and treats a different line as movement", async () => {

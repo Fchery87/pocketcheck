@@ -6,7 +6,7 @@ import {
   buildProspectiveSample,
   closeAgeByMarket,
 } from "../../src/lib/server/analysis/prospective-sample.ts";
-import type { JournalExport } from "../../src/lib/server/db/repository.ts";
+import type { JournalExport } from "../../src/lib/server/analysis/journal-backup.ts";
 import { parseArtifact } from "../../src/lib/server/models/inputs.ts";
 import { PROSPECTIVE_PROTOCOL, releaseFromJournal } from "../../src/lib/server/models/release.ts";
 import { createMemoryStore } from "../../src/lib/server/analysis/store.ts";

@@ -8,11 +8,10 @@ import type { EvidenceFacts, EvidenceItem } from "../sources/contracts.ts";
 import {
   BetSubmissionConflict,
   JournalRepository,
-  type BetContract,
-  type EvidenceRecord,
-  type GameRecord,
+  readJournalRecords,
   type SaveAnalysisInput,
 } from "../db/repository.ts";
+import type { BetContract, EvidenceRecord, GameRecord, JournalExport } from "./journal-backup.ts";
 import type { RunModel } from "./model.ts";
 import type { SavedForecast } from "./forecast-record.ts";
 import type { PolicyDecision } from "./policy.ts";
@@ -95,6 +94,14 @@ function runStatus(status: string): RunStatus {
 export function createNeonStore(sql: Sql): JournalStore {
   const journal = new JournalRepository(sql);
   const boardStore = createNeonBoardStore(sql);
+
+  /** Research records and boards read under one snapshot, so a concurrent write cannot split them. */
+  async function exportJournal(): Promise<JournalExport> {
+    return sql.begin("ISOLATION LEVEL REPEATABLE READ READ ONLY", async (tx) => ({
+      ...(await readJournalRecords(tx)),
+      gameBoards: await boardStore.readBoards(tx),
+    }));
+  }
 
   async function getRun(id: string): Promise<ResearchRun | null> {
     const saved = await journal.findRun(id);
@@ -301,15 +308,14 @@ export function createNeonStore(sql: Sql): JournalStore {
         "archived-untimestamped",
       );
     },
-    async exportJournal() {
-      const backup = await journal.exportJournal();
-      return { ...backup, gameBoards: await boardStore.listBoards() };
-    },
+    exportJournal,
     async restoreJournal(backup) {
-      const restored = await journal.restoreJournal(backup, (tx) =>
-        boardStore.restoreBoards(tx, backup.gameBoards ?? []),
+      await sql.begin((tx) =>
+        journal.restoreJournal(tx, backup, () =>
+          boardStore.restoreBoards(tx, backup.gameBoards ?? []),
+        ),
       );
-      return { ...restored, gameBoards: await boardStore.listBoards() };
+      return exportJournal();
     },
   };
   return { ...research, ...boardStore };

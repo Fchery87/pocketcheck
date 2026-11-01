@@ -9,7 +9,7 @@ import {
 } from "../../src/lib/server/analysis/prospective-sample.ts";
 import { evaluateProspectiveForecasts } from "../../src/lib/server/models/prospective.ts";
 import { parseProtocolRegistration } from "../../src/lib/server/models/protocol.ts";
-import type { JournalExport } from "../../src/lib/server/db/repository.ts";
+import type { JournalExport } from "../../src/lib/server/analysis/journal-backup.ts";
 
 export function readProspectiveSources(journalPath: string, protocolPath: string) {
   const journalBytes = readFileSync(journalPath, "utf8");

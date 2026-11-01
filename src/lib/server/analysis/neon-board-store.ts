@@ -28,6 +28,7 @@ import { chooseModelPickRole, unclassifiedPickRole } from "./model-pick-primary.
 import type { SavedForecast } from "./forecast-record.ts";
 import type { ProtocolRegistration } from "../models/protocol.ts";
 import type { ModelPickCalculation } from "./model-pick.ts";
+import { sameRecord } from "./journal-backup.ts";
 import type { RunGame, RunUsage, StoredNotice } from "./store.ts";
 import type { PickExplanationReport, ProviderRequestRecord } from "../providers/contracts.ts";
 
@@ -61,7 +62,7 @@ type BoardRow = {
 type MarketRow = {
   market: Market;
   offers: [Offer, Offer];
-  quotes: BoardQuoteResult[] | null;
+  quotes: BoardQuoteResult[];
   no_pick_reason: string | null;
 };
 
@@ -87,7 +88,8 @@ function iso(value: Date): string {
 }
 
 export type NeonBoardJournal = {
-  listBoards: () => Promise<GameBoard[]>;
+  /** Every board, read through the caller's connection so a backup can share one snapshot. */
+  readBoards: (db: Sql | TransactionSql) => Promise<GameBoard[]>;
   restoreBoards: (tx: TransactionSql, boards: GameBoard[]) => Promise<void>;
 };
 
@@ -97,7 +99,7 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
     const [board] = await db<BoardRow[]>`SELECT * FROM game_boards WHERE id = ${id}`;
     if (!board) return null;
     const markets = await db<MarketRow[]>`
-      SELECT market, offers, no_pick_reason FROM board_markets WHERE board_id = ${id}
+      SELECT market, offers, quotes, no_pick_reason FROM board_markets WHERE board_id = ${id}
     `;
     const picks = await db<PickRow[]>`
       SELECT p.id, p.board_id, p.market, p.parent_pick_id, p.calculation, p.forecasting_model,
@@ -134,7 +136,7 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
         return {
           market: row.market,
           offers: row.offers,
-          quotes: row.quotes ?? [],
+          quotes: row.quotes,
           pick: pick ? toPick(pick) : null,
           noPickReason: row.no_pick_reason,
         };
@@ -519,22 +521,25 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
       });
       return require(sql, input.boardId);
     },
-    async listBoards(): Promise<GameBoard[]> {
-      const rows = await sql<{ id: string }[]>`SELECT id FROM game_boards ORDER BY created_at, id`;
+    async readBoards(db: Sql | TransactionSql): Promise<GameBoard[]> {
+      const rows = await db<{ id: string }[]>`SELECT id FROM game_boards ORDER BY created_at, id`;
       const boards: GameBoard[] = [];
-      for (const row of rows) boards.push(await require(sql, row.id));
+      for (const row of rows) boards.push(await require(db, row.id));
       return boards;
     },
     async restoreBoards(tx: TransactionSql, boards: GameBoard[]): Promise<void> {
-      // Backups written before withdrawals have no field; those boards were never withdrawn.
-      const normalized = boards.map(({ withdrawal, ...rest }) => ({
+      // Backups written before withdrawals or quotes have no field: never withdrawn, no quotes.
+      const normalized = boards.map(({ withdrawal, ...rest }): GameBoard => ({
         ...rest,
+        markets: rest.markets.map((market) => ({ ...market, quotes: market.quotes ?? [] })),
+        providerRequests: stripBoardSecrets(rest.providerRequests) as GameBoard["providerRequests"],
+        usage: rest.usage ? (stripBoardSecrets(rest.usage) as GameBoard["usage"]) : rest.usage,
         withdrawal: withdrawal ?? null,
       }));
       for (const board of parentsFirst(normalized, (item) => item.parentId)) {
         const existing = await read(tx, board.id);
         if (existing) {
-          if (JSON.stringify(existing) !== JSON.stringify(board)) {
+          if (!sameRecord(existing, board)) {
             throw new Error(
               `Conflicting game board identifier ${board.id} does not match the saved record.`,
             );
@@ -569,9 +574,9 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
             ${board.failureReason}, ${board.lean?.text ?? null},
             ${board.lean ? board.lean.rationale : null},
             ${board.drafter?.id ?? null}, ${board.drafter?.modelId ?? null},
-            ${tx.json(stripBoardSecrets(board.providerRequests) as never)},
+            ${tx.json(board.providerRequests as never)},
             ${board.providerOutcomeAmbiguous},
-            ${board.usage ? tx.json(stripBoardSecrets(board.usage) as never) : null},
+            ${board.usage ? tx.json(board.usage as never) : null},
             ${board.explanation ? tx.json(board.explanation as never) : null},
             ${board.createdAt}, ${board.completedAt}, ${board.request.protocolRegistrationId ?? null},
             ${board.request.explanationFormatVersion ?? null}
@@ -585,10 +590,11 @@ export function createNeonBoardStore(sql: Sql): GameBoardStore & NeonBoardJourna
         }
         for (const market of board.markets) {
           await tx`
-            INSERT INTO board_markets (id, board_id, market, offers, no_pick_reason, frozen_at)
-            VALUES (
+            INSERT INTO board_markets (
+              id, board_id, market, offers, quotes, no_pick_reason, frozen_at
+            ) VALUES (
               ${randomUUID()}, ${board.id}, ${market.market}, ${tx.json(market.offers as never)},
-              ${market.noPickReason},
+              ${tx.json(market.quotes as never)}, ${market.noPickReason},
               ${market.pick || market.noPickReason !== null ? board.createdAt : null}
             )
           `;

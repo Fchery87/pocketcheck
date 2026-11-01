@@ -21,8 +21,7 @@ import type { SavedForecast } from "./forecast-record.ts";
 import type { PolicyDecision } from "./policy.ts";
 import type { EvidenceItem } from "../sources/contracts.ts";
 import type { AttemptRequest } from "./attempt.ts";
-import type { JournalExport } from "../db/repository.ts";
-import { assertRestorable } from "../db/repository.ts";
+import { assertRestorable, type JournalExport } from "./journal-backup.ts";
 import { parentsFirst } from "../db/order.ts";
 import { classifyPregameRuns, type PregameRun } from "./primary.ts";
 import {

@@ -1,7 +1,7 @@
 import type { EvaluationSummary } from "./evaluate.ts";
 import { evaluateProspectiveForecasts } from "./prospective.ts";
 import { buildProspectiveSample } from "../analysis/prospective-sample.ts";
-import type { JournalExport } from "../db/repository.ts";
+import type { JournalExport } from "../analysis/journal-backup.ts";
 import { INPUT_AVAILABILITY } from "./forecast.ts";
 import type { Market } from "./games.ts";
 import { withChecksum, type ModelArtifact } from "./artifact.ts";

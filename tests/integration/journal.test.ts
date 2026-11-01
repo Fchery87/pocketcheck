@@ -1,5 +1,15 @@
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vite-plus/test";
-import { JournalRepository, type JournalExport } from "../../src/lib/server/db/repository.ts";
+import { writeJournalBackup } from "../../scripts/journal/export.ts";
+import { runGameBoard } from "../../src/lib/server/analysis/board-run.ts";
+import { loadFixtureGames } from "../../src/lib/server/analysis/games.ts";
+import type { JournalExport } from "../../src/lib/server/analysis/journal-backup.ts";
+import { createNeonStore } from "../../src/lib/server/analysis/neon-store.ts";
+import type { JournalStore } from "../../src/lib/server/analysis/store.ts";
+import { JournalRepository } from "../../src/lib/server/db/repository.ts";
+import { quiet, scriptedModel } from "../board-fixtures.ts";
 import { isolatedDb } from "./isolated-db.ts";
 
 /** Export queries carry no order, so compare each table sorted by id. */
@@ -135,7 +145,7 @@ describe("journal backup download", () => {
         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
       `;
 
-      const backup = await journal.exportJournal();
+      const backup = await createNeonStore(isolated.db).exportJournal();
       const text = JSON.stringify(backup);
       expect(backup.version).toBe(1);
       expect(backup.analyses.map((row) => row.id)).toContain(saved.analysis.id);
@@ -407,12 +417,12 @@ describe("immutable journal", () => {
         await expect(mutation).rejects.toThrow(/append-only/);
       }
 
-      const exported = await journal.exportJournal([saved.analysis.id, refresh.analysis.id]);
+      const exported = await createNeonStore(db).exportJournal();
       const serialized = JSON.stringify(exported);
       expect(serialized).not.toContain("npg_");
       expect(serialized).not.toContain("postgresql://");
       expect(serialized).not.toContain("API_KEY");
-      expect(exported.offers.map((row) => row.observedAt)).toEqual([
+      expect(exported.offers.map((row) => row.observedAt).sort()).toEqual([
         "2026-11-01T18:00:00.000Z",
         "2026-11-02T12:00:00.000Z",
       ]);
@@ -420,7 +430,7 @@ describe("immutable journal", () => {
       // Restore into an empty database, parents listed after their children.
       const target = await isolatedDb();
       try {
-        const targetJournal = new JournalRepository(target.db);
+        const targetJournal = createNeonStore(target.db);
         const shuffled = {
           ...exported,
           analyses: [...exported.analyses].reverse(),
@@ -465,7 +475,7 @@ function emptyBackup(): JournalExport {
 describe("journal restore", () => {
   it("rejects an unsupported version before writing any row", async () => {
     const isolated = await isolatedDb();
-    const journal = new JournalRepository(isolated.db);
+    const journal = createNeonStore(isolated.db);
     const gameId = "11111111-1111-4111-8111-111111111111";
     const damaged = {
       ...emptyBackup(),
@@ -497,7 +507,7 @@ describe("journal restore", () => {
 
   it("rejects a missing parent before writing the child analysis", async () => {
     const isolated = await isolatedDb();
-    const journal = new JournalRepository(isolated.db);
+    const journal = createNeonStore(isolated.db);
     const gameId = "22222222-2222-4222-8222-222222222222";
     const offerId = "33333333-3333-4333-8333-333333333333";
     const analysisId = "44444444-4444-4444-8444-444444444444";
@@ -614,7 +624,7 @@ describe("journal restore", () => {
     const journal = new JournalRepository(isolated.db);
     const stamp = `conflict-${Date.now()}`;
     try {
-      const saved = await journal.saveCompletedAnalysis({
+      await journal.saveCompletedAnalysis({
         game: {
           sourceGameId: stamp,
           season: 2026,
@@ -646,12 +656,222 @@ describe("journal restore", () => {
           idempotencyKey: stamp,
         },
       });
-      const original = await journal.exportJournal([saved.analysis.id]);
+      const store = createNeonStore(isolated.db);
+      const original = await store.exportJournal();
       const conflicting = structuredClone(original);
       conflicting.analyses[0]!.conclusion = "bet";
-      await expect(journal.restoreJournal(conflicting)).rejects.toThrow(/conflict/i);
-      const reread = await journal.exportJournal([saved.analysis.id]);
+      await expect(store.restoreJournal(conflicting)).rejects.toThrow(/conflict/i);
+      const reread = await store.exportJournal();
       expect(sortedById(reread)).toEqual(sortedById(original));
+    } finally {
+      await isolated.drop();
+    }
+  }, 120_000);
+});
+
+const BOARD_NOW = "2026-10-25T16:00:00.000Z";
+const boardGame = loadFixtureGames("tests/fixtures/sources/games-minimized.csv", BOARD_NOW).find(
+  (item) => item.id === "2026_07_DAL_PHI",
+)!;
+
+async function quotedBoard(store: JournalStore, requestId: string) {
+  const outcome = await runGameBoard(
+    {
+      game: boardGame,
+      nowIso: BOARD_NOW,
+      scheduleRetrievedAt: "2026-10-25T12:00:00.000Z",
+      sportsbook: "Board Book",
+      observedAt: "2026-10-25T15:30:00.000Z",
+      moneyline: { home: -150, away: 130, tieRule: "push" },
+      spread: { homeLine: -3, awayLine: 3, home: -110, away: -110 },
+      extraQuotes: [
+        {
+          sportsbook: "Shop Book",
+          market: "moneyline",
+          selection: "home",
+          americanOdds: -135,
+          pointLine: null,
+          observedAt: "2026-10-25T15:20:00.000Z",
+        },
+      ],
+      requestId,
+    },
+    {
+      store,
+      collect: quiet,
+      model: scriptedModel({
+        home: { win: 0.64, loss: 0.36, push: 0 },
+        conservativeHome: { win: 0.62, loss: 0.38, push: 0 },
+      }),
+    },
+  );
+  if (!outcome.ok) throw new Error(outcome.error);
+  return outcome.board;
+}
+
+function reversedKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(reversedKeys);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .reverse()
+        .map(([key, item]) => [key, reversedKeys(item)]),
+    );
+  }
+  return value;
+}
+
+describe("journal backup command", () => {
+  it("writes restorable board-only and pick-bet backups to new files without replacing one", async () => {
+    const source = await isolatedDb();
+    const destinations = [await isolatedDb(), await isolatedDb()];
+    const folder = await mkdtemp(path.join(tmpdir(), "pocketcheck-backup-"));
+    try {
+      const store = createNeonStore(source.db);
+      const board = await quotedBoard(store, "backup-command");
+      const boardOnly = path.join(folder, "board-only.json");
+      await writeJournalBackup(store, boardOnly);
+
+      const pick = board.markets[0]!.pick!;
+      const bet = await store.recordBet({
+        modelPickId: pick.id,
+        submissionId: "backup-command-bet",
+        sportsbook: "Shop Book",
+        market: "moneyline",
+        selection: "home",
+        rules: { period: "full-game", overtime: "included", tie: "push" },
+        americanOdds: -135,
+        stakeUnits: 1,
+        placedAt: "2026-10-25T15:45:00.000Z",
+      });
+      if (bet.kind !== "created") throw new Error("bet was not created");
+      const final = await store.recordSettlement({
+        eventId: "backup-command-final",
+        betId: bet.bet.id,
+        kind: "final",
+        homeScore: 24,
+        awayScore: 21,
+        recordedAt: "2026-10-26T04:00:00.000Z",
+        source: "box score",
+      });
+      if (final.kind !== "recorded") throw new Error("notice was not recorded");
+      await store.recordSettlement({
+        eventId: "backup-command-correction",
+        betId: bet.bet.id,
+        kind: "void",
+        recordedAt: "2026-10-26T05:00:00.000Z",
+        source: "league",
+        reason: "The game was voided.",
+        correctsNoticeId: final.noticeId,
+      });
+      const withBet = path.join(folder, "with-bet.json");
+      await writeJournalBackup(store, withBet);
+
+      const earlier = await readFile(boardOnly, "utf8");
+      await expect(writeJournalBackup(store, boardOnly)).rejects.toThrow(/EEXIST/);
+      expect(await readFile(boardOnly, "utf8")).toBe(earlier);
+      expect((await readdir(folder)).sort()).toEqual(["board-only.json", "with-bet.json"]);
+
+      const boardOnlyStore = createNeonStore(destinations[0]!.db);
+      await boardOnlyStore.restoreJournal(JSON.parse(earlier));
+      expect(await boardOnlyStore.getBoard(board.id)).toEqual(board);
+      expect(board.markets[0]!.quotes).toHaveLength(1);
+      expect(await boardOnlyStore.listBets()).toEqual([]);
+
+      const withBetStore = createNeonStore(destinations[1]!.db);
+      await withBetStore.restoreJournal(JSON.parse(await readFile(withBet, "utf8")));
+      expect(await withBetStore.getBoard(board.id)).toEqual(board);
+      expect(await withBetStore.listBets()).toEqual([bet.bet]);
+      expect(await withBetStore.readSettlement({ betId: bet.bet.id })).toEqual(
+        await store.readSettlement({ betId: bet.bet.id }),
+      );
+      expect(await withBetStore.exportJournal()).toEqual(await store.exportJournal());
+    } finally {
+      await rm(folder, { recursive: true, force: true });
+      await Promise.all([source, ...destinations].map((item) => item.drop()));
+    }
+  }, 120_000);
+
+  it("refuses an invalid graph before writing any file", async () => {
+    const folder = await mkdtemp(path.join(tmpdir(), "pocketcheck-backup-"));
+    try {
+      const output = path.join(folder, "invalid.json");
+      const broken = { ...emptyBackup(), bets: [{ id: "not-a-uuid" }] } as unknown as JournalExport;
+      await expect(
+        writeJournalBackup({ exportJournal: async () => broken }, output),
+      ).rejects.toThrow(/bet identifier/);
+      expect(await readdir(folder)).toEqual([]);
+    } finally {
+      await rm(folder, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("journal restore equality", () => {
+  it("restores reordered nested JSON once and rejects a changed nested value without writing", async () => {
+    const isolated = await isolatedDb();
+    try {
+      const store = createNeonStore(isolated.db);
+      await quotedBoard(store, "reordered");
+      await new JournalRepository(isolated.db).saveCompletedAnalysis({
+        game: {
+          sourceGameId: "reordered-analysis",
+          season: 2026,
+          week: 9,
+          awayTeam: "BUF",
+          homeTeam: "KC",
+          kickoffAt: "2026-11-08T21:20:00.000Z",
+          venue: "Arrowhead",
+          status: "scheduled",
+        },
+        offer: {
+          gameId: "pending",
+          sportsbook: "ExampleBook",
+          market: "spread",
+          selection: "home",
+          pointLine: -2.5,
+          americanOdds: -110,
+          observedAt: "2026-11-07T18:00:00.000Z",
+          enteredAt: "2026-11-07T18:05:00.000Z",
+          kickoffAt: "2026-11-08T21:20:00.000Z",
+          rules: { period: "full-game", overtime: "included", tie: null },
+          opposing: null,
+        },
+        evidence: [
+          {
+            sourceId: "manual:injury",
+            sourceUrl: null,
+            retrievedAt: "2026-11-07T17:00:00.000Z",
+            publishedAt: null,
+            effectiveAt: null,
+            checksum: "reordered-evidence",
+            body: { team: "KC", detail: { status: "questionable", player: "starter" } },
+            origin: "manual",
+            completeness: "complete",
+          },
+        ],
+        analysis: {
+          cutoffAt: "2026-11-07T18:05:00.000Z",
+          status: "completed",
+          conclusion: "pass",
+          idempotencyKey: "reordered-analysis",
+          policy: { version: "policy-1", conclusion: "pass", checks: { price: true, gaps: 0 } },
+        },
+      });
+      const before = await store.exportJournal();
+      const reordered = reversedKeys(before) as JournalExport;
+      expect(JSON.stringify(reordered)).not.toBe(JSON.stringify(before));
+
+      expect(await store.restoreJournal(reordered)).toEqual(before);
+      expect(await store.restoreJournal(reordered)).toEqual(before);
+
+      const changed = structuredClone(reordered);
+      changed.gameBoards![0]!.markets[0]!.quotes[0]!.americanOdds = -140;
+      await expect(store.restoreJournal(changed)).rejects.toThrow(/conflict/i);
+      const nested = structuredClone(reordered);
+      (nested.evidence[0]!.body as { detail: { status: string } }).detail.status = "out";
+      await expect(store.restoreJournal(nested)).rejects.toThrow(/conflict/i);
+      expect(await store.exportJournal()).toEqual(before);
     } finally {
       await isolated.drop();
     }

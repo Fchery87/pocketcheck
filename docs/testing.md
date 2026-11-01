@@ -44,7 +44,7 @@ CI's separate `database` job provisions a PostgreSQL 16 service with a disposabl
 
 The journal page downloads `/journal/export` as `pocketcheck-journal-v1.json`. Format version is `1`. Version 1 is the only backup restore accepts.
 
-The file contains games, offers, evidence used by analyses, analysis identifiers, original timestamps, parent links, immutable snapshots, gaps, manual coverage, and policy results. It also contains actual-bet contracts and stakes, primary classifications, closing observations, settlement and correction history, frozen forecasts, and provider attempt accounting. Game boards and model picks are optional lists on the same version 1 file. A backup from before boards still restores. Failed, interrupted, and ambiguous attempts stay in the file with their durable responses.
+The file contains games, offers, evidence used by analyses, analysis identifiers, original timestamps, parent links, immutable snapshots, gaps, manual coverage, and policy results. It also contains actual-bet contracts and stakes, primary classifications, closing observations, settlement and correction history, frozen forecasts, and provider attempt accounting. Game boards, with their extra sportsbook quotes, and model picks are optional lists on the same version 1 file. A backup from before boards still restores. Settlement history includes notices for a bet placed from a model pick, which name the bet and no analysis. Failed, interrupted, and ambiguous attempts stay in the file with their durable responses.
 
 Legacy records keep their saved provenance limits. Export does not fill in facts the record does not have.
 
@@ -53,6 +53,8 @@ The file does not contain provider credentials, credential-bearing request heade
 Restore checks the version, record shapes, identifiers, relationships, snapshots, and event histories before it writes. A valid file is applied atomically. Restoring the same file again keeps one copy of each identical record. A malformed record, a missing relationship, an unsupported version, or a conflicting identifier is rejected and leaves the destination unchanged. Conflicting identifiers are not replaced.
 
 A restored pending or ambiguous attempt stays readable. Restore does not call a source or a provider and does not replay that work.
+
+The Neon journal reads every collection, boards included, inside one read-only snapshot, and the whole graph is validated before any byte is written. `node --experimental-strip-types scripts/journal/export.ts <file>` writes the same file as the download. It uses the application's TLS connection settings and refuses to replace an existing file.
 
 Reachable recovery is the journal page form, which posts a version 1 file to `?/restore`. The download itself does not write.
 
