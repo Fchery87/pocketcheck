@@ -1,10 +1,15 @@
 import type { Sql } from "postgres";
 import type { ModelCatalog, ModelTest } from "../providers/contracts.ts";
-import type { DrafterChoice, SettingsStore } from "./store.ts";
+import {
+  redactModelTest,
+  type DrafterChoice,
+  type SettingsOptions,
+  type SettingsStore,
+} from "./store.ts";
 
 const DRAFTER_KEY = "drafter";
 
-export function createNeonSettings(sql: Sql): SettingsStore {
+export function createNeonSettings(sql: Sql, options: SettingsOptions): SettingsStore {
   return {
     async getDrafter() {
       const rows = await sql<{ value: DrafterChoice }[]>`
@@ -51,11 +56,15 @@ export function createNeonSettings(sql: Sql): SettingsStore {
       return Object.fromEntries(
         rows.map((row): [string, ModelTest] => [
           row.model_id,
-          { ok: row.ok, reason: row.reason, testedAt: row.tested_at.toISOString() },
+          redactModelTest(
+            { ok: row.ok, reason: row.reason, testedAt: row.tested_at.toISOString() },
+            options.secrets,
+          ),
         ]),
       );
     },
-    async saveModelTest(provider, modelId, test) {
+    async saveModelTest(provider, modelId, unredacted) {
+      const test = redactModelTest(unredacted, options.secrets);
       await sql`
         INSERT INTO model_tests (provider, model_id, ok, reason, tested_at)
         VALUES (${provider}, ${modelId}, ${test.ok}, ${test.reason}, ${test.testedAt})

@@ -24,15 +24,22 @@ const catalog: ModelCatalog = {
   ],
 };
 
+const DUMMY_KEY = "claw_dummy_51c0e7b2ff";
+
 /** Shared by the memory settings store and the Neon settings store. */
-export function describeSettingsContract(name: string, makeStore: () => SettingsStore) {
+export function describeSettingsContract(
+  name: string,
+  makeStore: (options: { secrets: readonly string[] }) => SettingsStore,
+) {
   describe(`${name} settings store`, () => {
     it("uses the fixture drafter until a model is chosen", async () => {
-      expect(await makeStore().getDrafter()).toEqual({ provider: "fixture" });
+      expect(await makeStore({ secrets: [DUMMY_KEY] }).getDrafter()).toEqual({
+        provider: "fixture",
+      });
     });
 
     it("keeps the chosen provider and model", async () => {
-      const store = makeStore();
+      const store = makeStore({ secrets: [DUMMY_KEY] });
       await store.setDrafter({ provider: "deepseek", modelId: "deepseek-flash" });
       expect(await store.getDrafter()).toEqual({ provider: "deepseek", modelId: "deepseek-flash" });
       await store.setDrafter({ provider: "fixture" });
@@ -40,7 +47,7 @@ export function describeSettingsContract(name: string, makeStore: () => Settings
     });
 
     it("caches a catalog with its retrieval time and replaces it on refresh", async () => {
-      const store = makeStore();
+      const store = makeStore({ secrets: [DUMMY_KEY] });
       expect(await store.getCatalog("theclawbay")).toBeNull();
       await store.saveCatalog(catalog);
       expect(await store.getCatalog("theclawbay")).toEqual(catalog);
@@ -50,7 +57,7 @@ export function describeSettingsContract(name: string, makeStore: () => Settings
     });
 
     it("keeps the latest test result per model", async () => {
-      const store = makeStore();
+      const store = makeStore({ secrets: [DUMMY_KEY] });
       await store.saveModelTest("theclawbay", "grok-4.7", {
         ok: false,
         reason: "HTTP 500",
@@ -65,6 +72,20 @@ export function describeSettingsContract(name: string, makeStore: () => Settings
         "grok-4.7": { ok: true, reason: null, testedAt: "2026-10-25T20:05:00.000Z" },
       });
       expect(await store.getModelTests("deepseek")).toEqual({});
+    });
+
+    it("saves and returns a failed test without the configured key", async () => {
+      const store = makeStore({ secrets: [DUMMY_KEY] });
+      await store.saveModelTest("theclawbay", "grok-4.7", {
+        ok: false,
+        reason: `/chat/completions failed: upstream echoed ${DUMMY_KEY} and authorization: Bearer abc123`,
+        testedAt: "2026-10-25T20:00:00.000Z",
+      });
+      const saved = await store.getModelTests("theclawbay");
+      expect(saved["grok-4.7"]?.reason).toBe(
+        "/chat/completions failed: upstream echoed [redacted] and authorization: Bearer [redacted]",
+      );
+      expect(JSON.stringify(saved)).not.toContain(DUMMY_KEY);
     });
   });
 }

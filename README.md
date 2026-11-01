@@ -369,7 +369,7 @@ To fit a candidate on the latest data without touching the artifact in use, run 
 npm run model:refit -- data/sources/games.csv data/artifacts/baseline.json data/artifacts/baseline-next.json
 ```
 
-It writes `baseline-next.json` and leaves `baseline.json` alone. If the new fit has the same checksum as the artifact in use, it writes nothing and prints `"unchanged": true`. With `--replace`, it overwrites the artifact in use and keeps the old one as `baseline.json.replaced`.
+It writes `baseline-next.json` and leaves `baseline.json` alone. If the new fit has the same checksum as the artifact in use, it writes nothing and prints `"unchanged": true`. The games file is required, so it never falls back to synthetic data. To overwrite the artifact in use, name both files and add `--replace`, as in `npm run model:refit -- data/sources/games.csv data/artifacts/baseline.json --replace`. It keeps the old artifact as `baseline.json.replaced`. A missing games file exits with an error and changes nothing.
 
 To score an artifact on historical games, run the command below.
 
@@ -473,7 +473,7 @@ The threshold is `threshold-2026-10-25`, a conservative expected value above 0 u
 | `npm run data:snap-counts [season] [output]`                           | Downloads nflverse snap counts. The app does not read them yet.                         |
 | `npm run data:import [schedule] [game-id]`                             | Prints an evidence packet for one game from a local schedule. It makes no network call. |
 | `npm run model:fit [games] [output] [cutoff]`                          | Fits a new unreleased artifact.                                                         |
-| `npm run model:refit [games] [in-use] [output] [--replace]`            | Fits a candidate beside the artifact in use.                                            |
+| `npm run model:refit <games> [in-use] [output] [--replace]`            | Fits a candidate beside the artifact in use.                                            |
 | `npm run model:evaluate [artifact] [games] [output]`                   | Scores an artifact on historical games.                                                 |
 | `npm run model:prospective <journal> <protocol> <new-report>`          | Scores registered prospective model picks.                                              |
 | `npm run model:release <artifact> <journal> <protocol> <new-artifact>` | Writes a released artifact if a market passes the protocol.                             |

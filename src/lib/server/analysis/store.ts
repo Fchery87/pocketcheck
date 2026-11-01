@@ -1187,7 +1187,7 @@ function readMemorySettlement(
   return { assessment, bet: gradeFromNotices(contract, forRun) };
 }
 
-type MemoryJournal = JournalExport & {
+export type MemoryJournal = JournalExport & {
   runs: ResearchRun[];
   actualBets: ActualBet[];
   closingObservations: ClosingObservation[];

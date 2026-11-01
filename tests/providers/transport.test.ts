@@ -138,6 +138,27 @@ describe("provider transport", () => {
     expect(String((failure as Error).message)).not.toContain(FAKE_KEY);
   });
 
+  it("keeps a key with no recognizable shape out of transport failures", async () => {
+    const key = "claw_dummy_e81f2a7c40";
+    const echo = createTheClawBayProvider({
+      apiKey: key,
+      now: () => "2026-10-25T20:00:00.000Z",
+      fetch: async (_input, init) => {
+        const header = new Headers(init?.headers).get("authorization");
+        throw new Error(`proxy refused ${header} (key ${key})`);
+      },
+    });
+    const tested = await echo.testModel("grok-4.7");
+    expect(tested.ok).toBe(false);
+    expect(tested.reason).toBe(
+      "/chat/completions failed: proxy refused Bearer [redacted] (key [redacted])",
+    );
+    const failure = await echo.discoverModels().catch((error: unknown) => error);
+    expect(String((failure as Error).message)).not.toContain(key);
+    const drafted = await echo.draftThesis({ modelId: "grok-4.7", catalog: usable, packet });
+    expect(JSON.stringify(drafted)).not.toContain(key);
+  });
+
   it("times out a catalog request that never answers", async () => {
     const { provider: claw } = provider(hanging, { timeoutMs: 20 });
     const failure = await claw.discoverModels().catch((error: unknown) => error);

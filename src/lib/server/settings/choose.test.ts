@@ -3,7 +3,7 @@ import { chooseDrafter } from "./choose.ts";
 import { createMemorySettings } from "./store.ts";
 
 async function settingsWithGrok(tested: boolean | null) {
-  const settings = createMemorySettings();
+  const settings = createMemorySettings({ secrets: [] });
   await settings.saveCatalog({
     provider: "theclawbay",
     baseUrl: "https://api.theclawbay.com/v1",

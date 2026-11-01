@@ -30,12 +30,9 @@ export async function fetchBounded(
     }, input.timeoutMs);
   });
   try {
-    const response = await Promise.race([
-      input.fetch(url, { signal: controller.signal, headers: input.headers }),
-      timeout,
-    ]);
-    if (!response.ok) return { ok: false, url, failure: `HTTP failure for ${url}` };
-    const body = await response.text();
+    const received = await Promise.race([readBody(url, controller.signal, input), timeout]);
+    if (!received.ok) return { ok: false, url, failure: `HTTP failure for ${url}` };
+    const body = received.body;
     if (input.schema === "nflverse-games") {
       try {
         assertNflverseGamesHeader(body);
@@ -65,4 +62,15 @@ export async function fetchBounded(
   } finally {
     clearTimeout(timer);
   }
+}
+
+// A body reader may ignore the abort signal, so the deadline covers headers and the full body.
+async function readBody(
+  url: string,
+  signal: AbortSignal,
+  input: { fetch: FetchLike; headers?: Record<string, string> },
+): Promise<{ ok: true; body: string } | { ok: false }> {
+  const response = await input.fetch(url, { signal, headers: input.headers });
+  if (!response.ok) return { ok: false };
+  return { ok: true, body: await response.text() };
 }

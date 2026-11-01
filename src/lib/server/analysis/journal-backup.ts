@@ -9,8 +9,9 @@ import {
 import type { ProviderRequestRecord } from "../providers/contracts.ts";
 import type { AttemptRequest } from "./attempt.ts";
 import type { GameBoard } from "./board-store.ts";
+import { containsSecret } from "./redact.ts";
 import type { SavedForecast } from "./forecast-record.ts";
-import type { StoredNotice } from "./store.ts";
+import type { MemoryJournal, StoredNotice } from "./store.ts";
 
 export type GameRecord = {
   id: string;
@@ -605,8 +606,82 @@ function definedKeys(value: Record<string, unknown>): string[] {
   return Object.keys(value).filter((key) => value[key] !== undefined);
 }
 
-/** The bytes of a backup file. The whole graph is checked first, so a file is always restorable. */
-export function encodeJournalBackup(backup: JournalExport): string {
+// Every backup field, named here so a field added to a journal must be listed to be written. The
+// memory journal used by fixture mode keeps its records in four lists of its own. Settings and
+// credentials have no entry, so they cannot reach a file.
+const BACKUP_FIELDS: { [Field in keyof Required<MemoryJournal>]: true } = {
+  version: true,
+  games: true,
+  offers: true,
+  evidence: true,
+  analyses: true,
+  reports: true,
+  userResearch: true,
+  bets: true,
+  settlements: true,
+  closings: true,
+  settlementNotices: true,
+  gameBoards: true,
+  protocolRegistrations: true,
+  closingMarketSnapshots: true,
+  gameSettlementNotices: true,
+  runs: true,
+  actualBets: true,
+  closingObservations: true,
+  notices: true,
+};
+
+/**
+ * The bytes of a backup file. The whole graph is checked first, so a file is always restorable.
+ * Saved records are immutable, so a record holding a secret rejects the export with its path
+ * rather than being rewritten into a backup that no longer matches the journal.
+ */
+export function encodeJournalBackup(
+  backup: JournalExport,
+  options: { secrets: readonly string[] },
+): string {
   assertRestorable(backup);
-  return `${JSON.stringify(backup, null, 2)}\n`;
+  const file = Object.fromEntries(
+    (Object.keys(BACKUP_FIELDS) as (keyof MemoryJournal)[])
+      .filter((field) => (backup as Partial<MemoryJournal>)[field] !== undefined)
+      .map((field) => [field, (backup as Partial<MemoryJournal>)[field]]),
+  );
+  const exposed = secretPaths(file, "", options.secrets);
+  if (exposed.length > 0) {
+    throw new Error(
+      `No backup was written. These saved records contain a credential: ${exposed.join(", ")}. ` +
+        "Rotate the credential, then remediate those records with their audit history kept.",
+    );
+  }
+  return `${JSON.stringify(file, null, 2)}\n`;
+}
+
+/** Field names whose value is a credential wherever they appear in a saved record. */
+export const CREDENTIAL_KEYS: ReadonlySet<string> = new Set([
+  "authorization",
+  "proxy-authorization",
+  "x-api-key",
+  "api-key",
+  "apikey",
+  "api_key",
+  "cookie",
+  "set-cookie",
+]);
+
+function secretPaths(value: unknown, path: string, secrets: readonly string[]): string[] {
+  if (typeof value === "string") return containsSecret(value, secrets) ? [path] : [];
+  if (Array.isArray(value)) {
+    return value.flatMap((item, index) => {
+      const id = isObject(item) && typeof item.id === "string" ? `id=${item.id}` : index;
+      return secretPaths(item, `${path}[${id}]`, secrets);
+    });
+  }
+  if (isObject(value)) {
+    return Object.entries(value).flatMap(([key, item]) => {
+      const at = path ? `${path}.${key}` : key;
+      const credential = CREDENTIAL_KEYS.has(key.toLowerCase()) && item != null && item !== "";
+      return credential ? [at] : secretPaths(item, at, secrets);
+    });
+  }
+  return [];
 }

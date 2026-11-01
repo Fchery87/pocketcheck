@@ -14,6 +14,7 @@ import type { Offer } from "#lib/domain/offer.ts";
 import type { Settlement as SettlementResult } from "#lib/domain/settlement.ts";
 import {
   assertRestorable,
+  CREDENTIAL_KEYS,
   sameRecord,
   type AnalysisRecord,
   type AnalysisSnapshot,
@@ -1082,17 +1083,6 @@ export class JournalRepository {
   }
 }
 
-const CREDENTIAL_KEYS = new Set([
-  "authorization",
-  "proxy-authorization",
-  "x-api-key",
-  "api-key",
-  "apikey",
-  "api_key",
-  "cookie",
-  "set-cookie",
-]);
-
 function stripSecrets(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripSecrets);
   if (value && typeof value === "object") {
@@ -1202,9 +1192,7 @@ export async function readJournalRecords(db: Db): Promise<Omit<JournalExport, "g
     games: games.map(mapGame),
     offers: offers.map(mapOffer),
     evidence: evidence.map(mapEvidence),
-    analyses: analyses.map((row) =>
-      stripAnalysisSecrets(mapAnalysis(row, evidenceIds.get(row.id) ?? [])),
-    ),
+    analyses: analyses.map((row) => mapAnalysis(row, evidenceIds.get(row.id) ?? [])),
     reports: reports.map(mapReport),
     userResearch: research.map(mapResearch),
     bets: bets.map(mapBet),

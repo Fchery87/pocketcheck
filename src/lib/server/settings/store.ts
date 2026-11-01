@@ -1,3 +1,4 @@
+import { redactText } from "../analysis/redact.ts";
 import type { ModelCatalog, ModelTest, ProviderId } from "../providers/contracts.ts";
 
 /**
@@ -16,7 +17,17 @@ export type SettingsStore = {
   saveModelTest: (provider: ProviderId, modelId: string, test: ModelTest) => Promise<void>;
 };
 
-export function createMemorySettings(): SettingsStore {
+export type SettingsOptions = {
+  /** Configured credentials, removed from a test failure before it is saved and when it is read. */
+  secrets: readonly string[];
+};
+
+/** A failure reason can quote a credential, and rows saved before redaction may still hold one. */
+export function redactModelTest(test: ModelTest, secrets: readonly string[]): ModelTest {
+  return test.reason === null ? test : { ...test, reason: redactText(test.reason, secrets) };
+}
+
+export function createMemorySettings(options: SettingsOptions): SettingsStore {
   let drafter: DrafterChoice = { provider: "fixture" };
   const catalogs = new Map<ProviderId, ModelCatalog>();
   const tests = new Map<ProviderId, Record<string, ModelTest>>();
@@ -35,10 +46,16 @@ export function createMemorySettings(): SettingsStore {
       catalogs.set(catalog.provider, structuredClone(catalog));
     },
     async getModelTests(provider) {
-      return structuredClone(tests.get(provider) ?? {});
+      return Object.fromEntries(
+        Object.entries(tests.get(provider) ?? {}).map(([modelId, test]) => [
+          modelId,
+          redactModelTest(structuredClone(test), options.secrets),
+        ]),
+      );
     },
     async saveModelTest(provider, modelId, test) {
-      tests.set(provider, { ...tests.get(provider), [modelId]: structuredClone(test) });
+      const saved = redactModelTest(structuredClone(test), options.secrets);
+      tests.set(provider, { ...tests.get(provider), [modelId]: saved });
     },
   };
 }

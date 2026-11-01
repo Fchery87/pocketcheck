@@ -14,8 +14,9 @@ import { closeDb, createDb } from "../../src/lib/server/db/client.ts";
 export async function writeJournalBackup(
   journal: Pick<JournalStore, "exportJournal">,
   output: string,
+  secrets: readonly string[],
 ): Promise<void> {
-  const bytes = encodeJournalBackup(await journal.exportJournal());
+  const bytes = encodeJournalBackup(await journal.exportJournal(), { secrets });
   const partial = `${output}.${randomBytes(6).toString("hex")}.partial`;
   await writeFile(partial, bytes, { flag: "wx" });
   try {
@@ -34,7 +35,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   const output = process.argv[2] ?? "journal-export.json";
   const db = createDb(databaseUrl);
   try {
-    await writeJournalBackup(createNeonStore(db), output);
+    const secrets = [databaseUrl, process.env.THECLAWBAY_API_KEY, process.env.DEEPSEEK_API_KEY];
+    await writeJournalBackup(
+      createNeonStore(db),
+      output,
+      secrets.filter((value): value is string => Boolean(value)),
+    );
     console.log(JSON.stringify({ output }));
   } catch (cause) {
     console.error(cause instanceof Error ? cause.message : cause);

@@ -57,7 +57,7 @@ const grok: ModelCatalogEntry = {
 describe("resolveDrafter", () => {
   it("keeps the fixture choice even when both provider credentials are present", async () => {
     const resolved = await resolveDrafter({
-      settings: createMemorySettings(),
+      settings: createMemorySettings({ secrets: [] }),
       keys: { theclawbay: "synthetic-never-valid", deepseek: "synthetic-never-valid" },
       makeProvider: () => {
         throw new Error("no provider expected");
@@ -67,7 +67,7 @@ describe("resolveDrafter", () => {
   });
 
   it("refuses a provider whose key is not configured, without falling back", async () => {
-    const settings = createMemorySettings();
+    const settings = createMemorySettings({ secrets: [] });
     await settings.setDrafter({ provider: "deepseek", modelId: "deepseek-flash" });
     const resolved = await resolveDrafter({
       settings,
@@ -79,7 +79,7 @@ describe("resolveDrafter", () => {
   });
 
   it("refuses a provider with no cached catalog", async () => {
-    const settings = createMemorySettings();
+    const settings = createMemorySettings({ secrets: [] });
     await settings.setDrafter({ provider: "theclawbay", modelId: "grok-4.7" });
     const resolved = await resolveDrafter({
       settings,
@@ -90,7 +90,7 @@ describe("resolveDrafter", () => {
   });
 
   it("drafts with the chosen model and the catalog as tested", async () => {
-    const settings = createMemorySettings();
+    const settings = createMemorySettings({ secrets: [] });
     await settings.setDrafter({ provider: "theclawbay", modelId: "grok-4.7" });
     await settings.saveCatalog({
       provider: "theclawbay",

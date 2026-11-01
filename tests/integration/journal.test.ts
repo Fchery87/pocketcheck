@@ -5,7 +5,10 @@ import { describe, expect, it } from "vite-plus/test";
 import { writeJournalBackup } from "../../scripts/journal/export.ts";
 import { runGameBoard } from "../../src/lib/server/analysis/board-run.ts";
 import { loadFixtureGames } from "../../src/lib/server/analysis/games.ts";
-import type { JournalExport } from "../../src/lib/server/analysis/journal-backup.ts";
+import {
+  encodeJournalBackup,
+  type JournalExport,
+} from "../../src/lib/server/analysis/journal-backup.ts";
 import { createNeonStore } from "../../src/lib/server/analysis/neon-store.ts";
 import type { JournalStore } from "../../src/lib/server/analysis/store.ts";
 import { JournalRepository } from "../../src/lib/server/db/repository.ts";
@@ -25,7 +28,7 @@ function sortedById<T extends Record<string, unknown>>(snapshot: T): T {
 }
 
 describe("journal backup download", () => {
-  it("downloads a versioned backup of recovery records and omits secrets", async () => {
+  it("exports recovery records without settings and refuses a saved credential", async () => {
     const isolated = await isolatedDb();
     const journal = new JournalRepository(isolated.db);
     const stamp = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -154,17 +157,28 @@ describe("journal backup download", () => {
       expect(backup.analyses[0]?.snapshot.provenance).toBeDefined();
       expect(backup.analyses[0]?.gaps).toEqual(["away injury coverage unavailable"]);
       expect(backup.analyses[0]?.snapshot.providerRequests?.[0]?.outcome).toBe("ambiguous");
-      expect(backup.analyses[0]?.snapshot.providerRequests?.[0]?.response).toEqual({
-        text: "durable partial draft",
-      });
       expect(backup.analyses[0]?.snapshot.forecast?.artifact.checksum).toBe(`art-${stamp}`);
       expect(backup.bets[0]?.stakeUnits).toBe(2);
       expect(backup.bets[0]?.contract?.pointLine).toBe(-3);
       expect(backup.closings.map((row) => row.id)).toContain(closing.id);
       expect(backup.closings[0]?.observedAt).toBe("2026-11-08T21:00:00.000Z");
-      expect(text).not.toContain(secret);
-      expect(text).not.toContain("authorization");
       expect(text).not.toContain("apiKey");
+      expect(backup.analyses[0]?.snapshot.providerRequests?.[0]?.response).toEqual({
+        text: "durable partial draft",
+        authorization: `Bearer ${secret}`,
+      });
+      const refusal = (() => {
+        try {
+          encodeJournalBackup(backup, { secrets: [] });
+        } catch (error) {
+          return (error as Error).message;
+        }
+        return "encoded";
+      })();
+      expect(refusal).toContain(
+        `analyses[id=${saved.analysis.id}].snapshot.providerRequests[0].response.authorization`,
+      );
+      expect(refusal).not.toContain(secret);
     } finally {
       await isolated.drop();
     }
@@ -730,7 +744,7 @@ describe("journal backup command", () => {
       const store = createNeonStore(source.db);
       const board = await quotedBoard(store, "backup-command");
       const boardOnly = path.join(folder, "board-only.json");
-      await writeJournalBackup(store, boardOnly);
+      await writeJournalBackup(store, boardOnly, []);
 
       const pick = board.markets[0]!.pick!;
       const bet = await store.recordBet({
@@ -765,10 +779,10 @@ describe("journal backup command", () => {
         correctsNoticeId: final.noticeId,
       });
       const withBet = path.join(folder, "with-bet.json");
-      await writeJournalBackup(store, withBet);
+      await writeJournalBackup(store, withBet, []);
 
       const earlier = await readFile(boardOnly, "utf8");
-      await expect(writeJournalBackup(store, boardOnly)).rejects.toThrow(/EEXIST/);
+      await expect(writeJournalBackup(store, boardOnly, [])).rejects.toThrow(/EEXIST/);
       expect(await readFile(boardOnly, "utf8")).toBe(earlier);
       expect((await readdir(folder)).sort()).toEqual(["board-only.json", "with-bet.json"]);
 
@@ -798,7 +812,7 @@ describe("journal backup command", () => {
       const output = path.join(folder, "invalid.json");
       const broken = { ...emptyBackup(), bets: [{ id: "not-a-uuid" }] } as unknown as JournalExport;
       await expect(
-        writeJournalBackup({ exportJournal: async () => broken }, output),
+        writeJournalBackup({ exportJournal: async () => broken }, output, []),
       ).rejects.toThrow(/bet identifier/);
       expect(await readdir(folder)).toEqual([]);
     } finally {

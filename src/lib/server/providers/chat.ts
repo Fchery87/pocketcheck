@@ -1,5 +1,6 @@
 import { validateThesisReport } from "../analysis/report-validation.ts";
 import { thesisRequestBody } from "../analysis/packet.ts";
+import { redactText } from "../analysis/redact.ts";
 import {
   pickExplanationRequestBody,
   validatePickExplanation,
@@ -21,6 +22,8 @@ import {
   type ThesisProvider,
   type UsageRecord,
 } from "./contracts.ts";
+
+const DIAGNOSTIC_LIMIT = 300;
 
 type CompletionPayload = {
   content: string | null;
@@ -137,6 +140,14 @@ export function createChatProvider(input: {
   const now = input.options.now ?? (() => new Date().toISOString());
   const baseUrl = input.baseUrl.replace(/\/$/, "");
 
+  /** A transport error message can echo request headers, so it is redacted and bounded. */
+  function diagnostic(detail: string): string {
+    const redacted = redactText(detail, [input.options.apiKey]);
+    return redacted.length > DIAGNOSTIC_LIMIT
+      ? `${redacted.slice(0, DIAGNOSTIC_LIMIT)}…`
+      : redacted;
+  }
+
   /** The whole exchange, body included, is bounded by the timeout. */
   async function request(
     path: string,
@@ -161,7 +172,7 @@ export function createChatProvider(input: {
         throw new ProviderError("timeout", `${path} timed out after ${timeoutMs}ms`);
       }
       const detail = error instanceof Error ? error.message : "request failed";
-      throw new ProviderError("transport", `${path} failed: ${detail}`);
+      throw new ProviderError("transport", `${path} failed: ${diagnostic(detail)}`);
     } finally {
       clearTimeout(timer);
     }

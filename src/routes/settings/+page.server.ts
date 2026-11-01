@@ -3,6 +3,7 @@ import { error, fail } from "@sveltejs/kit";
 import { easternTime } from "#lib/format.ts";
 import {
   ConfigError,
+  configuredSecrets,
   makeProvider,
   now,
   providerKeys,
@@ -107,7 +108,7 @@ export const actions = {
     } catch (cause) {
       if (!(cause instanceof ProviderError)) throw cause;
       return fail(502, {
-        error: `${PROVIDER_LABELS[provider]} catalog refresh failed: ${redactText(cause.message)}`,
+        error: `${PROVIDER_LABELS[provider]} catalog refresh failed: ${redactText(cause.message, configuredSecrets())}`,
       });
     }
     return { refreshed: PROVIDER_LABELS[provider] };
@@ -124,7 +125,9 @@ export const actions = {
     await settings().saveModelTest(provider, modelId, { ...result, testedAt: now() });
     return result.ok
       ? { tested: `${modelId} returned JSON and can draft` }
-      : fail(502, { error: `${modelId} failed its test: ${redactText(result.reason ?? "")}` });
+      : fail(502, {
+          error: `${modelId} failed its test: ${redactText(result.reason ?? "", configuredSecrets())}`,
+        });
   },
 
   download: async ({ request }) => {

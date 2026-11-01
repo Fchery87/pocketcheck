@@ -48,7 +48,7 @@ The file contains games, offers, evidence used by analyses, analysis identifiers
 
 Legacy records keep their saved provenance limits. Export does not fill in facts the record does not have.
 
-The file does not contain provider credentials, credential-bearing request headers, application settings, bulk source caches, or model training datasets. Forecast identity and the recorded inputs needed to recover a forecast stay in the snapshot.
+The file does not contain provider credentials, credential-bearing request headers, application settings, bulk source caches, or model training datasets. Forecast identity and the recorded inputs needed to recover a forecast stay in the snapshot. Export writes only the journal record lists, so settings and credentials have no place in the file. Saved records are immutable, so export does not edit them. If a record holds a configured credential, a value shaped like a provider key or database URL, or a credential-named header, no file is written and the error names each record path.
 
 Restore checks the version, record shapes, identifiers, relationships, snapshots, and event histories before it writes. A valid file is applied atomically. Restoring the same file again keeps one copy of each identical record. A malformed record, a missing relationship, an unsupported version, or a conflicting identifier is rejected and leaves the destination unchanged. Conflicting identifiers are not replaced.
 

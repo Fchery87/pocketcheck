@@ -2,13 +2,25 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { dirname, resolve } from "node:path";
 import { assertUnreleased, fitArtifact, readGames } from "../../src/lib/server/models/train.ts";
 
-// Fits the latest eligible data into a new unreleased artifact and writes it beside the artifact
-// in use. It never replaces the artifact in use unless --replace is given. Invalid inputs leave
-// every existing file untouched and exit non-zero.
+// Fits the named games into a new unreleased artifact and writes it beside the artifact in use.
+// The games file is always named, so synthetic data is fitted only when its path is given. It
+// never replaces the artifact in use unless --replace is given with that artifact's path. Invalid
+// inputs leave every existing file untouched and exit non-zero.
 
+const USAGE =
+  "Usage: model:refit <games> [in-use] [output], or model:refit <games> <in-use> --replace";
 const replace = process.argv.includes("--replace");
 const args = process.argv.slice(2).filter((arg) => arg !== "--replace");
-const gamesPath = resolve(args[0] ?? "tests/model/fixtures/synthetic-games.json");
+
+function refuse(message: string): never {
+  console.error(`${message}\n${USAGE}`);
+  process.exit(1);
+}
+
+if (!args[0]) refuse("Name the games file to fit.");
+if (replace && !args[1]) refuse("Name the artifact in use to replace it.");
+if (replace && args[2]) refuse("A replacement writes to the artifact in use, so omit the output.");
+const gamesPath = resolve(args[0]);
 const inUse = resolve(args[1] ?? "data/artifacts/baseline.json");
 const output = replace ? inUse : resolve(args[2] ?? "data/artifacts/baseline-next.json");
 

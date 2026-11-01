@@ -177,14 +177,21 @@ let settings: SettingsStore | undefined;
 export function settingsStore(): SettingsStore {
   settings ??=
     POCKETCHECK_JOURNAL === "memory"
-      ? createMemorySettings()
-      : createNeonSettings(databaseForJournal());
+      ? createMemorySettings({ secrets: configuredSecrets() })
+      : createNeonSettings(databaseForJournal(), { secrets: configuredSecrets() });
   return settings;
 }
 
 /** Keys are read here and handed to provider adapters; nothing else sees them. */
 export function providerKeys(): Partial<Record<ProviderId, string>> {
   return { theclawbay: THECLAWBAY_API_KEY, deepseek: DEEPSEEK_API_KEY };
+}
+
+/** Every configured credential, so text can be checked for one before it is saved or shown. */
+export function configuredSecrets(): string[] {
+  return [THECLAWBAY_API_KEY, DEEPSEEK_API_KEY, DATABASE_URL].filter((value): value is string =>
+    Boolean(value),
+  );
 }
 
 export function makeProvider(id: ProviderId, apiKey: string): ThesisProvider {

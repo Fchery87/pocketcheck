@@ -261,7 +261,7 @@ export function describePickBetContract(
       const settlement = await store.readSettlement({ betId: recorded.bet.id });
       expect(settlement.bet?.history.map((notice) => notice.result)).toEqual(["win", "loss"]);
 
-      const file = encodeJournalBackup(await store.exportJournal());
+      const file = encodeJournalBackup(await store.exportJournal(), { secrets: [] });
       const restored = await makeStore();
       await restored.restoreJournal(JSON.parse(file));
       await restored.restoreJournal(JSON.parse(file));
