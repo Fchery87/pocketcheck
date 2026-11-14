@@ -2,7 +2,14 @@ import { spawnSync } from "node:child_process";
 import { verificationEnv } from "./verification-env.ts";
 
 for (const args of [
-  ["--exclude", "tests/integration/**", "--exclude", "tests/model/density-grid.test.ts"],
+  [
+    "--exclude",
+    "tests/integration/**",
+    "--exclude",
+    "tests/model/density-grid.test.ts",
+    "--maxWorkers",
+    "1",
+  ],
   ["tests/model/density-grid.test.ts", "--maxWorkers", "1"],
 ]) {
   const result = spawnSync("node_modules/.bin/vp", ["test", "run", ...args], {
