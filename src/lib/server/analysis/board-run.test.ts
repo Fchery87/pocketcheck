@@ -444,7 +444,7 @@ describe("game board run", () => {
     expect(pick.parentPickId).toBeNull();
     expect(pick.forecastingModel.checksum).toBe("f".repeat(64));
     const calculation = pick.calculation;
-    expect(calculation.version).toBe("model-pick-2026-11-01.1");
+    expect(calculation.version).toBe("model-pick-2026-11-24.1");
     expect(calculation.pickedSelection).toBe("home");
     expect(calculation.grade).toBe("lean");
     expect(calculation.release).toBe("unvalidated");
@@ -601,7 +601,7 @@ describe("shopped prices on a game board", () => {
         expect(side.expectedValue).toBeCloseTo(win * (decimal(executed[index]!) - 1) - loss, 12);
       }
       expect(market.pricing?.anchor.map((side) => side.americanOdds)).toEqual(anchor);
-      expect(calculation.version).toBe("model-pick-2026-11-01.1");
+      expect(calculation.version).toBe("model-pick-2026-11-24.1");
     }
     expect(model.anchors).toEqual([
       { sportsbook: "Board Book", homeAmerican: -150, awayAmerican: 130 },
@@ -791,6 +791,35 @@ describe("model pick price cutoff", () => {
       everyPriceKeeps: true,
       reason: "Any price keeps lean: the forecasting model gives this side no chance to lose.",
     });
+  });
+
+  it("reprices a strong pick downgraded to lean by an unknown starter", async () => {
+    const outcome = await runGameBoard(
+      board({ moneyline: { home: -200, away: 170, tieRule: "push" } }),
+      {
+        store: createMemoryStore(),
+        collect: quiet,
+        model: captured(
+          scriptedModel({
+            home: { win: 0.75, loss: 0.25, push: 0 },
+            conservativeHome: { win: 0.7, loss: 0.3, push: 0 },
+            released: true,
+          }),
+        ),
+      },
+    );
+    const calculation = outcome.board!.markets[0].pick!.calculation;
+    expect(calculation.pickedSelection).toBe("home");
+    expect(calculation.grade).toBe("lean");
+    expect(calculation.materialEvidenceMissing).toBe(true);
+    expect(calculation.priceCutoff).toMatchObject({
+      available: true,
+      grade: "lean",
+      keeps: true,
+    });
+    if (calculation.priceCutoff.available) {
+      expect(calculation.priceCutoff.decimalOdds).toBeCloseTo(1.333333, 5);
+    }
   });
 
   it("is unavailable when the model gives the picked side no win chance", async () => {
