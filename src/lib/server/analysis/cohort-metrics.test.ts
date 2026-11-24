@@ -163,6 +163,29 @@ it("averages one raw movement per subject and scores frozen probabilities separa
     model: { brier: 0.125, logLoss: -Math.log(0.75) },
     closing: { brier: 0.5, logLoss: -Math.log(0.5) },
     meanWinProbabilityDifference: 0.25,
+    decisiveDenominator: 1,
     modelWinCalibrationBias: -0.25,
   });
+});
+
+it("scores a push in the bundle but keeps the win-rate bias decisive-only", () => {
+  const metrics = descriptiveCohortMetrics(
+    "primary-model-picks",
+    [],
+    [
+      {
+        id: "push",
+        probabilities: { win: 0.3, loss: 0.2, push: 0.5 },
+        closingBaseline: { win: 0.4, loss: 0.3, push: 0.3 },
+        outcome: "push",
+      },
+    ],
+  );
+  const calibration = metrics.twoSidedNoVigCalibration;
+  if (!calibration.available) throw new Error("expected an available calibration bundle");
+  expect(calibration.denominator).toBe(1);
+  expect(calibration.decisiveDenominator).toBe(0);
+  expect(calibration.modelWinCalibrationBias).toBeNull();
+  expect(calibration.model.brier).toBeGreaterThan(0);
+  expect(calibration.closing.brier).toBeGreaterThan(0);
 });

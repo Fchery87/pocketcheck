@@ -101,7 +101,8 @@ export type DescriptiveCohortMetrics = {
         model: { brier: number; logLoss: number };
         closing: { brier: number; logLoss: number };
         meanWinProbabilityDifference: number;
-        modelWinCalibrationBias: number;
+        decisiveDenominator: number;
+        modelWinCalibrationBias: number | null;
       };
 };
 
@@ -118,6 +119,7 @@ export function descriptiveCohortMetrics(
   );
   const average = (values: number[]) =>
     values.reduce((sum, value) => sum + value, 0) / values.length;
+  const decisive = scored.filter((row) => row.outcome === "win" || row.outcome === "loss");
   return {
     cohort,
     rawSameContractPriceMovement: raw.length
@@ -148,9 +150,12 @@ export function descriptiveCohortMetrics(
           meanWinProbabilityDifference: average(
             scored.map((row) => row.probabilities.win - row.closingBaseline!.win),
           ),
-          modelWinCalibrationBias: average(
-            scored.map((row) => row.probabilities.win - (row.outcome === "win" ? 1 : 0)),
-          ),
+          decisiveDenominator: decisive.length,
+          modelWinCalibrationBias: decisive.length
+            ? average(
+                decisive.map((row) => row.probabilities.win - (row.outcome === "win" ? 1 : 0)),
+              )
+            : null,
         }
       : { available: false, denominator: 0, reason: "missing-qualified-forecast-outcomes" },
   };

@@ -72,8 +72,12 @@
         <p>Denominator {metric.denominator} settled records with captured forecasts and qualified later closes.</p>
         <p>Frozen model Brier {metric.model.brier.toFixed(4)}, no-vig close Brier {metric.closing.brier.toFixed(4)}.
           Frozen model log loss {metric.model.logLoss.toFixed(4)}, no-vig close log loss {metric.closing.logLoss.toFixed(4)}.</p>
-        <p>Mean frozen win probability minus no-vig close {metric.meanWinProbabilityDifference.toFixed(4)}.
-          Mean frozen win probability minus observed win rate {metric.modelWinCalibrationBias.toFixed(4)}.</p>
+        <p>Mean frozen win probability minus no-vig close {metric.meanWinProbabilityDifference.toFixed(4)}.</p>
+        {#if metric.modelWinCalibrationBias !== null}
+          <p>Mean frozen win probability minus observed win rate on {metric.decisiveDenominator} decisive picks {metric.modelWinCalibrationBias.toFixed(4)}.</p>
+        {:else}
+          <p class="pc-unknown">Win-rate bias unavailable. No decisive settled picks.</p>
+        {/if}
       {:else}
         <p class="pc-unknown">Unavailable. No qualified frozen forecast, later two-sided close, and outcome denominator.</p>
       {/if}
@@ -131,7 +135,7 @@
     </p>
     <p data-testid="assessment-roi">
       {#if data.performance.assessments.roi.available}
-        Return {data.performance.assessments.roi.roi}
+        Return {data.performance.assessments.roi.roi.toFixed(4)} per unit
       {:else}
         Return unavailable
       {/if}
@@ -153,7 +157,7 @@
     </p>
     <p data-testid="bet-roi">
       {#if data.performance.bets.roi.available}
-        Return {data.performance.bets.roi.roi}
+        Return {data.performance.bets.roi.roi.toFixed(4)} per unit
       {:else}
         Return unavailable
       {/if}

@@ -79,7 +79,11 @@
       <p>Model Brier {metric.model.brier.toFixed(4)}, closing Brier {metric.closing.brier.toFixed(4)}.
         Model log loss {metric.model.logLoss.toFixed(4)}, closing log loss {metric.closing.logLoss.toFixed(4)}.</p>
       <p>Mean frozen win probability minus no-vig close {metric.meanWinProbabilityDifference.toFixed(4)}.</p>
-      <p>Mean frozen win probability minus observed win rate {metric.modelWinCalibrationBias.toFixed(4)}.</p>
+      {#if metric.modelWinCalibrationBias !== null}
+        <p>Mean frozen win probability minus observed win rate on {metric.decisiveDenominator} decisive picks {metric.modelWinCalibrationBias.toFixed(4)}.</p>
+      {:else}
+        <p class="pc-unknown">Win-rate bias unavailable. No decisive settled picks.</p>
+      {/if}
     {:else}
       <p class="pc-unknown">Unavailable. No qualified frozen forecast, later two-sided close, and settled outcome denominator.</p>
     {/if}
