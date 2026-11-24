@@ -1532,6 +1532,40 @@ export function describeStoreContract(
       expect(read.assessment!.history[0]?.id).toBe(first.noticeId);
     });
 
+    it("rejects a correction recorded earlier than its notice", async () => {
+      const store = await makeStore();
+      const run = (await runAnalysis(ask(), { store })).run!;
+      const first = await store.recordSettlement({
+        eventId: "early-score",
+        analysisId: run.id,
+        kind: "final",
+        homeScore: 17,
+        awayScore: 20,
+        recordedAt: "2026-10-27T16:00:00.000Z",
+        source: "official",
+      });
+      expect(first.kind).toBe("recorded");
+      if (first.kind !== "recorded") throw new Error("expected a recorded settlement");
+      const early = await store.recordSettlement({
+        eventId: "score-correction",
+        analysisId: run.id,
+        kind: "final",
+        homeScore: 24,
+        awayScore: 20,
+        recordedAt: "2026-10-27T12:00:00.000Z",
+        source: "official-correction",
+        reason: "official score correction",
+        correctsNoticeId: first.noticeId,
+      });
+      expect(early).toMatchObject({
+        kind: "conflict",
+        error: expect.stringMatching(/later/i),
+      });
+      const read = await store.readSettlement({ analysisId: run.id });
+      expect(read.assessment!.history.map((row) => row.result)).toEqual(["loss"]);
+      expect(read.assessment!.effective).toBe("loss");
+    });
+
     it("rejects a bet for an analysis that does not exist", async () => {
       const store = await makeStore();
       await expect(

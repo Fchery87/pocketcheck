@@ -918,14 +918,27 @@ export class JournalRepository {
     id: string;
     analysisId: string | null;
     betId: string | null;
+    recordedAt: string;
   } | null> {
     const rows = await this.sql<
-      { id: string; analysis_id: string | null; bet_id: string | null }[]
+      {
+        id: string;
+        analysis_id: string | null;
+        bet_id: string | null;
+        recorded_at: Date | string;
+      }[]
     >`
-      SELECT id, analysis_id, bet_id FROM settlement_notices WHERE id = ${id}
+      SELECT id, analysis_id, bet_id, recorded_at FROM settlement_notices WHERE id = ${id}
     `;
     const row = rows[0];
-    return row ? { id: row.id, analysisId: row.analysis_id, betId: row.bet_id } : null;
+    return row
+      ? {
+          id: row.id,
+          analysisId: row.analysis_id,
+          betId: row.bet_id,
+          recordedAt: iso(row.recorded_at) ?? "",
+        }
+      : null;
   }
 
   async listSettlementNotices(analysisId: string): Promise<

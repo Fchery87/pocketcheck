@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { CORRECTION_NOT_LATER, correctionIsLater } from "./board-store.ts";
 import {
   validateClosingMarketSnapshot,
   validateProtocolRegistration,
@@ -1279,6 +1280,9 @@ function recordMemorySettlement(
       : prior?.betId === betId && prior.analysisId === null;
     if (!prior || !sameSubject) {
       throw new Error(`Settlement not found: ${input.correctsNoticeId}`);
+    }
+    if (!correctionIsLater(prior, input.recordedAt)) {
+      return { kind: "conflict", error: CORRECTION_NOT_LATER };
     }
   }
   const payloadKey = settlementPayloadKey(input);
