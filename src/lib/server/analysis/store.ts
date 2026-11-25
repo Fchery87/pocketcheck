@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { CORRECTION_NOT_LATER, correctionIsLater } from "./board-store.ts";
+import { CORRECTION_NOT_LATER, correctionIsNotEarlier } from "./board-store.ts";
 import {
   validateClosingMarketSnapshot,
   validateProtocolRegistration,
@@ -1298,7 +1298,7 @@ function recordMemorySettlement(
     if (!prior || !sameSubject) {
       throw new Error(`Settlement not found: ${input.correctsNoticeId}`);
     }
-    if (!correctionIsLater(prior, input.recordedAt)) {
+    if (!correctionIsNotEarlier(prior, input.recordedAt)) {
       return { kind: "conflict", error: CORRECTION_NOT_LATER };
     }
   }

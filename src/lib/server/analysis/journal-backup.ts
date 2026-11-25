@@ -9,7 +9,7 @@ import {
 } from "../models/protocol.ts";
 import type { ProviderRequestRecord } from "../providers/contracts.ts";
 import type { AttemptRequest } from "./attempt.ts";
-import { correctionIsLater, type GameBoard } from "./board-store.ts";
+import { correctionIsLater, correctionIsNotEarlier, type GameBoard } from "./board-store.ts";
 import {
   decideExplanationWrite,
   type ExplanationEvent,
@@ -1040,7 +1040,7 @@ export function assertRestorable(snapshot: JournalExport): void {
           `Settlement notice ${notice.id} must correct a notice for the same record.`,
         );
       }
-      if (!correctionIsLater(prior, notice.recordedAt)) {
+      if (!correctionIsNotEarlier(prior, notice.recordedAt)) {
         throw new Error(
           `Settlement notice ${notice.id} must correct an earlier notice for the same record.`,
         );

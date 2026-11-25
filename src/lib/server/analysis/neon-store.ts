@@ -24,7 +24,11 @@ import {
 } from "./journal-records.ts";
 import { compareClosing } from "./closing.ts";
 import { createNeonBoardStore } from "./neon-board-store.ts";
-import { CORRECTION_NOT_LATER, correctionIsLater, type GameBoardStore } from "./board-store.ts";
+import {
+  CORRECTION_NOT_LATER,
+  correctionIsNotEarlier,
+  type GameBoardStore,
+} from "./board-store.ts";
 import {
   gradeFromNotices,
   settlementPayloadKey,
@@ -650,7 +654,7 @@ async function recordNeonSettlement(
     if (!prior || !sameSubject) {
       throw new Error(`Settlement not found: ${input.correctsNoticeId}`);
     }
-    if (!correctionIsLater(prior, input.recordedAt)) {
+    if (!correctionIsNotEarlier(prior, input.recordedAt)) {
       return { kind: "conflict", error: CORRECTION_NOT_LATER };
     }
   }
