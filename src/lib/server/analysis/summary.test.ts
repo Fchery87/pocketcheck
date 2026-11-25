@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { applySettlementNotices, summarizeBets, summarizePrimary } from "./summary.ts";
+import { summarizeBets, summarizePrimary } from "./summary.ts";
 
 describe("prospective summaries", () => {
   it("does not grade push, void, unresolved, or postponement as a loss", () => {
@@ -130,22 +130,5 @@ describe("prospective summaries", () => {
     ]);
     expect(summary.roi.available).toBe(false);
     if (!summary.roi.available) expect(summary.roi.reason).not.toBe("");
-  });
-
-  it("keeps postponement unresolved, ignores a duplicate, and keeps correction history", () => {
-    const applied = applySettlementNotices([
-      { id: "first", result: "loss", reason: "early score", correctsId: null },
-      { id: "dup", result: "loss", reason: "replay", correctsId: null, duplicateOfId: "first" },
-      { id: "fix", result: "win", reason: "official score correction", correctsId: "first" },
-    ]);
-    expect(applied.ignoredDuplicateIds).toEqual(["dup"]);
-    expect(applied.history.map((row) => row.id)).toEqual(["first", "fix"]);
-    expect(applied.current).toBe("win");
-
-    const postponed = applySettlementNotices([
-      { id: "post", result: "postponed", reason: "weather", correctsId: null },
-    ]);
-    expect(postponed.current).toBe("unresolved");
-    expect(postponed.history).toHaveLength(1);
   });
 });

@@ -335,36 +335,6 @@ export type SettlementNotice = {
   duplicateOfId?: string | null;
 };
 
-/** Postponement stays unresolved. A duplicate notice is ignored. A correction keeps the prior row. */
-export function applySettlementNotices(notices: SettlementNotice[]): {
-  current: Settlement | "postponed" | "unresolved";
-  history: SettlementNotice[];
-  ignoredDuplicateIds: string[];
-} {
-  const history: SettlementNotice[] = [];
-  const ignoredDuplicateIds: string[] = [];
-  const seen = new Set<string>();
-  for (const notice of notices) {
-    if (notice.duplicateOfId && seen.has(notice.duplicateOfId)) {
-      ignoredDuplicateIds.push(notice.id);
-      continue;
-    }
-    if (seen.has(notice.id)) {
-      ignoredDuplicateIds.push(notice.id);
-      continue;
-    }
-    seen.add(notice.id);
-    history.push(notice);
-  }
-  const latest = history.at(-1);
-  const current = !latest
-    ? "unresolved"
-    : latest.result === "postponed"
-      ? "unresolved"
-      : latest.result;
-  return { current, history, ignoredDuplicateIds };
-}
-
 export type JournalPerformance = {
   assessments: CohortSummary;
   bets: CohortSummary;

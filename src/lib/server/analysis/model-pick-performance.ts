@@ -1,6 +1,5 @@
 import type { Market } from "#lib/domain/offer.ts";
 import type { Outcome } from "../models/evaluate.ts";
-import type { FrozenForecastRecord } from "../models/prospective.ts";
 import type { ListedModelPick } from "./board-store.ts";
 import type { StrengthGrade } from "./model-pick.ts";
 import type { ClosingObservation } from "./store.ts";
@@ -185,31 +184,4 @@ export function modelPickPerformance(
 
 function outcomeOf(result: ModelPickRow["result"]): Outcome | null {
   return result === "win" || result === "loss" || result === "push" ? result : null;
-}
-
-/**
- * The frozen forecasts of primary model picks as prospective evaluation records. Probabilities are
- * read from the saved forecast, never regenerated, and the outcome is only attached from the
- * grade. A primary pick without a captured forecast has no record.
- */
-export function prospectiveForecastRecords(picks: ListedModelPick[]): FrozenForecastRecord[] {
-  return picks.flatMap((listed) => {
-    const role = listed.pick.role;
-    const forecast = listed.pick.forecast;
-    if (listed.withdrawn || role.role !== "primary" || !forecast) return [];
-    return [
-      {
-        id: listed.pick.id,
-        decisionCutoff: forecast.decisionCutoff,
-        artifactChecksum: forecast.artifact.checksum,
-        market: listed.pick.market,
-        probabilities: forecast.probabilities,
-        // A single-sided close is not a no-vig baseline, so none is claimed.
-        closingBaseline: null,
-        executableOfferAt: listed.observedAt,
-        slate: `${listed.game.season}-${listed.game.week}`,
-        outcome: outcomeOf(listed.grade.effective),
-      },
-    ];
-  });
 }

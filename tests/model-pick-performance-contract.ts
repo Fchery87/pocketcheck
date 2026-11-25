@@ -228,22 +228,8 @@ export function describeModelPickPerformanceContract(
       const priced = model.offers.length;
       // Both sides are forecast so the pick is chosen from the frozen numbers.
       expect(captured).toBe(2);
-      const listed = await store.listModelPicks();
-      const records = prospectiveForecastRecords(listed);
-      expect(records).toEqual([
-        expect.objectContaining({
-          id: listed[0]!.pick.id,
-          artifactChecksum: "f".repeat(64),
-          market: "moneyline",
-          probabilities: { win: 0.41, loss: 0.59, push: 0 },
-          decisionCutoff: NOW,
-          slate: "2026-7",
-          closingBaseline: null,
-          outcome: null,
-        }),
-      ]);
       // A later read reclassifies nothing and regenerates nothing.
-      await store.listModelPicks();
+      const listed = await store.listModelPicks();
       expect(captured).toBe(2);
       expect(model.offers.length).toBe(priced);
       expect(listed[0]!.pick.role).toMatchObject({ protocolId: "prospective-2026-10-26" });
@@ -478,7 +464,6 @@ export function describeModelPickPerformanceContract(
         const performance = modelPickPerformance(listed, []);
         expect(performance.rows).toHaveLength(0);
         expect(performance.excluded).toMatchObject({ withdrawn: 1, refresh: 1 });
-        expect(prospectiveForecastRecords(listed)).toHaveLength(0);
       });
 
       it("refuses to withdraw an unfinished board or one without a reason", async () => {

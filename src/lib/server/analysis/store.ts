@@ -1354,7 +1354,6 @@ function gradeNotice(offer: Offer, notice: StoredNotice): Settlement {
   return settleOffer(offer, {
     homeScore: notice.homeScore ?? Number.NaN,
     awayScore: notice.awayScore ?? Number.NaN,
-    voided: false,
   });
 }
 

@@ -3,7 +3,6 @@ import type { Offer } from "#lib/domain/offer.ts";
 export type FinalScore = {
   homeScore: number;
   awayScore: number;
-  voided?: boolean;
 };
 
 export type Settlement = "win" | "loss" | "push" | "void" | "unresolved";
@@ -25,9 +24,6 @@ export function requireFinalScores(input: {
 }
 
 export function settleOffer(offer: Offer, score: FinalScore): Settlement {
-  if (score.voided) {
-    return "void";
-  }
   if (!Number.isFinite(score.homeScore) || !Number.isFinite(score.awayScore)) {
     return "unresolved";
   }

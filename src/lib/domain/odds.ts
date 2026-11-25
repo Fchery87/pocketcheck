@@ -30,7 +30,6 @@ export function decimalToAmerican(decimalOdds: number): number {
 
 export function breakEven(decimalOdds: number): {
   decisive: number;
-  unconditionalWinsAt: (pushProbability: number) => number;
 } {
   if (!Number.isFinite(decimalOdds) || decimalOdds <= 1) {
     throw new PriceError(`Invalid decimal odds: ${decimalOdds}`);
@@ -38,12 +37,6 @@ export function breakEven(decimalOdds: number): {
   const decisive = 1 / decimalOdds;
   return {
     decisive,
-    unconditionalWinsAt(pushProbability: number) {
-      if (!Number.isFinite(pushProbability) || pushProbability < 0 || pushProbability >= 1) {
-        throw new PriceError(`Invalid push probability: ${pushProbability}`);
-      }
-      return (1 - pushProbability) / decimalOdds;
-    },
   };
 }
 

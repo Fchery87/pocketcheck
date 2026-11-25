@@ -60,11 +60,7 @@ describe("break-even and illustrative expected value", () => {
       illustrative: true,
     });
     expect(value.perUnit).toBeCloseTo(0.022727, 5);
-    expect(breakEven(price).unconditionalWinsAt(0.03)).toBeCloseTo((1 - 0.03) / price, 6);
-    expect(breakEven(price).unconditionalWinsAt(0.03)).not.toBeCloseTo(
-      breakEven(price).decisive,
-      3,
-    );
+    expect(breakEven(price).decisive).toBeCloseTo(1 / price, 6);
   });
 
   it("leaves expected value unavailable when no probability method is supplied", () => {
