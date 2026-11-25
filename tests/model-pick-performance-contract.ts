@@ -2,10 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { loadFixtureGames } from "#lib/server/analysis/games.ts";
 import { runGameBoard, type GameBoardRequest } from "#lib/server/analysis/board-run.ts";
 import type { SavedForecast } from "#lib/server/analysis/forecast-record.ts";
-import {
-  modelPickPerformance,
-  prospectiveForecastRecords,
-} from "#lib/server/analysis/model-pick-performance.ts";
+import { modelPickPerformance } from "#lib/server/analysis/model-pick-performance.ts";
 import { snapshot } from "#lib/server/analysis/run.ts";
 import { journalSummaries } from "#lib/server/analysis/summary.ts";
 import type { JournalStore } from "#lib/server/analysis/store.ts";

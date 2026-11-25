@@ -191,6 +191,6 @@ describe("settlement", () => {
         rules: { period: "full-game", overtime: "included", tie: "void" },
       }),
     );
-    expect(settleOffer(offer, { homeScore: 20, awayScore: 20, voided: true })).toBe("void");
+    expect(settleOffer(offer, { homeScore: 20, awayScore: 20 })).toBe("void");
   });
 });
