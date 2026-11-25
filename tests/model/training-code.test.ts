@@ -6,7 +6,7 @@ import { TRAINING_CODE } from "../../src/lib/server/models/training-code.ts";
 
 const pin = {
   trainingCode: "training-2026-11-01",
-  sourceHash: "e36b3ea9385677749e79c48e344374ebc202912aef94bdabd1264f660dda291d",
+  sourceHash: "7719601e9bb424e55a86bdcd061d8acf6fe076017a5bc110ad3bb02c9126e24b",
 };
 
 const excluded = resolve("src/lib/server/models/training-code.ts");

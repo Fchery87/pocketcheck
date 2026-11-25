@@ -87,7 +87,11 @@ describe("evaluation", () => {
     const summary = summarize(forecasts);
     expect(summary.brier).toBeGreaterThan(0);
     expect(summary.logLoss).toBeGreaterThan(0);
-    expect(summary.calibration.reduce((sum, bin) => sum + bin.count, 0)).toBe(summary.count);
+    expect(summary.calibration.reduce((sum, bin) => sum + bin.count, 0)).toBe(
+      forecasts.filter(
+        (forecast) => forecast.anchorState === "anchored" && forecast.marketBaseline !== null,
+      ).length,
+    );
     expect(summary.baselines.length).toBeGreaterThan(0);
     expect(summary.coverage.missingPrices).toBeGreaterThan(0);
     expect(
@@ -98,6 +102,34 @@ describe("evaluation", () => {
     expect(artifact.datasetHash).toMatch(/^[a-f0-9]{64}$/);
     expect(artifact.checksum).toMatch(/^[a-f0-9]{64}$/);
     expect(artifact.featureDefinitions.length).toBeGreaterThan(0);
+  });
+
+  it("excludes a moneyline forecast with no recorded anchor from the graded scores", () => {
+    const games = JSON.parse(
+      readFileSync(new URL("./fixtures/synthetic-games.json", import.meta.url), "utf8"),
+    ).games as PricedGame[];
+    const artifact = fitArtifact(games, "2024-09-15T20:00:00Z");
+    const target = games.find(
+      (game) => game.kickoff > artifact.trainingCutoff && game.prices?.total,
+    );
+    expect(target).toBeTruthy();
+    const stripped = games.map((game) =>
+      game.id === target!.id
+        ? { ...game, prices: { ...game.prices, moneyline: undefined, spread: undefined } }
+        : game,
+    );
+    const holdout = buildFeatureRows(stripped, artifact.featureParameters).filter(
+      (row) => row.kickoff > artifact.trainingCutoff,
+    );
+    const forecasts = scoreHoldout(artifact, holdout, stripped);
+    const moneyline = forecasts.find(
+      (forecast) => forecast.gameId === target!.id && forecast.market === "moneyline",
+    )!;
+    expect(moneyline.anchorState).toBe("missing");
+    expect(moneyline.priceState).toBe("missing");
+    const summary = summarize(forecasts);
+    expect(summary.count).toBe(forecasts.filter((row) => row.anchorState === "anchored").length);
+    expect(summary.count).toBeLessThan(forecasts.length);
   });
 });
 
