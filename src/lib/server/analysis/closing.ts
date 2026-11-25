@@ -1,5 +1,5 @@
 import { proportionalMargin, type OutcomeProbabilities } from "#lib/domain/odds.ts";
-import type { Offer } from "#lib/domain/offer.ts";
+import { sameBook, type Offer } from "#lib/domain/offer.ts";
 import { validateClosingMarketSnapshot, type ClosingMarketSnapshot } from "../models/protocol.ts";
 
 export function laterNoVigBaseline(input: {
@@ -98,7 +98,7 @@ function sameIdentity(open: ClosingContract, close: ClosingContract): boolean {
     open.market === close.market &&
     open.selection === close.selection &&
     open.pointLine === close.pointLine &&
-    open.sportsbook === close.sportsbook
+    sameBook(open.sportsbook, close.sportsbook)
   );
 }
 
@@ -127,7 +127,7 @@ export function compareClosing(
     const lineOnly =
       open.market === close.market &&
       open.selection === close.selection &&
-      open.sportsbook === close.sportsbook &&
+      sameBook(open.sportsbook, close.sportsbook) &&
       open.pointLine !== close.pointLine;
     return {
       available: false,

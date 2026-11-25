@@ -4,7 +4,7 @@ import {
   proportionalMargin,
   type OutcomeProbabilities,
 } from "#lib/domain/odds.ts";
-import type { Market, Offer, SideSelection } from "#lib/domain/offer.ts";
+import { sameBook, type Market, type Offer, type SideSelection } from "#lib/domain/offer.ts";
 import { VALUE_THRESHOLD } from "#lib/domain/threshold.ts";
 
 /**
@@ -178,7 +178,7 @@ export function calculateModelPick(input: ModelPickInput): ModelPickCalculation 
     away.selection !== second.offer.selection ||
     home.pointLine !== first.offer.pointLine ||
     away.pointLine !== second.offer.pointLine ||
-    home.sportsbook !== away.sportsbook
+    !sameBook(home.sportsbook, away.sportsbook)
   ) {
     throw new Error("A model pick needs one sportsbook's anchor pair on the priced contracts.");
   }

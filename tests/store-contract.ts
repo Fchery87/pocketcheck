@@ -1231,6 +1231,27 @@ export function describeStoreContract(
       expect(odds).toEqual([-115, -120]);
     });
 
+    it("compares a closing whose sportsbook case differs from the offer", async () => {
+      const store = await makeStore();
+      const run = (await runAnalysis(ask(), { store })).run!;
+      await store.recordClosing({
+        subject: { kind: "analysis", id: run.id },
+        sportsbook: "example BOOK",
+        market: "moneyline",
+        selection: "home",
+        americanOdds: -120,
+        observedAt: "2026-10-26T23:50:00.000Z",
+        source: "manual-close",
+        rules: { period: "full-game", overtime: "included", tie: "push" },
+      });
+      const listed = await store.listClosings();
+      const comparison = listed[0]?.comparison;
+      expect(comparison?.available).toBe(true);
+      if (comparison?.available) {
+        expect(comparison.closeDecimal).toBeCloseTo(1.833333333, 6);
+      }
+    });
+
     it("shows a moved point line separately and does not call it an odds change", async () => {
       const store = await makeStore();
       const run = (

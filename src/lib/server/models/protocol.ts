@@ -1,4 +1,4 @@
-import { parseOffer, type Market, type Offer } from "#lib/domain/offer.ts";
+import { parseOffer, sameBook, type Market, type Offer } from "#lib/domain/offer.ts";
 import { PROSPECTIVE_PROTOCOL, type EvaluationProtocol } from "./release.ts";
 
 export type ProtocolRegistration = {
@@ -148,7 +148,7 @@ export function validateClosingMarketSnapshot(value: ClosingMarketSnapshot): voi
     !sides.includes(first.selection) ||
     !sides.includes(second.selection) ||
     first.selection === second.selection ||
-    first.sportsbook !== second.sportsbook ||
+    !sameBook(first.sportsbook, second.sportsbook) ||
     first.kickoffAt !== second.kickoffAt ||
     JSON.stringify(first.rules) !== JSON.stringify(second.rules) ||
     (value.market === "spread"

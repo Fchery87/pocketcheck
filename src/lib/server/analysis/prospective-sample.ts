@@ -1,5 +1,5 @@
 import { proportionalMargin } from "#lib/domain/odds.ts";
-import type { Offer } from "#lib/domain/offer.ts";
+import { sameBook, type Offer } from "#lib/domain/offer.ts";
 import { assertRestorable, type JournalExport } from "./journal-backup.ts";
 import { slateOf } from "../models/uncertainty.ts";
 import { validateProtocolRegistration, type ProtocolRegistration } from "../models/protocol.ts";
@@ -34,7 +34,7 @@ function sameContract(a: Offer, b: Offer): boolean {
     a.market === b.market &&
     a.selection === b.selection &&
     a.pointLine === b.pointLine &&
-    a.sportsbook === b.sportsbook &&
+    sameBook(a.sportsbook, b.sportsbook) &&
     a.rules.period === b.rules.period &&
     a.rules.overtime === b.rules.overtime &&
     a.rules.tie === b.rules.tie
