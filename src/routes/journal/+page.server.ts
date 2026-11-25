@@ -14,7 +14,7 @@ import { journalSummaries, journalQualifiedForecasts } from "#lib/server/analysi
 import { sportsbooksOf } from "#lib/server/analysis/sportsbooks.ts";
 import { parseEasternTime } from "#lib/time.ts";
 import { PROSPECTIVE_PROTOCOL } from "#lib/server/models/release.ts";
-import type { SettlementNoticeKind } from "#lib/server/analysis/store.ts";
+import type { SettlementGrade, SettlementNoticeKind } from "#lib/server/analysis/store.ts";
 import type { Actions, PageServerLoad } from "./$types";
 
 function store() {
@@ -68,34 +68,22 @@ export const load: PageServerLoad = async ({ url }) => {
       journal.listProtocolRegistrations(),
       journal.listClosingMarketSnapshots(),
     ]);
-  const settlements = await Promise.all(
-    assessments.map(async (assessment) => {
-      const related = bets.filter((bet) => bet.analysisId === assessment.id);
-      const rows = [];
-      for (const bet of related) {
-        const read = await journal.readSettlement({
-          analysisId: assessment.id,
-          betId: bet.id,
-        });
-        rows.push({ betId: bet.id, grade: read.bet });
-      }
-      const read = await journal.readSettlement({ analysisId: assessment.id });
-      if (!read.assessment) throw new Error(`Analysis not found: ${assessment.id}`);
-      return {
-        analysisId: assessment.id,
-        assessment: read.assessment,
-        bets: rows,
-      };
-    }),
-  );
-  const pickBetGrades = await Promise.all(
-    bets
-      .filter((bet) => bet.modelPickId && !bet.analysisId)
-      .map(async (bet) => {
-        const read = await journal.readSettlement({ betId: bet.id });
-        return { betId: bet.id, grade: read.bet };
-      }),
-  );
+  const grades = await journal.listSettlementGrades();
+  const unresolved: SettlementGrade = {
+    result: "unresolved",
+    effective: "unresolved",
+    history: [],
+  };
+  const settlements = assessments.map((assessment) => ({
+    analysisId: assessment.id,
+    assessment: grades.byAnalysis.get(assessment.id) ?? unresolved,
+    bets: bets
+      .filter((bet) => bet.analysisId === assessment.id)
+      .map((bet) => ({ betId: bet.id, grade: grades.byBet.get(bet.id) ?? unresolved })),
+  }));
+  const pickBetGrades = bets
+    .filter((bet) => bet.modelPickId && !bet.analysisId)
+    .map((bet) => ({ betId: bet.id, grade: grades.byBet.get(bet.id) ?? unresolved }));
   const betGrades = [...settlements.flatMap((row) => row.bets), ...pickBetGrades];
   const knownSportsbooks = sportsbooksOf(
     bets,

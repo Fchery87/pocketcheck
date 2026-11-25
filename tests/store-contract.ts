@@ -1252,6 +1252,38 @@ export function describeStoreContract(
       }
     });
 
+    it("grades every subject in one bulk read the same as per-subject reads", async () => {
+      const store = await makeStore();
+      const run = (await runAnalysis(ask(), { store })).run!;
+      const placed = await store.recordBet({
+        analysisId: run.id,
+        submissionId: submission("bulk-graded"),
+        sportsbook: "Placed Book",
+        market: "moneyline",
+        selection: "home",
+        americanOdds: -110,
+        stakeUnits: 1,
+        placedAt: "2026-10-25T15:40:00.000Z",
+        rules: { period: "full-game", overtime: "included", tie: "push" },
+      });
+      expect(placed.kind).toBe("created");
+      if (placed.kind !== "created") throw new Error("expected a recorded bet");
+      await store.recordSettlement({
+        eventId: "bulk-final",
+        analysisId: run.id,
+        kind: "final",
+        homeScore: 24,
+        awayScore: 20,
+        recordedAt: "2026-10-26T03:00:00.000Z",
+        source: "official",
+      });
+      const bulk = await store.listSettlementGrades();
+      const perAnalysis = await store.readSettlement({ analysisId: run.id });
+      const perBet = await store.readSettlement({ analysisId: run.id, betId: placed.bet.id });
+      expect(bulk.byAnalysis.get(run.id)).toEqual(perAnalysis.assessment);
+      expect(bulk.byBet.get(placed.bet.id)).toEqual(perBet.bet);
+    });
+
     it("shows a moved point line separately and does not call it an odds change", async () => {
       const store = await makeStore();
       const run = (
