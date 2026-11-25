@@ -112,6 +112,29 @@
             (original game details could not be confirmed)
           </Badge>
         {/if}
+        {#if assessment.resultCandidate}
+          <form
+            class="pc-form"
+            method="POST"
+            action="?/confirmResult"
+            data-testid="sourced-result-form"
+          >
+            <p data-testid="sourced-result">
+              The current schedule reports {assessment.game.home}
+              {assessment.resultCandidate.homeScore}, {assessment.game.away}
+              {assessment.resultCandidate.awayScore}. Source
+              {assessment.resultCandidate.source}, retrieved
+              {easternTime(assessment.resultCandidate.retrievedAt)}.
+            </p>
+            <input type="hidden" name="analysisId" value={assessment.id} />
+            <input type="hidden" name="identity" value={assessment.resultCandidate.identity} />
+            <label>
+              <input type="checkbox" name="confirmed" value="yes" required />I checked this final
+              result and want to append its settlement notice.
+            </label>
+            <Button type="submit">Confirm and record sourced result</Button>
+          </form>
+        {/if}
       </li>
     {/each}
   </ul>
@@ -343,6 +366,11 @@
     <p class="pc-success" data-testid="settlement-recorded">{form.duplicate ? "Settlement already recorded" : "Settlement recorded"}</p>
   {:else if form?.action === "settle" && form.error}
     <Alert data-testid="settlement-form-error">{form.error}</Alert>
+  {/if}
+  {#if form?.action === "confirmResult" && form.outcome === "success"}
+    <p class="pc-success" data-testid="sourced-result-recorded">{form.duplicate ? "Sourced result already recorded" : "Sourced result recorded"}</p>
+  {:else if form?.action === "confirmResult" && form.error}
+    <Alert data-testid="sourced-result-error">{form.error}</Alert>
   {/if}
   <ul class="pc-ledger" data-testid="settlements">
     {#each data.settlements as row (row.analysisId)}

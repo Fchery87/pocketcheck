@@ -9,13 +9,29 @@ import {
   type SideSelection,
   type TieRule,
 } from "#lib/domain/offer.ts";
-import { ConfigError, now, researchStore } from "#lib/server/config.ts";
+import { ConfigError, now, researchStore, schedulePath } from "#lib/server/config.ts";
 import { journalSummaries, journalQualifiedForecasts } from "#lib/server/analysis/summary.ts";
 import { sportsbooksOf } from "#lib/server/analysis/sportsbooks.ts";
+import { readSchedule } from "#lib/server/analysis/schedule.ts";
+import { settlementPrefill } from "#lib/server/analysis/settlement-prefill.ts";
+import { readDownloadRecord } from "#lib/server/sources/download-record.ts";
 import { parseEasternTime } from "#lib/time.ts";
 import { PROSPECTIVE_PROTOCOL } from "#lib/server/models/release.ts";
 import type { SettlementGrade, SettlementNoticeKind } from "#lib/server/analysis/store.ts";
 import type { Actions, PageServerLoad } from "./$types";
+
+function resultCandidateFor(game: { id: string; home: string; away: string; kickoff: string }) {
+  const path = schedulePath();
+  const schedule = readSchedule(path);
+  if (!schedule.ok) return null;
+  const { source } = readDownloadRecord(path);
+  return settlementPrefill({
+    game,
+    schedule,
+    now: now(),
+    source: source ?? `Local schedule ${path}`,
+  });
+}
 
 function store() {
   try {
@@ -90,6 +106,21 @@ export const load: PageServerLoad = async ({ url }) => {
     closings,
     closingMarkets.flatMap((snapshot) => snapshot.offers),
   );
+  const assessmentsForPage = assessments.map((assessment) => {
+    const grade: SettlementGrade = settlements.find((row) => row.analysisId === assessment.id)
+      ?.assessment ?? {
+      result: "unresolved",
+      effective: "unresolved",
+      history: [],
+    };
+    return {
+      ...assessment,
+      americanOdds: assessment.offer.americanOdds,
+      grade,
+      resultCandidate:
+        grade.effective === "unresolved" ? resultCandidateFor(assessment.game) : null,
+    };
+  });
   const performance = journalSummaries({
     qualifiedForecasts: journalQualifiedForecasts({
       assessments: assessments.flatMap((row) =>
@@ -122,15 +153,7 @@ export const load: PageServerLoad = async ({ url }) => {
       })),
       snapshots: closingMarkets,
     }),
-    assessments: assessments.map((assessment) => ({
-      ...assessment,
-      americanOdds: assessment.offer.americanOdds,
-      grade: settlements.find((row) => row.analysisId === assessment.id)?.assessment ?? {
-        result: "unresolved",
-        effective: "unresolved",
-        history: [],
-      },
-    })),
+    assessments: assessmentsForPage,
     bets: bets.map((bet) => ({
       ...bet,
       grade: betGrades.find((row) => row.betId === bet.id)?.grade ?? null,
@@ -138,7 +161,7 @@ export const load: PageServerLoad = async ({ url }) => {
     closings,
   });
   return {
-    assessments,
+    assessments: assessmentsForPage,
     knownSportsbooks,
     bets,
     settlements,
@@ -440,6 +463,39 @@ const journalActions = {
       });
     }
   },
+  confirmResult: async ({ request }) => {
+    const data = await request.formData();
+    const analysisId = String(data.get("analysisId") ?? "").trim();
+    const identity = String(data.get("identity") ?? "").trim();
+    const journal = store();
+    const run = await journal.getRun(analysisId).catch(() => null);
+    if (!run) {
+      return fail(400, { error: "Choose the analysis to settle" });
+    }
+    const candidate = resultCandidateFor(run.game);
+    if (!candidate || identity !== candidate.identity || data.get("confirmed") !== "yes") {
+      return fail(400, {
+        error: "Review the current sourced result and explicitly confirm it before recording.",
+      });
+    }
+    try {
+      const result = await journal.recordSettlement({
+        eventId: `schedule-result-${candidate.identity}`,
+        analysisId,
+        kind: "final",
+        homeScore: candidate.homeScore,
+        awayScore: candidate.awayScore,
+        recordedAt: now(),
+        source: `${candidate.source}, retrieved ${candidate.retrievedAt}`,
+      });
+      if (result.kind === "conflict") return fail(409, { error: result.error });
+      return { duplicate: result.kind === "duplicate", error: null };
+    } catch (cause) {
+      return fail(400, {
+        error: cause instanceof Error ? cause.message : "Sourced result was not saved",
+      });
+    }
+  },
   closing: async ({ request }) => {
     const data = await request.formData();
     const subjectKind = String(data.get("subjectKind") ?? "").trim();
@@ -604,6 +660,7 @@ function scopedAction(
 export const actions = {
   bet: scopedAction("bet", journalActions.bet),
   settle: scopedAction("settle", journalActions.settle),
+  confirmResult: scopedAction("confirmResult", journalActions.confirmResult),
   closing: scopedAction("closing", journalActions.closing),
   closingMarket: scopedAction("closingMarket", journalActions.closingMarket),
   registerProtocol: scopedAction("registerProtocol", journalActions.registerProtocol),
