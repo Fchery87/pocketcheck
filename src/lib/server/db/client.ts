@@ -11,6 +11,10 @@ export function createDb(connectionString: string): Db {
     idle_timeout: 20,
     connect_timeout: 30,
     ssl: "require",
+    // Neon's pooled endpoint runs PgBouncer in transaction mode, where named prepared
+    // statements can fail with "prepared statement does not exist". Unnamed statements
+    // work on both the pooled and the direct host.
+    prepare: false,
     onnotice: () => {},
   });
 }
