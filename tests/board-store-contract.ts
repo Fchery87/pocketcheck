@@ -205,7 +205,7 @@ export function describeGameBoardContract(
       expect(saved).toEqual(outcome.board);
       expect(saved?.status).toBe("completed");
       expect(saved?.markets[0]?.pick?.calculation).toMatchObject({
-        version: "model-pick-2026-11-01.1",
+        version: "model-pick-2026-11-24.1",
         pickedSelection: "home",
         grade: "strong",
         release: "unvalidated",
