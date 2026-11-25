@@ -10,7 +10,7 @@ The journal keeps three kinds of record apart, and they stay distinguishable aft
 
 ## What PocketCheck claims today
 
-Status on 2026-10-30. The research workflow and the game board run end to end on the real nflverse schedule and save every run to Neon. The forecasting model has not beaten the closing market, and no market has been released.
+Status on 2026-11-24. The research workflow and the game board run end to end on the real nflverse schedule and save every run to Neon. The forecasting model has not beaten the closing market, and no market has been released.
 
 That has three consequences you will see in the app.
 
@@ -84,7 +84,7 @@ npm run model:fit -- data/sources/games.csv data/artifacts/baseline.json
 
 Without a third argument, the earliest 70% of games train the model. To choose the training cutoff yourself, add an ISO time, such as `2022-03-01T00:00:00Z`. The command prints the new artifact's checksum. Keep that checksum, because the prospective evaluation needs it.
 
-The archived local artifact was trained through 2023-10-22 and has checksum `68f341bc8a02…`. The corrected inputs and discrete-anchor mapping now require artifact version 7 and `training-2026-11-01`. Older live artifacts are refused with a refit-required reason. Saved forecasts remain readable and are never regenerated. Only the synthetic browser fixture was refitted during remediation. Fit any real candidate to a new path, inspect its chronological development evaluation, and register its checksum before prospective activation. No production artifact was replaced or released.
+The archived local artifact was trained through 2023-10-22 and has checksum `68f341bc8a02…`, which the journal registered under `prospective-2026-10-26` on 2026-10-30. The corrected inputs and discrete-anchor mapping now require artifact version 7 and `training-2026-11-01`. Older live artifacts are refused with a refit-required reason. Saved forecasts remain readable and are never regenerated. Only the synthetic browser fixture was refitted during remediation. Fit any real candidate to a new path, inspect its chronological development evaluation, and register its checksum before prospective activation. No production artifact was replaced or released.
 
 ### Start the app
 
@@ -115,6 +115,8 @@ The app has these pages.
 | Journal                | `/journal`           | List analyses, record bets, settlements, and closing prices, register evaluations, and back up or restore. |
 | Settings               | `/settings`          | Check and download source data, choose who writes the explanation text, and manage AI model catalogs.      |
 | Handbook               | `/handbook`          | Read short definitions of the odds and model terms the app uses.                                           |
+| Sign in                | `/login`             | Enter the access secret when the journal is protected on the network.                                      |
+| Sign out               | `/logout`            | End this browser's session.                                                                                |
 
 ### A typical week
 
@@ -539,7 +541,7 @@ TEST_DATABASE_URL='postgresql://user:password@localhost/test_db?sslmode=disable'
 | `data/`                     | Local source files and model artifacts. Large files are not committed.                    |
 | `tests/`                    | Unit, model, integration, and browser tests.                                              |
 
-The stack is SvelteKit 3.1.0 with Svelte 5.57.2, Vite+ 1.4.0 with Vitest 5.0.5, `@sveltejs/adapter-node` 6.0.0, TypeScript 6.0.3, and svelte-check 4.7.7. SvelteKit 3 keeps its configuration in `vite.config.ts`, and there is no `svelte.config.js`. The `#lib` import is the library alias. Server-only code lives under `src/lib/server`, and its imports include the `.ts` extension.
+The stack is SvelteKit 3.1.0 with Svelte 5.57, Vite+ 1.4.0 with Vitest 5.0.5, `@sveltejs/adapter-node` 6.0.0, TypeScript 6.0, and svelte-check 4.6. SvelteKit 3 keeps its configuration in `vite.config.ts`, and there is no `svelte.config.js`. The `#lib` import is the library alias. Server-only code lives under `src/lib/server`, and its imports include the `.ts` extension.
 
 Development does not enforce the production cross-site form check, but preview and the Node server do. `npm start` declares `http` as the request protocol, so a form posted from the address the browser used succeeds, and a form from any other origin returns 403. To put a TLS proxy in front of PocketCheck, run `build/index.js` with the adapter's own settings. `build/index.js` listens on every interface unless `HOST` is set, so prefer `npm start`.
 
@@ -556,7 +558,7 @@ Development does not enforce the production cross-site form check, but preview a
 ## Known limits
 
 - Historical forecasts start from closing prices, which contain information a bettor would not have had earlier in the week.
-- Spread and total forecasts start from the point line only. The two prices affect expected value but not the starting probabilities. A moneyline anchor uses both prices.
+- Spread and total forecasts start from the anchor book's own two prices through the probability-matched discrete mapping, the same way a moneyline forecast starts from its two prices. A forecast still needs both sides of its market from one sportsbook.
 - Weather forecasts are saved as evidence, but the model does not adjust for weather.
 - Non-quarterback injuries are shown as evidence, but the model does not use them.
 - After shrinkage, the artifact keeps 6.6% of its learned margin adjustment and 7.9% of its learned total adjustment, so most of each forecast comes from the market line.

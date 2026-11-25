@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import type { EvidenceItem, ScheduledGame } from "../sources/contracts.ts";
 import { readDownloadRecord } from "../sources/download-record.ts";
 import { injuryEvidenceFromCsv } from "../sources/injuries.ts";
@@ -39,13 +39,31 @@ const STALE_AFTER_MS = INJURY_STALE_HOURS * 60 * 60 * 1000;
 const injuryUrl = (season: number) =>
   `https://github.com/nflverse/nflverse-data/releases/download/injuries/injuries_${season}.csv`;
 
+type CachedInjuryCsv = { key: string; csv: string };
+const injuryCache = new Map<string, CachedInjuryCsv>();
+
+/** The injury CSV text, reused until the file's mtime or size changes. */
+function cachedInjuryCsv(path: string): string {
+  let key: string;
+  try {
+    key = `${statSync(path).mtimeMs}:${statSync(path).size}`;
+  } catch {
+    key = "";
+  }
+  const cached = injuryCache.get(path);
+  if (cached && cached.key === key) return cached.csv;
+  const csv = readFileSync(path, "utf8");
+  injuryCache.set(path, { key, csv });
+  return csv;
+}
+
 function injuryEvidence(path: string, game: ScheduledGame, nowIso: string): CollectedEvidence {
   if (!existsSync(path)) {
     const gap = `No injury file at ${path}. Run npm run data:injuries.`;
     return { items: [], gaps: [gap], materialGaps: [{ kind: "injury-report", text: gap }] };
   }
   const record = readDownloadRecord(path);
-  const read = injuryEvidenceFromCsv(readFileSync(path, "utf8"), {
+  const read = injuryEvidenceFromCsv(cachedInjuryCsv(path), {
     season: game.season,
     week: game.week,
     teams: [game.away, game.home],

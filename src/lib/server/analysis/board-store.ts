@@ -316,6 +316,16 @@ export function correctionIsLater(prior: { recordedAt: string }, recordedAt: str
   return Date.parse(prior.recordedAt) < Date.parse(recordedAt);
 }
 
+/**
+ * The journal record path accepts a correction recorded at or after its notice. A fixed
+ * verification clock stamps a correction and the notice it corrects identically, and grading's
+ * stable sort still applies the correction. Only a correction recorded strictly earlier than
+ * its notice is refused, because sorting would silently keep the original result.
+ */
+export function correctionIsNotEarlier(prior: { recordedAt: string }, recordedAt: string): boolean {
+  return Date.parse(prior.recordedAt) <= Date.parse(recordedAt);
+}
+
 export function gameSettlementPayloadKey(input: RecordGameSettlementInput): string {
   return JSON.stringify({
     eventId: input.eventId,

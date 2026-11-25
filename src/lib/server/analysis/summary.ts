@@ -4,7 +4,7 @@ import type { Settlement } from "#lib/domain/settlement.ts";
 import type { ActualBet, ClosingObservation, RunSummary, SettlementGrade } from "./store.ts";
 import { multiclassBrier, multiclassLogLoss } from "../models/evaluate.ts";
 import type { FrozenForecastRecord } from "../models/prospective.ts";
-import type { Offer } from "#lib/domain/offer.ts";
+import { sameBook, type Offer } from "#lib/domain/offer.ts";
 import type { SavedForecast } from "./forecast-record.ts";
 import type { ClosingMarketSnapshot } from "../models/protocol.ts";
 import { laterNoVigBaseline } from "./closing.ts";
@@ -71,7 +71,7 @@ export function journalQualifiedForecasts(input: {
         source.offer.market !== bet.market ||
         source.offer.selection !== bet.selection ||
         source.offer.pointLine !== bet.pointLine ||
-        source.offer.sportsbook !== bet.sportsbook ||
+        !sameBook(source.offer.sportsbook, bet.sportsbook) ||
         source.offer.rules.period !== bet.rules.period ||
         source.offer.rules.overtime !== bet.rules.overtime ||
         source.offer.rules.tie !== bet.rules.tie
@@ -101,7 +101,8 @@ export type DescriptiveCohortMetrics = {
         model: { brier: number; logLoss: number };
         closing: { brier: number; logLoss: number };
         meanWinProbabilityDifference: number;
-        modelWinCalibrationBias: number;
+        decisiveDenominator: number;
+        modelWinCalibrationBias: number | null;
       };
 };
 
@@ -118,6 +119,7 @@ export function descriptiveCohortMetrics(
   );
   const average = (values: number[]) =>
     values.reduce((sum, value) => sum + value, 0) / values.length;
+  const decisive = scored.filter((row) => row.outcome === "win" || row.outcome === "loss");
   return {
     cohort,
     rawSameContractPriceMovement: raw.length
@@ -148,9 +150,12 @@ export function descriptiveCohortMetrics(
           meanWinProbabilityDifference: average(
             scored.map((row) => row.probabilities.win - row.closingBaseline!.win),
           ),
-          modelWinCalibrationBias: average(
-            scored.map((row) => row.probabilities.win - (row.outcome === "win" ? 1 : 0)),
-          ),
+          decisiveDenominator: decisive.length,
+          modelWinCalibrationBias: decisive.length
+            ? average(
+                decisive.map((row) => row.probabilities.win - (row.outcome === "win" ? 1 : 0)),
+              )
+            : null,
         }
       : { available: false, denominator: 0, reason: "missing-qualified-forecast-outcomes" },
   };
@@ -329,36 +334,6 @@ export type SettlementNotice = {
   correctsId: string | null;
   duplicateOfId?: string | null;
 };
-
-/** Postponement stays unresolved. A duplicate notice is ignored. A correction keeps the prior row. */
-export function applySettlementNotices(notices: SettlementNotice[]): {
-  current: Settlement | "postponed" | "unresolved";
-  history: SettlementNotice[];
-  ignoredDuplicateIds: string[];
-} {
-  const history: SettlementNotice[] = [];
-  const ignoredDuplicateIds: string[] = [];
-  const seen = new Set<string>();
-  for (const notice of notices) {
-    if (notice.duplicateOfId && seen.has(notice.duplicateOfId)) {
-      ignoredDuplicateIds.push(notice.id);
-      continue;
-    }
-    if (seen.has(notice.id)) {
-      ignoredDuplicateIds.push(notice.id);
-      continue;
-    }
-    seen.add(notice.id);
-    history.push(notice);
-  }
-  const latest = history.at(-1);
-  const current = !latest
-    ? "unresolved"
-    : latest.result === "postponed"
-      ? "unresolved"
-      : latest.result;
-  return { current, history, ignoredDuplicateIds };
-}
 
 export type JournalPerformance = {
   assessments: CohortSummary;

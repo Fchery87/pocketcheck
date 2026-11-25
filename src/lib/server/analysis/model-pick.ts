@@ -4,21 +4,24 @@ import {
   proportionalMargin,
   type OutcomeProbabilities,
 } from "#lib/domain/odds.ts";
-import type { Market, Offer, SideSelection } from "#lib/domain/offer.ts";
+import { sameBook, type Market, type Offer, type SideSelection } from "#lib/domain/offer.ts";
 import { VALUE_THRESHOLD } from "#lib/domain/threshold.ts";
 
 /**
  * The model pick calculation's version. It is separate from the research policy version: a
  * saved model pick keeps the version it was graded under, and a grade change needs a new one.
  */
-export const MODEL_PICK_VERSION = "model-pick-2026-11-01.1";
+export const MODEL_PICK_VERSION = "model-pick-2026-11-24.1";
 
 /**
  * Every version a saved model pick can hold. Version 2026-10-27.1 took the no-vig probabilities
  * and margin from the executable prices, which a shopped price could mix across sportsbooks. A
  * saved calculation keeps its own version and is never recomputed under a later one.
  */
-export type ModelPickVersion = "model-pick-2026-10-27.1" | typeof MODEL_PICK_VERSION;
+export type ModelPickVersion =
+  | "model-pick-2026-10-27.1"
+  | "model-pick-2026-11-01.1"
+  | typeof MODEL_PICK_VERSION;
 
 export type StrengthGrade = "strong" | "lean" | "no edge";
 
@@ -132,7 +135,7 @@ function breakEvenPrice(probabilities: OutcomeProbabilities, target: number): nu
   return 1 + (probabilities.loss + target) / probabilities.win;
 }
 
-function priceCutoff(picked: ModelPickSide, grade: StrengthGrade): ModelPickPriceCutoff {
+export function priceCutoff(picked: ModelPickSide, grade: StrengthGrade): ModelPickPriceCutoff {
   const strong = grade === "strong";
   const probabilities = strong ? picked.conservativeProbabilities : picked.probabilities;
   const target = strong ? VALUE_THRESHOLD.conservativeExpectedValue : 0;
@@ -175,7 +178,7 @@ export function calculateModelPick(input: ModelPickInput): ModelPickCalculation 
     away.selection !== second.offer.selection ||
     home.pointLine !== first.offer.pointLine ||
     away.pointLine !== second.offer.pointLine ||
-    home.sportsbook !== away.sportsbook
+    !sameBook(home.sportsbook, away.sportsbook)
   ) {
     throw new Error("A model pick needs one sportsbook's anchor pair on the priced contracts.");
   }

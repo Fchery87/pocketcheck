@@ -1231,6 +1231,59 @@ export function describeStoreContract(
       expect(odds).toEqual([-115, -120]);
     });
 
+    it("compares a closing whose sportsbook case differs from the offer", async () => {
+      const store = await makeStore();
+      const run = (await runAnalysis(ask(), { store })).run!;
+      await store.recordClosing({
+        subject: { kind: "analysis", id: run.id },
+        sportsbook: "example BOOK",
+        market: "moneyline",
+        selection: "home",
+        americanOdds: -120,
+        observedAt: "2026-10-26T23:50:00.000Z",
+        source: "manual-close",
+        rules: { period: "full-game", overtime: "included", tie: "push" },
+      });
+      const listed = await store.listClosings();
+      const comparison = listed[0]?.comparison;
+      expect(comparison?.available).toBe(true);
+      if (comparison?.available) {
+        expect(comparison.closeDecimal).toBeCloseTo(1.833333333, 6);
+      }
+    });
+
+    it("grades every subject in one bulk read the same as per-subject reads", async () => {
+      const store = await makeStore();
+      const run = (await runAnalysis(ask(), { store })).run!;
+      const placed = await store.recordBet({
+        analysisId: run.id,
+        submissionId: submission("bulk-graded"),
+        sportsbook: "Placed Book",
+        market: "moneyline",
+        selection: "home",
+        americanOdds: -110,
+        stakeUnits: 1,
+        placedAt: "2026-10-25T15:40:00.000Z",
+        rules: { period: "full-game", overtime: "included", tie: "push" },
+      });
+      expect(placed.kind).toBe("created");
+      if (placed.kind !== "created") throw new Error("expected a recorded bet");
+      await store.recordSettlement({
+        eventId: "bulk-final",
+        analysisId: run.id,
+        kind: "final",
+        homeScore: 24,
+        awayScore: 20,
+        recordedAt: "2026-10-26T03:00:00.000Z",
+        source: "official",
+      });
+      const bulk = await store.listSettlementGrades();
+      const perAnalysis = await store.readSettlement({ analysisId: run.id });
+      const perBet = await store.readSettlement({ analysisId: run.id, betId: placed.bet.id });
+      expect(bulk.byAnalysis.get(run.id)).toEqual(perAnalysis.assessment);
+      expect(bulk.byBet.get(placed.bet.id)).toEqual(perBet.bet);
+    });
+
     it("shows a moved point line separately and does not call it an odds change", async () => {
       const store = await makeStore();
       const run = (
@@ -1530,6 +1583,71 @@ export function describeStoreContract(
       });
       expect(read.assessment!.effective).toBe("win");
       expect(read.assessment!.history[0]?.id).toBe(first.noticeId);
+    });
+
+    it("rejects a correction recorded earlier than its notice", async () => {
+      const store = await makeStore();
+      const run = (await runAnalysis(ask(), { store })).run!;
+      const first = await store.recordSettlement({
+        eventId: "early-score",
+        analysisId: run.id,
+        kind: "final",
+        homeScore: 17,
+        awayScore: 20,
+        recordedAt: "2026-10-27T16:00:00.000Z",
+        source: "official",
+      });
+      expect(first.kind).toBe("recorded");
+      if (first.kind !== "recorded") throw new Error("expected a recorded settlement");
+      const early = await store.recordSettlement({
+        eventId: "score-correction",
+        analysisId: run.id,
+        kind: "final",
+        homeScore: 24,
+        awayScore: 20,
+        recordedAt: "2026-10-27T12:00:00.000Z",
+        source: "official-correction",
+        reason: "official score correction",
+        correctsNoticeId: first.noticeId,
+      });
+      expect(early).toMatchObject({
+        kind: "conflict",
+        error: expect.stringMatching(/later/i),
+      });
+      const read = await store.readSettlement({ analysisId: run.id });
+      expect(read.assessment!.history.map((row) => row.result)).toEqual(["loss"]);
+      expect(read.assessment!.effective).toBe("loss");
+    });
+
+    it("applies a correction recorded at the same time as its notice", async () => {
+      const store = await makeStore();
+      const run = (await runAnalysis(ask(), { store })).run!;
+      const first = await store.recordSettlement({
+        eventId: "same-time-final",
+        analysisId: run.id,
+        kind: "final",
+        homeScore: 17,
+        awayScore: 20,
+        recordedAt: "2026-10-27T16:00:00.000Z",
+        source: "official",
+      });
+      expect(first.kind).toBe("recorded");
+      if (first.kind !== "recorded") throw new Error("expected a recorded settlement");
+      const corrected = await store.recordSettlement({
+        eventId: "same-time-correction",
+        analysisId: run.id,
+        kind: "final",
+        homeScore: 24,
+        awayScore: 20,
+        recordedAt: "2026-10-27T16:00:00.000Z",
+        source: "official-correction",
+        reason: "official score correction",
+        correctsNoticeId: first.noticeId,
+      });
+      expect(corrected.kind).toBe("recorded");
+      const read = await store.readSettlement({ analysisId: run.id });
+      expect(read.assessment!.effective).toBe("win");
+      expect(read.assessment!.history).toHaveLength(2);
     });
 
     it("rejects a bet for an analysis that does not exist", async () => {

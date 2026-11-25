@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { CORRECTION_NOT_LATER, correctionIsNotEarlier } from "./board-store.ts";
 import {
   validateClosingMarketSnapshot,
   validateProtocolRegistration,
@@ -403,6 +404,11 @@ export type ResearchStore = {
     assessment: SettlementGrade | null;
     bet: SettlementGrade | null;
   }>;
+  /** One bulk read of every settlement grade, for pages that would otherwise re-read per subject. */
+  listSettlementGrades: () => Promise<{
+    byAnalysis: Map<string, SettlementGrade>;
+    byBet: Map<string, SettlementGrade>;
+  }>;
   /** Test seam: a completed row whose role was never frozen at completion. */
   recordUnclassifiedCompleted?: (run: ResearchRun) => Promise<void>;
   /** Test seam: an archived price with no observation time. */
@@ -792,6 +798,18 @@ export function createMemoryStore(options: { now?: () => string } = {}): Journal
     },
     async readSettlement(input) {
       return readMemorySettlement(state, input);
+    },
+    async listSettlementGrades() {
+      const byAnalysis = new Map<string, SettlementGrade>();
+      for (const id of records.analyses.keys()) {
+        byAnalysis.set(id, (await readMemorySettlement(state, { analysisId: id })).assessment!);
+      }
+      const byBet = new Map<string, SettlementGrade>();
+      for (const [id, bet] of records.bets) {
+        const input = bet.analysisId ? { analysisId: bet.analysisId, betId: id } : { betId: id };
+        byBet.set(id, (await readMemorySettlement(state, input)).bet!);
+      }
+      return { byAnalysis, byBet };
     },
     async recordUnclassifiedCompleted(run) {
       const existing = records.analyses.get(run.id);
@@ -1280,6 +1298,9 @@ function recordMemorySettlement(
     if (!prior || !sameSubject) {
       throw new Error(`Settlement not found: ${input.correctsNoticeId}`);
     }
+    if (!correctionIsNotEarlier(prior, input.recordedAt)) {
+      return { kind: "conflict", error: CORRECTION_NOT_LATER };
+    }
   }
   const payloadKey = settlementPayloadKey(input);
   const sameEvent = state.notices.filter((item) => item.eventId === input.eventId);
@@ -1333,7 +1354,6 @@ function gradeNotice(offer: Offer, notice: StoredNotice): Settlement {
   return settleOffer(offer, {
     homeScore: notice.homeScore ?? Number.NaN,
     awayScore: notice.awayScore ?? Number.NaN,
-    voided: false,
   });
 }
 

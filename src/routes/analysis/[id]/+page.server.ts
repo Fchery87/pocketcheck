@@ -5,6 +5,7 @@ import { localInputValue, parseRefreshContract } from "#lib/server/analysis/form
 import { forDisplay } from "#lib/server/analysis/model.ts";
 import { runAnalysis } from "#lib/server/analysis/run.ts";
 import { readSchedule } from "#lib/server/analysis/schedule.ts";
+import { sportsbooksOf } from "#lib/server/analysis/sportsbooks.ts";
 import {
   ConfigError,
   evidenceCollector,
@@ -30,9 +31,21 @@ export const load: PageServerLoad = async ({ params }) => {
   const run = await store().getRun(params.id);
   if (!run) error(404, "Analysis not found");
   const evidenceById = Object.fromEntries(run.evidence.map((item) => [item.id, item]));
+  let knownSportsbooks: string[] = [run.offer.sportsbook];
+  try {
+    const journal = store();
+    knownSportsbooks = sportsbooksOf(
+      [{ sportsbook: run.offer.sportsbook }],
+      await journal.listBets(),
+      await journal.listClosings(),
+    );
+  } catch {
+    knownSportsbooks = [run.offer.sportsbook];
+  }
   return {
     // Recorded but ineligible model probabilities are not sent to the browser at all.
     run: { ...run, probabilityModel: forDisplay(run.probabilityModel) },
+    knownSportsbooks,
     decimalOdds: run.offer.decimalOdds,
     decisiveBreakEven: breakEven(run.offer.decimalOdds).decisive,
     claims: (run.report?.claims ?? []).map((claim) => ({

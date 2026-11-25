@@ -9,7 +9,7 @@ import {
 } from "../models/protocol.ts";
 import type { ProviderRequestRecord } from "../providers/contracts.ts";
 import type { AttemptRequest } from "./attempt.ts";
-import type { GameBoard } from "./board-store.ts";
+import { correctionIsLater, correctionIsNotEarlier, type GameBoard } from "./board-store.ts";
 import {
   decideExplanationWrite,
   type ExplanationEvent,
@@ -902,10 +902,7 @@ export function assertRestorable(snapshot: JournalExport): void {
         `Game settlement notice ${notice.id} is missing its correction.`,
       );
       const prior = snapshot.gameSettlementNotices!.find((item) => item.id === notice.correctsId)!;
-      if (
-        prior.gameId !== notice.gameId ||
-        Date.parse(prior.recordedAt) >= Date.parse(notice.recordedAt)
-      ) {
+      if (prior.gameId !== notice.gameId || !correctionIsLater(prior, notice.recordedAt)) {
         throw new Error(
           `Game settlement notice ${notice.id} must correct an earlier notice for the same game.`,
         );
@@ -1041,6 +1038,11 @@ export function assertRestorable(snapshot: JournalExport): void {
       if (priorSubject.kind !== subject.kind || priorSubject.id !== subject.id) {
         throw new Error(
           `Settlement notice ${notice.id} must correct a notice for the same record.`,
+        );
+      }
+      if (!correctionIsNotEarlier(prior, notice.recordedAt)) {
+        throw new Error(
+          `Settlement notice ${notice.id} must correct an earlier notice for the same record.`,
         );
       }
     }

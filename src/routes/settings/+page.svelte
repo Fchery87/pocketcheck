@@ -110,6 +110,17 @@
       <p data-testid="key-status-{provider.id}">
         {provider.keyName}: {provider.keyConfigured ? "set" : "not set"}
       </p>
+      {#if provider.health}
+        <p data-testid="key-health-{provider.id}">
+          {#if provider.health.state === "ok"}
+            Key accepted by the provider.
+          {:else if provider.health.state === "rejected"}
+            Key rejected: {provider.health.detail}
+          {:else}
+            Provider unreachable: {provider.health.detail}
+          {/if}
+        </p>
+      {/if}
       <form method="POST" action="?/refresh">
         <input type="hidden" name="provider" value={provider.id} />
         <Button type="submit" disabled={!provider.keyConfigured}>Refresh catalog</Button>

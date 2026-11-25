@@ -474,6 +474,15 @@ export function describeJournalBackupContract(
         [...rows].sort((left, right) => (left.id < right.id ? -1 : 1));
       expect(byId(await back.listBets())).toEqual(byId(await source.listBets()));
       expect(byId(await back.listClosings())).toEqual(byId(await source.listClosings()));
+      const reordered = structuredClone(exported);
+      const notices = reordered.settlementNotices!;
+      const corrected = notices.find((row) => row.correctsId)!;
+      const prior = notices.find((row) => row.id === corrected.correctsId)!;
+      const stamp = prior.recordedAt;
+      prior.recordedAt = corrected.recordedAt;
+      corrected.recordedAt = stamp;
+      await expect(back.restoreJournal(reordered)).rejects.toThrow(/earlier notice/i);
+      expect(await back.exportJournal()).toEqual(exported);
     });
 
     it("adds nothing when the same backup is restored again", async () => {

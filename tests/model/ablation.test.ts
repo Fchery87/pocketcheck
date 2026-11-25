@@ -33,6 +33,7 @@ function forecast(
     baseRate: null,
     outcome,
     priceState: "present",
+    anchorState: "anchored",
     slate,
     americanOdds: -110,
     conservativeExpectedValue: null,

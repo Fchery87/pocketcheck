@@ -27,6 +27,8 @@ export type ScoredForecast = {
   baseRate: SideProbability | null;
   outcome: Outcome;
   priceState: "present" | "missing";
+  /** Whether the forecast was anchored on a recorded close. An unanchored forecast is unavailable, never a from-scratch fallback. */
+  anchorState: "anchored" | "missing";
   slate: string;
   /** This side's closing price, when recorded. */
   americanOdds: number | null;
@@ -247,6 +249,7 @@ export function scoreHoldout(
       baseRate: artifact.baseRates.moneyline,
       outcome: settleMargin(marginHome(game)),
       priceState: prices?.moneyline ? "present" : "missing",
+      anchorState: marginAnchor === null ? "missing" : "anchored",
       slate,
       americanOdds: moneylineOdds,
       conservativeExpectedValue: conservativeValue(artifact, "moneyline", moneyline, moneylineOdds),
@@ -274,6 +277,7 @@ export function scoreHoldout(
         baseRate: null,
         outcome: settleMargin(marginHome(game), prices.spread.line),
         priceState: "present",
+        anchorState: "anchored",
         slate,
         americanOdds: prices.spread.home.american,
         conservativeExpectedValue: conservativeValue(
@@ -297,6 +301,7 @@ export function scoreHoldout(
         baseRate: null,
         outcome: settleTotal(totalPoints(game), prices.total.line),
         priceState: "present",
+        anchorState: "anchored",
         slate,
         americanOdds: prices.total.over.american,
         conservativeExpectedValue: conservativeValue(
@@ -323,6 +328,7 @@ function missing(market: "spread" | "total", gameId: string, slate: string): Sco
     baseRate: null,
     outcome: "push",
     priceState: "missing",
+    anchorState: "missing",
     slate,
     americanOdds: null,
     conservativeExpectedValue: null,
@@ -404,18 +410,17 @@ function thresholdReport(
 }
 
 export function summarize(forecasts: readonly ScoredForecast[]): EvaluationSummary {
-  const graded = forecasts.filter(
-    (forecast) => forecast.market === "moneyline" || forecast.priceState === "present",
-  );
+  const graded = forecasts.filter((forecast) => forecast.anchorState === "anchored");
   const overall = scores(graded, (forecast) => forecast.probability);
   const bins = [0, 0.2, 0.4, 0.6, 0.8, 1];
   const calibration = bins.slice(0, -1).map((lower, index) => {
     const upper = bins[index + 1] ?? 1;
-    const members = graded.filter((forecast) => {
-      const probability = forecast.probability.win;
-      // The top bin also takes values a rounding error above 1.
-      return probability >= lower && (index === bins.length - 2 || probability < upper);
-    });
+    const members = graded.filter(
+      (forecast) =>
+        forecast.marketBaseline !== null &&
+        forecast.probability.win >= lower &&
+        (index === bins.length - 2 || forecast.probability.win < upper),
+    );
     return {
       lower,
       upper,
@@ -524,9 +529,7 @@ export function compareArtifacts(
     throw new Error("The two artifacts do not cover the same games, so they cannot be compared.");
   }
   const graded = (forecasts: readonly ScoredForecast[]) =>
-    forecasts.filter(
-      (forecast) => forecast.market === "moneyline" || forecast.priceState === "present",
-    );
+    forecasts.filter((forecast) => forecast.anchorState === "anchored");
   const left = graded(candidate);
   const rightByKey = new Map(graded(previous).map((forecast) => [forecastKey(forecast), forecast]));
   if (left.some((forecast) => !rightByKey.has(forecastKey(forecast)))) {
@@ -569,9 +572,7 @@ export function ablateGroup(input: {
   withoutGroup: readonly ScoredForecast[];
 }): AblationGroup {
   const graded = (forecasts: readonly ScoredForecast[]) =>
-    forecasts.filter(
-      (forecast) => forecast.market === "moneyline" || forecast.priceState === "present",
-    );
+    forecasts.filter((forecast) => forecast.anchorState === "anchored");
   const left = graded(input.withGroup);
   const rightByKey = new Map(
     graded(input.withoutGroup).map((forecast) => [forecastKey(forecast), forecast]),

@@ -29,7 +29,7 @@ import { gameHasStarted } from "./games.ts";
 import { gatherEvidence } from "./gather-evidence.ts";
 import { noModel, type ForecastRequest, type ModelSource, type RunModel } from "./model.ts";
 import { validateProtocolRegistration, type ProtocolRegistration } from "../models/protocol.ts";
-import { calculateModelPick } from "./model-pick.ts";
+import { calculateModelPick, priceCutoff } from "./model-pick.ts";
 import type { AnchorQuote } from "../models/anchor.ts";
 import { redactText } from "./redact.ts";
 import { snapshot, type ForecastSource, type ManualEvidenceInput } from "./run.ts";
@@ -189,9 +189,17 @@ async function pickMarket(input: {
   const starterUnknown =
     recorded !== undefined &&
     (recorded.home.state === "unknown" || recorded.away.state === "unknown");
-  const finalGrade =
+  const calculation =
     starterUnknown && graded.grade === "strong"
-      ? { ...graded, grade: "lean" as const, materialEvidenceMissing: true }
+      ? {
+          ...graded,
+          grade: "lean" as const,
+          materialEvidenceMissing: true,
+          priceCutoff: priceCutoff(
+            graded.sides.find((side) => side.selection === graded.pickedSelection)!,
+            "lean",
+          ),
+        }
       : graded;
   const { checksum, version, trainingCutoff, releaseStatus, releasedMarkets } = first.artifact;
   return {
@@ -205,7 +213,7 @@ async function pickMarket(input: {
         releaseStatus,
         releasedMarkets,
       },
-      calculation: finalGrade,
+      calculation,
       forecast,
     },
   };

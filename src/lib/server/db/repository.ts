@@ -918,14 +918,27 @@ export class JournalRepository {
     id: string;
     analysisId: string | null;
     betId: string | null;
+    recordedAt: string;
   } | null> {
     const rows = await this.sql<
-      { id: string; analysis_id: string | null; bet_id: string | null }[]
+      {
+        id: string;
+        analysis_id: string | null;
+        bet_id: string | null;
+        recorded_at: Date | string;
+      }[]
     >`
-      SELECT id, analysis_id, bet_id FROM settlement_notices WHERE id = ${id}
+      SELECT id, analysis_id, bet_id, recorded_at FROM settlement_notices WHERE id = ${id}
     `;
     const row = rows[0];
-    return row ? { id: row.id, analysisId: row.analysis_id, betId: row.bet_id } : null;
+    return row
+      ? {
+          id: row.id,
+          analysisId: row.analysis_id,
+          betId: row.bet_id,
+          recordedAt: iso(row.recorded_at) ?? "",
+        }
+      : null;
   }
 
   async listSettlementNotices(analysisId: string): Promise<
@@ -958,6 +971,51 @@ export class JournalRepository {
         recorded_at: Date | string;
       }>
     >`SELECT * FROM settlement_notices WHERE analysis_id = ${analysisId} ORDER BY recorded_at ASC`;
+    return rows.map((row) => ({
+      id: row.id,
+      eventId: row.event_id,
+      analysisId: row.analysis_id,
+      betId: row.bet_id,
+      kind: row.kind,
+      homeScore: row.home_score,
+      awayScore: row.away_score,
+      source: row.source,
+      reason: row.reason,
+      correctsId: row.corrects_id,
+      recordedAt: iso(row.recorded_at) ?? "",
+    }));
+  }
+
+  async listAllSettlementNotices(): Promise<
+    Array<{
+      id: string;
+      eventId: string;
+      analysisId: string | null;
+      betId: string | null;
+      kind: "final" | "postponed" | "void" | "unresolved";
+      homeScore: number | null;
+      awayScore: number | null;
+      source: string;
+      reason: string | null;
+      correctsId: string | null;
+      recordedAt: string;
+    }>
+  > {
+    const rows = await this.sql<
+      Array<{
+        id: string;
+        event_id: string;
+        analysis_id: string | null;
+        bet_id: string | null;
+        kind: "final" | "postponed" | "void" | "unresolved";
+        home_score: number | null;
+        away_score: number | null;
+        source: string;
+        reason: string | null;
+        corrects_id: string | null;
+        recorded_at: Date | string;
+      }>
+    >`SELECT * FROM settlement_notices ORDER BY recorded_at ASC`;
     return rows.map((row) => ({
       id: row.id,
       eventId: row.event_id,

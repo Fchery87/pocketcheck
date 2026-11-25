@@ -102,6 +102,16 @@ function requireTime(value: string, label: string): number {
   return time;
 }
 
+/** Compares two sportsbook names so one book typed two ways stays one identity. */
+export function sameBook(left: string, right: string): boolean {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
+}
+
+/** A stable sort key for a sportsbook name. */
+export function bookKey(name: string): string {
+  return name.trim().toLowerCase();
+}
+
 export function parseOffer(input: OfferInput): Offer {
   const observed = requireTime(input.observedAt, "observation time");
   const kickoff = requireTime(input.kickoffAt, "kickoff");
@@ -141,7 +151,8 @@ export function parseOffer(input: OfferInput): Offer {
 
   if (input.opposing) {
     // The anchor's two sides must be one sportsbook. A shopped price may come from another.
-    const sameBook = input.opposing.sportsbook === input.sportsbook || input.shopped === true;
+    const sameAnchorBook =
+      sameBook(input.opposing.sportsbook, input.sportsbook) || input.shopped === true;
     // The other side of home -3.5 is away +3.5; the other side of over 44.5 is under 44.5.
     const expectedLine =
       input.market === "spread" && input.pointLine !== undefined
@@ -152,7 +163,7 @@ export function parseOffer(input: OfferInput): Offer {
     // A shopped price's opposing side is the anchor's, observed separately at the anchor book.
     const closeInTime =
       input.shopped === true || Math.abs(opposingObserved - observed) <= 15 * 60 * 1000;
-    if (!sameBook || !sameLine || !closeInTime) {
+    if (!sameAnchorBook || !sameLine || !closeInTime) {
       throw new OfferError("Opposing price is not comparable");
     }
     americanToDecimal(input.opposing.americanOdds);

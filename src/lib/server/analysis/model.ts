@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { OutcomeProbabilities } from "#lib/domain/odds.ts";
-import type { Offer } from "#lib/domain/offer.ts";
+import { sameBook, type Offer } from "#lib/domain/offer.ts";
 import { valueEligibility, type ModelArtifact } from "../models/artifact.ts";
 import {
   PROSPECTIVE_PROTOCOL,
@@ -288,7 +288,7 @@ function seasonDepthChart(season: number, path: string): DepthChartEntry[] {
 
 /** The offer and its opposing side as one sportsbook's two-sided quote, when they share a book. */
 function sameBookQuote(offer: Offer): AnchorQuote | null {
-  if (!offer.opposing || offer.opposing.sportsbook !== offer.sportsbook) return null;
+  if (!offer.opposing || !sameBook(offer.opposing.sportsbook, offer.sportsbook)) return null;
   const homeSide = offer.selection === "home" || offer.selection === "over";
   return {
     sportsbook: offer.sportsbook,

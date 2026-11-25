@@ -1,5 +1,7 @@
 import { americanToDecimal, PriceError } from "./odds.ts";
 import {
+  bookKey,
+  sameBook,
   OfferError,
   parseOffer,
   type Market,
@@ -184,8 +186,10 @@ function preferred(
   const price =
     americanToDecimal(right.quote.americanOdds) - americanToDecimal(left.quote.americanOdds);
   if (price !== 0) return price;
-  if (left.quote.sportsbook !== right.quote.sportsbook) {
-    return left.quote.sportsbook < right.quote.sportsbook ? -1 : 1;
+  if (!sameBook(left.quote.sportsbook, right.quote.sportsbook)) {
+    const leftKey = bookKey(left.quote.sportsbook);
+    const rightKey = bookKey(right.quote.sportsbook);
+    return leftKey < rightKey ? -1 : 1;
   }
   const time = Date.parse(left.quote.observedAt) - Date.parse(right.quote.observedAt);
   return time !== 0 ? time : left.index - right.index;
@@ -315,7 +319,7 @@ function pairedAnchor(market: {
         : Number.isFinite(home.pointLine) && away.pointLine === home.pointLine;
   return (
     lines &&
-    home.sportsbook === away.sportsbook &&
+    sameBook(home.sportsbook, away.sportsbook) &&
     home.observedAt === away.observedAt &&
     [home, away].every((side, index) => {
       const executed = market.offers[index]!;
@@ -349,7 +353,8 @@ export function anchorPairOf(market: {
   const home = second.opposing;
   const away = first.opposing;
   if (!home || !away) return null;
-  if (home.sportsbook !== away.sportsbook || home.observedAt !== away.observedAt) return null;
+  if (!sameBook(home.sportsbook, away.sportsbook) || home.observedAt !== away.observedAt)
+    return null;
   if (
     (home.pointLine ?? null) !== first.pointLine ||
     (away.pointLine ?? null) !== second.pointLine
@@ -361,7 +366,7 @@ export function anchorPairOf(market: {
     [second, away],
   ] as const) {
     if (
-      offer.sportsbook === recorded.sportsbook &&
+      sameBook(offer.sportsbook, recorded.sportsbook) &&
       (offer.americanOdds !== recorded.americanOdds || offer.observedAt !== recorded.observedAt)
     ) {
       return null;

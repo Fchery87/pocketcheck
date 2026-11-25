@@ -7,6 +7,7 @@ import {
   BetSubmissionConflict,
   JournalRepository,
   readJournalRecords,
+  type ClosingOpenContract,
   type SaveAnalysisInput,
 } from "../db/repository.ts";
 import {
@@ -23,7 +24,11 @@ import {
 } from "./journal-records.ts";
 import { compareClosing } from "./closing.ts";
 import { createNeonBoardStore } from "./neon-board-store.ts";
-import type { GameBoardStore } from "./board-store.ts";
+import {
+  CORRECTION_NOT_LATER,
+  correctionIsNotEarlier,
+  type GameBoardStore,
+} from "./board-store.ts";
 import {
   gradeFromNotices,
   settlementPayloadKey,
@@ -186,6 +191,78 @@ export function createNeonStore(sql: Sql): JournalStore {
     },
     async readSettlement(input) {
       return readNeonSettlement(journal, boardStore, input);
+    },
+    async listSettlementGrades() {
+      const [notices, bets] = await Promise.all([
+        journal.listAllSettlementNotices(),
+        journal.listBets(),
+      ]);
+      const forAnalysis = (analysisId: string): StoredNotice[] =>
+        notices
+          .filter((row) => row.analysisId === analysisId)
+          .map((row) => ({ ...row, gameId: null, payloadKey: "" }));
+      const forBet = (betId: string): StoredNotice[] =>
+        notices
+          .filter((row) => row.betId === betId && row.analysisId === null)
+          .map((row) => ({ ...row, analysisId: null, gameId: null, payloadKey: "" }));
+      const byAnalysis = new Map<string, SettlementGrade>();
+      const analysisIds = [
+        ...new Set(notices.flatMap((row) => (row.analysisId ? [row.analysisId] : []))),
+      ];
+      const analysisContracts = await journal.findClosingAnalysisContracts(analysisIds);
+      const contractOffer = (contract: ClosingOpenContract) =>
+        parseOffer({
+          gameId: contract.gameId,
+          sportsbook: contract.sportsbook,
+          market: contract.market,
+          selection: contract.selection,
+          pointLine: contract.pointLine ?? undefined,
+          americanOdds: contract.americanOdds,
+          observedAt: contract.observedAt,
+          kickoffAt: contract.kickoffAt,
+          rules: contract.rules,
+        });
+      for (const [id, contract] of analysisContracts) {
+        byAnalysis.set(id, gradeFromNotices(contractOffer(contract), forAnalysis(id)));
+      }
+      const byBet = new Map<string, SettlementGrade>();
+      const pickIds = [
+        ...new Set(
+          bets.flatMap((bet) => (bet.modelPickId && !bet.analysisId ? [bet.modelPickId] : [])),
+        ),
+      ];
+      const pickContracts = await journal.findPickContracts(pickIds);
+      for (const bet of bets) {
+        if (bet.analysisId) {
+          const contract = analysisContracts.get(bet.analysisId);
+          if (contract) {
+            byBet.set(
+              bet.id,
+              gradeFromNotices(contractOffer(contract), forAnalysis(bet.analysisId)),
+            );
+          }
+          continue;
+        }
+        const pickContract = bet.modelPickId ? pickContracts.get(bet.modelPickId) : null;
+        if (!pickContract || !bet.sportsbook || !bet.contract) {
+          // A bulk read reports an ungradeable bet as unresolved instead of failing the page.
+          byBet.set(bet.id, UNRESOLVED_GRADE);
+          continue;
+        }
+        const placed = parseOffer({
+          gameId: pickContract.gameId,
+          sportsbook: bet.sportsbook,
+          market: bet.contract.market,
+          selection: bet.contract.selection,
+          pointLine: bet.contract.pointLine ?? undefined,
+          americanOdds: bet.americanOdds,
+          observedAt: pickContract.observedAt,
+          kickoffAt: pickContract.kickoffAt,
+          rules: bet.contract.rules,
+        });
+        byBet.set(bet.id, gradeFromNotices(placed, forBet(bet.id)));
+      }
+      return { byAnalysis, byBet };
     },
     async recordClosing(input) {
       return {
@@ -577,6 +654,9 @@ async function recordNeonSettlement(
     if (!prior || !sameSubject) {
       throw new Error(`Settlement not found: ${input.correctsNoticeId}`);
     }
+    if (!correctionIsNotEarlier(prior, input.recordedAt)) {
+      return { kind: "conflict", error: CORRECTION_NOT_LATER };
+    }
   }
   const payloadKey = settlementPayloadKey(input);
   const existing = await journal.findSettlementNoticeByEvent(input.eventId);
@@ -684,3 +764,9 @@ async function readNeonSettlement(
 function isUniqueViolation(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "23505";
 }
+
+const UNRESOLVED_GRADE: SettlementGrade = {
+  result: "unresolved",
+  effective: "unresolved",
+  history: [],
+};

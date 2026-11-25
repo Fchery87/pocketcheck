@@ -35,6 +35,11 @@
 
 <main class="pc-page pc-journal">
   <h1>Journal</h1>
+  <datalist id="sportsbook-options">
+    {#each data.knownSportsbooks as book}
+      <option value={book}></option>
+    {/each}
+  </datalist>
   <p class="pc-hint">
     <Button href="/journal/export" data-testid="journal-export" download="pocketcheck-journal-v1.json">
       Download journal backup
@@ -72,8 +77,12 @@
         <p>Denominator {metric.denominator} settled records with captured forecasts and qualified later closes.</p>
         <p>Frozen model Brier {metric.model.brier.toFixed(4)}, no-vig close Brier {metric.closing.brier.toFixed(4)}.
           Frozen model log loss {metric.model.logLoss.toFixed(4)}, no-vig close log loss {metric.closing.logLoss.toFixed(4)}.</p>
-        <p>Mean frozen win probability minus no-vig close {metric.meanWinProbabilityDifference.toFixed(4)}.
-          Mean frozen win probability minus observed win rate {metric.modelWinCalibrationBias.toFixed(4)}.</p>
+        <p>Mean frozen win probability minus no-vig close {metric.meanWinProbabilityDifference.toFixed(4)}.</p>
+        {#if metric.modelWinCalibrationBias !== null}
+          <p>Mean frozen win probability minus observed win rate on {metric.decisiveDenominator} decisive picks {metric.modelWinCalibrationBias.toFixed(4)}.</p>
+        {:else}
+          <p class="pc-unknown">Win-rate bias unavailable. No decisive settled picks.</p>
+        {/if}
       {:else}
         <p class="pc-unknown">Unavailable. No qualified frozen forecast, later two-sided close, and outcome denominator.</p>
       {/if}
@@ -103,6 +112,29 @@
             (original game details could not be confirmed)
           </Badge>
         {/if}
+        {#if assessment.resultCandidate}
+          <form
+            class="pc-form"
+            method="POST"
+            action="?/confirmResult"
+            data-testid="sourced-result-form"
+          >
+            <p data-testid="sourced-result">
+              The current schedule reports {assessment.game.home}
+              {assessment.resultCandidate.homeScore}, {assessment.game.away}
+              {assessment.resultCandidate.awayScore}. Source
+              {assessment.resultCandidate.source}, retrieved
+              {easternTime(assessment.resultCandidate.retrievedAt)}.
+            </p>
+            <input type="hidden" name="analysisId" value={assessment.id} />
+            <input type="hidden" name="identity" value={assessment.resultCandidate.identity} />
+            <label>
+              <input type="checkbox" name="confirmed" value="yes" required />I checked this final
+              result and want to append its settlement notice.
+            </label>
+            <Button type="submit">Confirm and record sourced result</Button>
+          </form>
+        {/if}
       </li>
     {/each}
   </ul>
@@ -131,7 +163,7 @@
     </p>
     <p data-testid="assessment-roi">
       {#if data.performance.assessments.roi.available}
-        Return {data.performance.assessments.roi.roi}
+        Return {data.performance.assessments.roi.roi.toFixed(4)} per unit
       {:else}
         Return unavailable
       {/if}
@@ -153,7 +185,7 @@
     </p>
     <p data-testid="bet-roi">
       {#if data.performance.bets.roi.available}
-        Return {data.performance.bets.roi.roi}
+        Return {data.performance.bets.roi.roi.toFixed(4)} per unit
       {:else}
         Return unavailable
       {/if}
@@ -190,7 +222,7 @@
     </label>
     <label>
       Sportsbook you used
-      <input name="sportsbook" required data-testid="bet-sportsbook" value={value("bet", "sportsbook", start?.sportsbook)} />
+      <input name="sportsbook" list="sportsbook-options" required data-testid="bet-sportsbook" value={value("bet", "sportsbook", start?.sportsbook)} />
     </label>
     <label>
       Market you placed
@@ -335,6 +367,11 @@
   {:else if form?.action === "settle" && form.error}
     <Alert data-testid="settlement-form-error">{form.error}</Alert>
   {/if}
+  {#if form?.action === "confirmResult" && form.outcome === "success"}
+    <p class="pc-success" data-testid="sourced-result-recorded">{form.duplicate ? "Sourced result already recorded" : "Sourced result recorded"}</p>
+  {:else if form?.action === "confirmResult" && form.error}
+    <Alert data-testid="sourced-result-error">{form.error}</Alert>
+  {/if}
   <ul class="pc-ledger" data-testid="settlements">
     {#each data.settlements as row (row.analysisId)}
       <li>
@@ -388,7 +425,7 @@
         {/each}
       </select>
     </label>
-    <label>Sportsbook <input name="sportsbook" value={value("closingMarket", "sportsbook")} required data-testid="closing-market-book" /></label>
+    <label>Sportsbook <input name="sportsbook" list="sportsbook-options" value={value("closingMarket", "sportsbook")} required data-testid="closing-market-book" /></label>
     <label>
       Market
       <select name="market" value={value("closingMarket", "market", "moneyline")} data-testid="closing-market-type">
@@ -462,7 +499,7 @@
     </label>
     <label>
       Sportsbook
-      <input name="sportsbook" value={value("closing", "sportsbook")} required data-testid="closing-book" />
+      <input name="sportsbook" list="sportsbook-options" value={value("closing", "sportsbook")} required data-testid="closing-book" />
     </label>
     <label>
       Market

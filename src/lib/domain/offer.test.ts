@@ -81,6 +81,21 @@ describe("offer validation", () => {
     ).toThrow(/not comparable/);
   });
 
+  it("accepts an opposing price whose sportsbook case differs", () => {
+    const offer = parseOffer(
+      moneyline({
+        sportsbook: "FanDuel",
+        opposing: {
+          sportsbook: "fanduel",
+          americanOdds: 130,
+          observedAt: observed,
+        },
+      }),
+    );
+    expect(offer.sportsbook).toBe("FanDuel");
+    expect(offer.opposing?.sportsbook).toBe("fanduel");
+  });
+
   it("accepts the other side of a spread at the mirrored line", () => {
     const spread = (opposingLine: number) =>
       moneyline({
@@ -176,6 +191,6 @@ describe("settlement", () => {
         rules: { period: "full-game", overtime: "included", tie: "void" },
       }),
     );
-    expect(settleOffer(offer, { homeScore: 20, awayScore: 20, voided: true })).toBe("void");
+    expect(settleOffer(offer, { homeScore: 20, awayScore: 20 })).toBe("void");
   });
 });

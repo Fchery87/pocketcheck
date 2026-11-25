@@ -18,6 +18,7 @@ import {
   type ProviderId,
 } from "#lib/server/providers/contracts.ts";
 import { PROVIDER_KEY_NAMES, PROVIDER_LABELS } from "#lib/server/providers/drafter.ts";
+import { probeProviderKey } from "#lib/server/providers/probe.ts";
 import { selectThesisModel } from "#lib/server/providers/selection.ts";
 import { chooseDrafter } from "#lib/server/settings/choose.ts";
 import {
@@ -60,12 +61,17 @@ export const load: PageServerLoad = async () => {
       const catalog = await store.getCatalog(id);
       const tests = await store.getModelTests(id);
       const entries = applyModelTests(catalog?.entries ?? [], tests);
+      const keyConfigured = Boolean(keys[id]);
+      const health = keyConfigured
+        ? await probeProviderKey(makeProvider(id, keys[id] ?? ""))
+        : null;
       return {
         id,
         label: PROVIDER_LABELS[id],
         keyName: PROVIDER_KEY_NAMES[id],
         // Only whether a key is set; the key itself never leaves the server.
-        keyConfigured: Boolean(keys[id]),
+        keyConfigured,
+        health,
         baseUrl: makeProvider(id, "unused").baseUrl,
         retrievedAt: catalog ? easternTime(catalog.retrievedAt) : null,
         preferredId: selectThesisModel(entries, { provider: id }).preferredId,

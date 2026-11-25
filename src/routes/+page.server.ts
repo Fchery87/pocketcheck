@@ -11,6 +11,7 @@ import { americanToDecimal, PriceError } from "#lib/domain/odds.ts";
 import { offerEntryGuidance, type SideSelection, type TieRule } from "#lib/domain/offer.ts";
 import { runAnalysis } from "#lib/server/analysis/run.ts";
 import { readSchedule, upcomingGames } from "#lib/server/analysis/schedule.ts";
+import { sportsbooksOf } from "#lib/server/analysis/sportsbooks.ts";
 import {
   ConfigError,
   evidenceCollector,
@@ -47,7 +48,7 @@ function field(data: FormData, name: string): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-export const load: PageServerLoad = () => {
+export const load: PageServerLoad = async () => {
   const nowIso = now();
   const schedule = readSchedule(schedulePath());
   const games = schedule.ok
@@ -61,6 +62,14 @@ export const load: PageServerLoad = () => {
         kickoffLabel: easternTime(game.kickoff),
       }))
     : [];
+  let knownSportsbooks: string[] = [];
+  try {
+    const journal = researchStore();
+    knownSportsbooks = sportsbooksOf(await journal.listBets(), await journal.listClosings());
+  } catch {
+    // The datalist is a convenience; the action still fails loudly without a journal.
+    knownSportsbooks = [];
+  }
   return {
     games,
     scheduleError: schedule.ok ? null : schedule.reason,
@@ -68,6 +77,7 @@ export const load: PageServerLoad = () => {
     observedDefault: localInputValue(nowIso),
     requestId: randomUUID(),
     cutoffAt: nowIso,
+    knownSportsbooks,
   };
 };
 

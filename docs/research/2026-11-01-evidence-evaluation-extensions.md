@@ -1,6 +1,6 @@
 # Evidence and evaluation extensions
 
-Date: 2026-11-01. Status: research proposals only. This note delivers Task 16 documentation, not feature activation. No experiments, coverage measurements, refits, registrations, or releases ran for this note. Tasks 12 and 15 remain implementation prerequisites, not assumed completed dependencies.
+Date: 2026-11-01. Status: research proposals only. This note delivers Task 16 documentation, not feature activation. No experiments, coverage measurements, refits, registrations, or releases ran for this note. Tasks 12 and 15 remain implementation prerequisites, not assumed completed dependencies. Update 2026-11-24: the implementation plan records all 16 tasks delivered, including 12 and 15.
 
 ## Why these proposals stay separate
 
