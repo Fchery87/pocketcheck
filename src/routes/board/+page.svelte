@@ -100,6 +100,11 @@
 
 <main class="pc-page pc-board-entry">
   <h1>{isRefresh ? "Refresh game board" : "Game board"}</h1>
+  <datalist id="sportsbook-options">
+    {#each data.knownSportsbooks as book}
+      <option value={book}></option>
+    {/each}
+  </datalist>
   {#if isRefresh && selected}
     <p class="pc-hint" data-testid="refresh-note">
       New prices for {selected.away} at {selected.home}. The board you are refreshing stays exactly as it
@@ -177,6 +182,7 @@
           Sportsbook
           <input
             name="sportsbook"
+            list="sportsbook-options"
             data-testid="board-sportsbook"
             defaultValue={value("sportsbook")}
             placeholder="e.g. FanDuel"

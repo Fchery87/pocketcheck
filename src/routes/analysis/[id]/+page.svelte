@@ -40,6 +40,11 @@
 }} />
 
 <main class="pc-page pc-report">
+  <datalist id="sportsbook-options">
+    {#each data.knownSportsbooks as book}
+      <option value={book}></option>
+    {/each}
+  </datalist>
   <h1 class="pc-report-title">
     <span class="pc-kicker">Report:</span>
     {run.game.away} <i>at</i> {run.game.home}
@@ -407,6 +412,7 @@
       Sportsbook
       <input
         name="sportsbook"
+        list="sportsbook-options"
         value={refreshValue("sportsbook", run.offer.sportsbook)}
         required
         data-testid="refresh-book"

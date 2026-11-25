@@ -145,6 +145,11 @@
 
 <main class="pc-analyze" data-hydrated={hydrated}>
   <h1 class="pc-kicker">New analysis</h1>
+  <datalist id="sportsbook-options">
+    {#each data.knownSportsbooks as book}
+      <option value={book}></option>
+    {/each}
+  </datalist>
   <p class="pc-hint" data-testid="board-entry">
     Want the forecasting model's side for both teams at once? Open a
     <a href="/board">Game board</a>.
@@ -257,7 +262,13 @@
           <div class="pc-pair">
             <label class="pc-field">
               Sportsbook
-              <input name="sportsbook" defaultValue={value("sportsbook")} placeholder="e.g. FanDuel" required />
+              <input
+                name="sportsbook"
+                list="sportsbook-options"
+                defaultValue={value("sportsbook")}
+                placeholder="e.g. FanDuel"
+                required
+              />
             </label>
             <label class="pc-field">
               Market

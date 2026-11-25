@@ -12,6 +12,7 @@ import type { TieRule } from "#lib/domain/offer.ts";
 import type { GameBoard } from "#lib/server/analysis/board-store.ts";
 import { runGameBoard } from "#lib/server/analysis/board-run.ts";
 import { readSchedule, upcomingGames } from "#lib/server/analysis/schedule.ts";
+import { sportsbooksOf } from "#lib/server/analysis/sportsbooks.ts";
 import {
   ConfigError,
   evidenceCollector,
@@ -210,6 +211,14 @@ export const load: PageServerLoad = async ({ url }) => {
   } catch (error) {
     if (!(error instanceof ConfigError)) throw error;
   }
+  let knownSportsbooks: string[] = [];
+  try {
+    const journal = researchStore();
+    const [bets, closings] = await Promise.all([journal.listBets(), journal.listClosings()]);
+    knownSportsbooks = sportsbooksOf(bets, closings);
+  } catch (error) {
+    if (!(error instanceof ConfigError)) throw error;
+  }
   const games = schedule.ok
     ? upcomingGames(schedule.games, nowIso).map((game) => ({
         id: game.id,
@@ -228,6 +237,7 @@ export const load: PageServerLoad = async ({ url }) => {
     refreshError,
     observedDefault: localInputValue(nowIso),
     requestId: randomUUID(),
+    knownSportsbooks,
     cutoffAt: nowIso,
     registrations,
   };

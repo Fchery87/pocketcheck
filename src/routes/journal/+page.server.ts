@@ -11,6 +11,7 @@ import {
 } from "#lib/domain/offer.ts";
 import { ConfigError, now, researchStore } from "#lib/server/config.ts";
 import { journalSummaries, journalQualifiedForecasts } from "#lib/server/analysis/summary.ts";
+import { sportsbooksOf } from "#lib/server/analysis/sportsbooks.ts";
 import { parseEasternTime } from "#lib/time.ts";
 import { PROSPECTIVE_PROTOCOL } from "#lib/server/models/release.ts";
 import type { SettlementNoticeKind } from "#lib/server/analysis/store.ts";
@@ -96,6 +97,11 @@ export const load: PageServerLoad = async ({ url }) => {
       }),
   );
   const betGrades = [...settlements.flatMap((row) => row.bets), ...pickBetGrades];
+  const knownSportsbooks = sportsbooksOf(
+    bets,
+    closings,
+    closingMarkets.flatMap((snapshot) => snapshot.offers),
+  );
   const performance = journalSummaries({
     qualifiedForecasts: journalQualifiedForecasts({
       assessments: assessments.flatMap((row) =>
@@ -145,6 +151,7 @@ export const load: PageServerLoad = async ({ url }) => {
   });
   return {
     assessments,
+    knownSportsbooks,
     bets,
     settlements,
     pickBetGrades,

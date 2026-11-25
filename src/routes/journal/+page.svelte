@@ -35,6 +35,11 @@
 
 <main class="pc-page pc-journal">
   <h1>Journal</h1>
+  <datalist id="sportsbook-options">
+    {#each data.knownSportsbooks as book}
+      <option value={book}></option>
+    {/each}
+  </datalist>
   <p class="pc-hint">
     <Button href="/journal/export" data-testid="journal-export" download="pocketcheck-journal-v1.json">
       Download journal backup
@@ -194,7 +199,7 @@
     </label>
     <label>
       Sportsbook you used
-      <input name="sportsbook" required data-testid="bet-sportsbook" value={value("bet", "sportsbook", start?.sportsbook)} />
+      <input name="sportsbook" list="sportsbook-options" required data-testid="bet-sportsbook" value={value("bet", "sportsbook", start?.sportsbook)} />
     </label>
     <label>
       Market you placed
@@ -392,7 +397,7 @@
         {/each}
       </select>
     </label>
-    <label>Sportsbook <input name="sportsbook" value={value("closingMarket", "sportsbook")} required data-testid="closing-market-book" /></label>
+    <label>Sportsbook <input name="sportsbook" list="sportsbook-options" value={value("closingMarket", "sportsbook")} required data-testid="closing-market-book" /></label>
     <label>
       Market
       <select name="market" value={value("closingMarket", "market", "moneyline")} data-testid="closing-market-type">
@@ -466,7 +471,7 @@
     </label>
     <label>
       Sportsbook
-      <input name="sportsbook" value={value("closing", "sportsbook")} required data-testid="closing-book" />
+      <input name="sportsbook" list="sportsbook-options" value={value("closing", "sportsbook")} required data-testid="closing-book" />
     </label>
     <label>
       Market
