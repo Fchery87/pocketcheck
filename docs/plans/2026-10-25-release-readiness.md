@@ -2,6 +2,8 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
+> Status 2026-11-24: delivered. Kept as history; this plan no longer guides work.
+
 **Goal:** Before any market can produce an "experimental value candidate", PocketCheck must (1) assess the uncertainty of the model's probability, accounting for games on the same slate, (2) compare a conservative expected value with a frozen, versioned threshold, and (3) let manual evidence clear a material gap only when it is tagged to that gap and fresh, with the reliance shown in the report and the journal.
 
 **Architecture:** At fit time, the artifact records a walk-forward calibration table per market, with a slate-clustered bootstrap lower bound per probability bin. The holdout is never inspected. At run time, the model source turns the offer's probabilities into conservative probabilities from that table. The value policy calls a market a candidate only when the point expected value is positive _and_ the conservative expected value clears a threshold frozen in a domain module. Separately, material gaps become typed (`injury-report`, `weather`), manual evidence can carry a `covers` tag, and a pure coverage rule decides which gaps a fresh tagged item clears. The decision records that reliance.

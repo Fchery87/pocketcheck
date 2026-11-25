@@ -45,7 +45,7 @@ The earliest completed model pick for one game and market whose decision cutoff 
 _Avoid_: Primary (alone, when the research analysis is meant), first pick
 
 **Strength grade**:
-How strongly the numbers support a model pick: strong, lean, or no edge. It comes from expected value at the entered prices, never from the drafter.
+How strongly the numbers support a model pick: strong, lean, or no edge. Strong needs the conservative expected value above the frozen threshold and no material evidence missing; lean needs a positive point estimate that does not clear it. It comes from the entered prices, never from the drafter.
 _Avoid_: Confidence, stars, rating
 
 **Unvalidated model pick**:

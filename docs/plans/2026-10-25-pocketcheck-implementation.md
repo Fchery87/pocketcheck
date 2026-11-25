@@ -2,6 +2,8 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
+> Status 2026-11-24: delivered. Kept as history; this plan no longer guides work.
+
 **Goal:** Build a personal NFL pregame research application that evaluates a recorded sportsbook offer, explains its evidence and mathematics, and preserves an honest record of experimental recommendations.
 
 **Architecture:** One local SvelteKit application handles UI, data adapters, deterministic calculations, and AI calls. Neon stores compact durable records; ignored local files hold large public datasets and versioned model artifacts. AI explains an immutable evidence packet and cannot create the statistical probabilities or change the application's recommendation policy.

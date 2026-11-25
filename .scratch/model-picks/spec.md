@@ -1,6 +1,6 @@
 # PocketCheck game board and model picks
 
-Status: ready-for-agent
+Status: delivered. Every issue in this effort is resolved.
 Type: task
 Test seams confirmed by the user on 2026-10-26.
 Decisions: the user accepted every recommendation from the 2026-10-26 grilling round. See [ADR 0002](../../docs/adr/0002-show-unvalidated-model-picks.md).

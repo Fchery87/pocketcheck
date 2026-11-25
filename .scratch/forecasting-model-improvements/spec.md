@@ -1,6 +1,6 @@
 # PocketCheck forecasting model improvements
 
-Status: ready-for-agent
+Status: delivered. Every issue in this effort is resolved.
 Type: task
 Test seams confirmed by the user on 2026-10-26.
 Depends on: [game board and model picks](../model-picks/spec.md). See [ADR 0003](../../docs/adr/0003-anchor-forecasts-on-the-market.md).
